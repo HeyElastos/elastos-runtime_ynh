@@ -47,7 +47,7 @@ cargo build --release --target wasm32-wasip1 \
 cp "${REPO_ROOT}/elastos/target/wasm32-wasip1/release/home-cli.wasm" \
    "${REPO_ROOT}/capsules/home-cli/home-cli.wasm"
 
-for crate in home system chat-room hey-home; do
+for crate in home system chat-room; do
     echo "[ci] cargo build ${crate} (wasm32-wasip1)"
     cargo build --release --target wasm32-wasip1 \
         --manifest-path "${REPO_ROOT}/capsules/${crate}/Cargo.toml"
@@ -105,7 +105,7 @@ with tarfile.open(archive, "w:gz") as tar:
     tar.add(home_cli_dir / "home-cli.wasm", arcname="home-cli/home-cli.wasm")
 stamp(info, archive.read_bytes())
 
-for name in ("home", "system", "chat-room", "hey-home"):
+for name in ("home", "system", "chat-room"):
     info = platform_info(name)
     capsule_dir = capsules / name
     capsule_meta = json.loads((capsule_dir / "capsule.json").read_text())

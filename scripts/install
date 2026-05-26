@@ -144,13 +144,13 @@ with tarfile.open(archive, "w:gz") as tar:
     tar.add(home_cli_dir / "home-cli.wasm", arcname="home-cli/home-cli.wasm")
 stamp(info, archive.read_bytes())
 
-# ── 3) BROWSER WASM CAPSULES: home + system + chat-room + hey-home ──
+# ── 3) BROWSER WASM CAPSULES: home + system + chat-room ──
 # Each capsule.json declares its entrypoint filename. Cargo may produce
-# the wasm with dashes (chat-room.wasm) or underscores (hey_home.wasm)
-# depending on the package name and how cargo internally treats the
-# target. We read the entrypoint from each capsule.json, then locate the
-# matching wasm file among the candidates cargo might have written.
-for name in ("home", "system", "chat-room", "hey-home"):
+# the wasm with dashes (chat-room.wasm) or underscores depending on the
+# package name and how cargo internally treats the target. We read the
+# entrypoint from each capsule.json, then locate the matching wasm file
+# among the candidates cargo might have written.
+for name in ("home", "system", "chat-room"):
     info = platform_info(name)
     capsule_dir = capsules / name
     capsule_meta = json.loads((capsule_dir / "capsule.json").read_text())
@@ -278,9 +278,9 @@ cp "$SOURCE_RUNTIME_DATA_DIR/components.json" "$CLIENT_HOME/xdg-data/elastos/com
 #=================================================
 
 ynh_script_progression --message="Running elastos setup --profile home --with chat-room,ipfs-provider,kubo,inbox,library,documents,hey-social..." --weight=5
-# Home profile (now includes hey-home in this fork's components.json) +
-# chat-room. chat-room is the minimum addition needed for `elastos room
-# open` to start the /apps/<X>/ browser gateway.
+# Home profile (the home capsule ships the Hey-themed browser shell in
+# this fork) + chat-room. chat-room is the minimum addition needed for
+# `elastos room open` to start the /apps/<X>/ browser gateway.
 #
 # GUI-launchable apps that show in the dock's launcher:
 #   chat-room   → federated chat (WASM)

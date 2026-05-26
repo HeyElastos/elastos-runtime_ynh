@@ -210,20 +210,6 @@
         }
       }
     },
-    "hey-home": {
-      "install_path": "capsules/home",
-      "description": "Hey-branded Home shell (fork of ElastOS Home)",
-      "platforms": {
-        "*": {
-          "cid": "",
-          "checksum": "",
-          "size": 0,
-          "release_path": "hey-home.tar.gz",
-          "extract_path": "hey-home",
-          "install_path": "capsules/hey-home"
-        }
-      }
-    },
     "system": {
       "install_path": "capsules/system",
       "description": "Runtime-launched System capsule for identity, runtime, storage, and appearance state",
@@ -582,7 +568,6 @@
         "webspace-provider",
         "home-cli",
         "home",
-        "hey-home",
         "system",
         "documents",
         "library",

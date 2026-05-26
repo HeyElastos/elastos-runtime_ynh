@@ -118,12 +118,12 @@ build_runtime_and_capsules() {
         "$install_dir/elastos/target/wasm32-wasip1/release/home-cli.wasm" \
         "$install_dir/capsules/home-cli/home-cli.wasm"
 
-    # home, system: home-profile browser capsules
+    # home, system: home-profile browser capsules. home's browser/ tree
+    # carries the Hey-themed shell (frosted launcher, taskbar, welcome).
     # chat-room: only added so `elastos room open` (the /apps/<X>/ gateway)
     # can start — otherwise serve refuses with "Room browser capsule is not
     # installed". chat-room is the minimum extra beyond home profile.
-    # hey-home: Hey-branded fork of home, served at /apps/hey-home/.
-    for crate in home system chat-room hey-home; do
+    for crate in home system chat-room; do
         cargo_as_app build --release --target wasm32-wasip1 \
             --manifest-path "$install_dir/capsules/$crate/Cargo.toml"
     done
