@@ -1,0 +1,577 @@
+/* ─────────────────────────────────────────────────────────────────────
+   Welcome / lock screen overlay.
+   Shown on capsule boot until the user "unlocks" → fades out → reveals
+   the underlying desktop shell. Pure visual; no auth happens here yet.
+   ────────────────────────────────────────────────────────────────────*/
+
+#hey-welcome {
+  position: fixed; inset: 0;
+  z-index: 1000;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  gap: 28px;
+  padding: 60px 24px 110px;
+  background:
+    radial-gradient(circle at 22% 24%, rgba(212, 184, 75, 0.10) 0%, transparent 45%),
+    radial-gradient(circle at 78% 76%, rgba(99, 102, 241, 0.12) 0%, transparent 55%),
+    radial-gradient(circle at 50% 50%, rgba(244, 114, 182, 0.05) 0%, transparent 60%),
+    var(--bg);
+  color: var(--text);
+  overflow: hidden;
+  transition: opacity 0.5s ease, visibility 0s linear 0.5s;
+}
+#hey-welcome[data-state="unlocked"] {
+  opacity: 0; visibility: hidden;
+  pointer-events: none;
+}
+
+/* Floating decorative glows */
+.hw-glow {
+  position: absolute; border-radius: 50%; pointer-events: none;
+}
+.hw-glow.a {
+  top: 8%; left: 10%; width: 460px; height: 460px;
+  background: radial-gradient(circle closest-side, rgba(212,184,75,0.55) 0%, rgba(212,184,75,0.20) 40%, transparent 75%);
+  filter: blur(90px);
+  animation: hw-float-a 16s ease-in-out infinite;
+}
+.hw-glow.b {
+  bottom: 6%; right: 8%; width: 560px; height: 560px;
+  background: radial-gradient(circle closest-side, rgba(96,165,250,0.50) 0%, rgba(96,165,250,0.18) 40%, transparent 75%);
+  filter: blur(100px);
+  animation: hw-float-b 20s ease-in-out infinite;
+}
+.hw-glow.c {
+  top: 36%; right: 30%; width: 360px; height: 360px;
+  background: radial-gradient(circle closest-side, rgba(244,114,182,0.42) 0%, rgba(244,114,182,0.16) 40%, transparent 75%);
+  filter: blur(80px);
+  animation: hw-float-c 18s ease-in-out infinite;
+}
+@keyframes hw-float-a {
+  0%,100% { transform: translate(0,0) scale(1); }
+  50% { transform: translate(20px,-15px) scale(1.05); }
+}
+@keyframes hw-float-b {
+  0%,100% { transform: translate(0,0) scale(1); }
+  50% { transform: translate(-25px,20px) scale(1.08); }
+}
+@keyframes hw-float-c {
+  0%,100% { transform: translate(0,0) scale(1); }
+  50% { transform: translate(15px,10px) scale(0.95); }
+}
+
+/* Big clock */
+.hw-clock {
+  font-family: "Inter", sans-serif;
+  font-weight: 200;
+  font-size: 88px;
+  letter-spacing: -0.02em;
+  line-height: 1;
+  text-shadow: 0 2px 24px rgba(2, 9, 22, 0.45);
+  opacity: 0; animation: hw-fade-down 0.7s ease 0.1s forwards;
+  position: relative; z-index: 2;
+}
+.hw-clock .colon {
+  opacity: 0.5;
+  animation: hw-colon-blink 2s ease-in-out infinite;
+}
+@keyframes hw-colon-blink {
+  0%,100% { opacity: 0.5; }
+  50% { opacity: 1; }
+}
+.hw-date {
+  font-size: 15px;
+  color: var(--muted);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  opacity: 0; animation: hw-fade-down 0.7s ease 0.25s forwards;
+  position: relative; z-index: 2;
+}
+@keyframes hw-fade-down {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.hw-divider {
+  width: 1px; height: 36px;
+  background: linear-gradient(180deg, transparent, var(--frosted-border), transparent);
+  opacity: 0; animation: hw-fade 0.6s ease 0.45s forwards;
+  position: relative; z-index: 2;
+}
+@keyframes hw-fade { from { opacity: 0; } to { opacity: 1; } }
+
+/* User card */
+.hw-card {
+  background: var(--frosted-bg);
+  border: 1px solid var(--frosted-border);
+  border-radius: 28px;
+  backdrop-filter: blur(28px);
+  -webkit-backdrop-filter: blur(28px);
+  box-shadow: 0 28px 80px rgba(2, 9, 22, 0.5),
+              0 0 0 1px rgba(255, 255, 255, 0.04) inset;
+  padding: 36px 44px 32px;
+  display: flex; flex-direction: column;
+  align-items: center; gap: 16px;
+  min-width: 360px;
+  opacity: 0; animation: hw-card-pop 0.7s cubic-bezier(0.34, 1.56, 0.64, 1) 0.5s forwards;
+  position: relative; z-index: 2;
+}
+@keyframes hw-card-pop {
+  from { opacity: 0; transform: translateY(12px) scale(0.96); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.hw-avatar {
+  width: 104px; height: 104px;
+  border-radius: 50%;
+  background: conic-gradient(from 215deg at 30% 30%,
+    #d4b84b 0%, #b4961c 25%, #d4b84b 50%, #f1c863 70%, #b4961c 100%);
+  display: grid; place-items: center;
+  color: var(--accent-text);
+  font-family: "Dancing Script", cursive;
+  font-weight: 700; font-size: 58px; line-height: 1;
+  box-shadow:
+    0 0 0 3px rgba(212, 184, 75, 0.25),
+    0 0 0 6px rgba(212, 184, 75, 0.08),
+    0 18px 40px rgba(212, 184, 75, 0.25);
+  animation: hw-breathe 4s ease-in-out infinite;
+}
+@keyframes hw-breathe {
+  0%,100% { box-shadow: 0 0 0 3px rgba(212,184,75,0.25), 0 0 0 6px rgba(212,184,75,0.08), 0 18px 40px rgba(212,184,75,0.25); }
+  50% { box-shadow: 0 0 0 3px rgba(212,184,75,0.40), 0 0 0 10px rgba(212,184,75,0.10), 0 22px 50px rgba(212,184,75,0.32); }
+}
+
+.hw-username {
+  font-size: 26px; font-weight: 600;
+  letter-spacing: -0.01em; line-height: 1.2;
+}
+.hw-username .at { color: var(--accent); margin-right: 2px; }
+
+.hw-did {
+  font-family: "Menlo", monospace;
+  font-size: 11px;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--frosted-border);
+  padding: 5px 10px;
+  border-radius: 999px;
+  letter-spacing: 0.02em;
+}
+.hw-did .key { color: var(--accent); opacity: 0.85; }
+
+.hw-meta {
+  display: flex; gap: 14px; align-items: center;
+  font-size: 11px; color: var(--muted);
+  margin-top: 2px;
+}
+.hw-meta .pip {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: #4ade80;
+  box-shadow: 0 0 0 3px rgba(74, 222, 128, 0.15);
+}
+.hw-meta .sep { opacity: 0.3; }
+
+/* PIN dots */
+.hw-pins { display: flex; gap: 10px; margin-top: 8px; }
+.hw-pin {
+  width: 14px; height: 14px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--frosted-border);
+  transition: background 0.2s, transform 0.15s, box-shadow 0.2s;
+}
+.hw-pin.lit {
+  background: var(--accent);
+  box-shadow: 0 0 12px rgba(212, 184, 75, 0.6);
+}
+.hw-pin.pop { transform: scale(1.25); }
+
+.hw-hint {
+  font-size: 12px; color: var(--muted);
+  letter-spacing: 0.04em; text-transform: uppercase;
+  opacity: 0.7;
+}
+
+.hw-buttons { display: flex; gap: 12px; margin-top: 6px; }
+.hw-btn {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 999px;
+  color: var(--text);
+  padding: 9px 18px;
+  font-size: 13px; font-weight: 500;
+  cursor: pointer;
+  display: inline-flex; align-items: center; gap: 7px;
+  transition: background 0.15s, transform 0.15s, border-color 0.15s;
+  font-family: inherit;
+}
+.hw-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: var(--brand-border);
+}
+.hw-btn:active { transform: scale(0.96); }
+.hw-btn.primary {
+  background: var(--accent);
+  color: var(--accent-text);
+  border-color: var(--accent);
+  font-weight: 600;
+}
+.hw-btn.primary:hover { background: var(--brand-strong); border-color: var(--brand-strong); }
+
+/* Bottom row */
+.hw-bottom {
+  position: absolute; bottom: 0; left: 0; right: 0;
+  padding: 18px 28px;
+  display: flex; align-items: center; justify-content: space-between;
+  font-size: 12px; z-index: 3;
+}
+.hw-mesh {
+  display: inline-flex; align-items: center; gap: 8px;
+  background: var(--frosted-bg);
+  border: 1px solid rgba(74, 222, 128, 0.2);
+  border-radius: 999px;
+  padding: 7px 14px;
+  color: #4ade80;
+  font-family: "Menlo", monospace; font-size: 11px;
+  backdrop-filter: blur(20px);
+}
+.hw-mesh .dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: #4ade80;
+  animation: hey-glow-pulse 2s ease-in-out infinite;
+}
+.hw-build {
+  color: var(--muted);
+  font-family: "Menlo", monospace; font-size: 11px;
+  opacity: 0.7;
+}
+.hw-switch {
+  display: inline-flex; align-items: center; gap: 6px;
+  color: var(--muted); cursor: pointer; font-size: 12px;
+  background: var(--frosted-bg);
+  border: 1px solid var(--frosted-border);
+  border-radius: 999px;
+  padding: 7px 14px;
+  backdrop-filter: blur(20px);
+  transition: color 0.15s, border-color 0.15s;
+  font-family: inherit;
+}
+.hw-switch:hover { color: var(--text); border-color: var(--accent); }
+
+/* Greeting flash on unlock */
+#hey-greeting {
+  position: fixed; inset: 0;
+  display: none; flex-direction: column;
+  align-items: center; justify-content: center;
+  z-index: 999;
+  background:
+    radial-gradient(circle at 50% 40%, rgba(212, 184, 75, 0.18) 0%, transparent 50%),
+    var(--bg);
+  pointer-events: none;
+}
+#hey-greeting[data-state="visible"] {
+  display: flex;
+  animation: hw-fade 0.5s ease forwards, hw-fade-out 0.6s ease 1.6s forwards;
+}
+@keyframes hw-fade-out {
+  to { opacity: 0; visibility: hidden; }
+}
+.hw-greet-mark {
+  font-family: "Dancing Script", cursive;
+  font-weight: 600; font-size: 96px;
+  color: var(--text);
+  text-shadow: 0 2px 14px rgba(212, 184, 75, 0.35);
+  margin-bottom: 8px;
+  opacity: 0;
+  animation: hw-greet-up 0.7s cubic-bezier(0.34, 1.56, 0.64, 1) 0.15s forwards;
+}
+.hw-greet-sub {
+  font-size: 18px; color: var(--muted);
+  letter-spacing: 0.02em;
+  opacity: 0;
+  animation: hw-greet-up 0.6s ease 0.55s forwards;
+}
+@keyframes hw-greet-up {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ── First-run setup wizard ───────────────────────────────────────── */
+.hw-setup-step {
+  position: relative; z-index: 2;
+  display: flex; flex-direction: column;
+  align-items: center; gap: 28px;
+  max-width: 560px;
+  padding: 0 24px;
+  /* Enter animation: fade + lift + slight blur clearing. Applies on
+     attach AND whenever the step becomes visible again. */
+  animation: hw-step-enter 0.45s cubic-bezier(0.22, 0.84, 0.31, 1) both;
+}
+.hw-setup-step.hw-step-exit {
+  /* Exit: drift up + fade. Triggered before swapping step1 → step2. */
+  animation: hw-step-exit 0.35s cubic-bezier(0.4, 0, 0.7, 0.4) forwards;
+  pointer-events: none;
+}
+@keyframes hw-step-enter {
+  from { opacity: 0; transform: translateY(28px) scale(0.985); filter: blur(4px); }
+  to   { opacity: 1; transform: none; filter: blur(0); }
+}
+@keyframes hw-step-exit {
+  to { opacity: 0; transform: translateY(-22px) scale(0.97); filter: blur(6px); }
+}
+
+/* ── PIN entry feedback ──────────────────────────────────────────── */
+.hw-pins.hw-pin-wrong {
+  animation: hw-shake 0.42s cubic-bezier(0.36, 0.07, 0.19, 0.97);
+}
+.hw-pins.hw-pin-wrong .hw-pin {
+  background: rgba(239, 68, 68, 0.6);
+  border-color: rgba(239, 68, 68, 0.85);
+}
+@keyframes hw-shake {
+  10%, 90% { transform: translateX(-2px); }
+  20%, 80% { transform: translateX(3px); }
+  30%, 50%, 70% { transform: translateX(-5px); }
+  40%, 60% { transform: translateX(5px); }
+}
+
+/* PIN-setup card (used in the first-run wizard before the key card) */
+.hw-pin-setup {
+  background: var(--frosted-bg);
+  border: 1px solid var(--frosted-border);
+  border-radius: 1.5rem;
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  padding: 32px 36px;
+  display: flex; flex-direction: column; align-items: center; gap: 14px;
+  min-width: 320px; max-width: 420px;
+  text-align: center;
+  box-shadow: 0 24px 60px rgba(2, 9, 22, 0.45);
+}
+.hw-pin-setup-title {
+  font-family: "Inter", sans-serif;
+  font-size: 20px; font-weight: 700;
+  margin: 0;
+}
+.hw-pin-setup-sub {
+  color: var(--muted);
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+/* ── Unlock flare — brief gold glow + card release right before the
+   welcome fades to the desktop. Triggered by data-state="unlocking". */
+#hey-welcome[data-state="unlocking"] .hw-glow.a {
+  animation: hw-glow-flare 0.55s ease-out forwards;
+}
+#hey-welcome[data-state="unlocking"] .hw-glow.b,
+#hey-welcome[data-state="unlocking"] .hw-glow.c {
+  filter: brightness(1.3) saturate(1.1);
+  transition: filter 0.4s ease-out;
+}
+#hey-welcome[data-state="unlocking"] .hw-card {
+  animation: hw-card-release 0.55s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+@keyframes hw-glow-flare {
+  0%   { filter: brightness(1); transform: scale(1); }
+  60%  { filter: brightness(2.1) saturate(1.4); transform: scale(1.08); }
+  100% { filter: brightness(1.3) saturate(1.1); transform: scale(1.02); }
+}
+@keyframes hw-card-release {
+  0%   { transform: none; }
+  50%  { transform: scale(1.02);
+         box-shadow: 0 32px 90px rgba(212, 184, 75, 0.28),
+                     0 0 0 1px rgba(212, 184, 75, 0.35) inset; }
+  100% { transform: scale(0.98) translateY(8px); opacity: 0.4; filter: blur(2px); }
+}
+
+/* HeyMark wordmark (Dancing Script "Hey" with letter pop-in) */
+.hw-heymark {
+  position: relative;
+  padding-bottom: 6px;
+}
+.hw-heymark-svg {
+  width: 360px;
+  display: block;
+}
+.hw-heymark-svg text {
+  font-family: "Dancing Script", cursive;
+  font-weight: 600; font-size: 200px;
+  fill: var(--text);
+  paint-order: stroke;
+  stroke: rgba(212, 184, 75, 0.45);
+  stroke-width: 0.8;
+  opacity: 0;
+  animation: hw-letter-pop 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+.hw-heymark-svg text:nth-child(1) { animation-delay: 0.2s; }
+.hw-heymark-svg text:nth-child(2) { animation-delay: 0.9s; }
+.hw-heymark-svg text:nth-child(3) { animation-delay: 1.6s; }
+@keyframes hw-letter-pop {
+  0% { opacity: 0; transform: translateY(20px) scale(0.7); }
+  60% { opacity: 1; transform: translateY(-4px) scale(1.08); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.hw-tagline {
+  font-size: 16px;
+  color: var(--muted);
+  text-align: center;
+  max-width: 460px;
+  line-height: 1.55;
+  margin: 0;
+  opacity: 0;
+  animation: hw-fade-down 0.6s ease 2.4s forwards;
+}
+.hw-tagline .em { color: var(--text); font-weight: 600; }
+
+.hw-name-card {
+  background: var(--frosted-bg);
+  border: 1px solid var(--frosted-border);
+  border-radius: 2rem;
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  box-shadow: 0 24px 70px rgba(15, 23, 42, 0.16);
+  padding: 10px;
+  display: flex; align-items: center; gap: 8px;
+  width: 520px; max-width: 90%;
+  opacity: 0;
+  animation: hw-fade-down 0.6s ease 2.6s forwards;
+}
+.hw-name-input {
+  flex: 1; background: transparent; border: 0; outline: none;
+  color: var(--text); font-size: 16px;
+  padding: 12px 20px;
+  font-family: inherit;
+}
+.hw-name-input::placeholder { color: var(--muted); }
+
+/* Key card (step 2) */
+.hw-key-card {
+  background: var(--frosted-bg);
+  border: 1px solid var(--frosted-border);
+  border-radius: 2rem;
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  box-shadow: 0 28px 80px rgba(2, 9, 22, 0.5),
+              0 0 0 1px rgba(255, 255, 255, 0.04) inset;
+  padding: 28px;
+  width: 600px; max-width: 92%;
+  animation: hw-card-pop 0.45s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+.hw-key-card h2 {
+  font-family: "Inter", sans-serif;
+  font-size: 22px; font-weight: 700;
+  margin: 0 0 8px;
+}
+.hw-key-sub {
+  color: var(--muted);
+  margin: 4px 0 0;
+  font-size: 13px;
+  line-height: 1.55;
+}
+.hw-key-sub em { color: var(--text); font-style: normal; font-weight: 600; }
+.hw-key-label {
+  font-size: 11px; color: var(--muted);
+  text-transform: uppercase; letter-spacing: 0.12em;
+  font-weight: 600;
+  margin-top: 16px; margin-bottom: 6px;
+}
+.hw-key-value {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--frosted-border);
+  border-radius: 16px;
+  padding: 14px;
+  font-family: "Menlo", monospace;
+  font-size: 12px; color: var(--text);
+  word-break: break-all;
+  line-height: 1.5;
+}
+.hw-key-value.accent { color: var(--accent); }
+.hw-key-warn {
+  color: #f87171;
+  font-size: 12px;
+  margin-top: 12px;
+  display: flex; align-items: flex-start; gap: 8px;
+  line-height: 1.5;
+}
+.hw-key-check {
+  display: flex; align-items: center; gap: 10px;
+  margin-top: 18px;
+  font-size: 13px; color: var(--muted);
+  cursor: pointer;
+  user-select: none;
+}
+.hw-key-check input[type="checkbox"] {
+  width: 16px; height: 16px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+/* Passkey-row & badge (setup step 1 → step 2) */
+.hw-passkey-row {
+  display: flex; flex-direction: column; align-items: center; gap: 12px;
+  width: 100%;
+  opacity: 0;
+  animation: hw-fade-down 0.6s ease 2.7s forwards;
+}
+.hw-or-row {
+  display: flex; align-items: center; gap: 12px;
+  color: var(--muted); font-size: 11px;
+  text-transform: uppercase; letter-spacing: 0.1em;
+  width: 240px; justify-content: center;
+}
+.hw-or-row::before, .hw-or-row::after {
+  content: ""; height: 1px; flex: 1;
+  background: rgba(255, 255, 255, 0.1);
+  max-width: 100px;
+}
+.hw-passkey-btn {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 999px;
+  color: var(--text);
+  padding: 9px 20px;
+  font-size: 13px; font-weight: 500;
+  cursor: pointer;
+  display: inline-flex; align-items: center; gap: 8px;
+  transition: background 0.15s, border-color 0.15s, transform 0.15s;
+  font-family: inherit;
+}
+.hw-passkey-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: var(--brand-border);
+}
+.hw-passkey-btn:active { transform: scale(0.97); }
+.hw-passkey-btn:disabled {
+  opacity: 0.7;
+  cursor: progress;
+}
+
+.hw-passkey-badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  margin-top: 8px;
+  padding: 5px 12px;
+  background: rgba(74, 222, 128, 0.12);
+  border: 1px solid rgba(74, 222, 128, 0.3);
+  border-radius: 999px;
+  color: #4ade80;
+  font-size: 11px; font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  width: fit-content;
+}
+
+.hw-passkey-error {
+  color: #fca5a5;
+  font-size: 12px;
+  text-align: center;
+  margin-top: 10px;
+  padding: 8px 14px;
+  background: rgba(248, 113, 113, 0.08);
+  border: 1px solid rgba(248, 113, 113, 0.25);
+  border-radius: 12px;
+  max-width: 460px;
+  line-height: 1.5;
+}

@@ -1,0 +1,311 @@
+#!/bin/bash
+
+source _common.sh
+source /usr/share/yunohost/helpers
+
+#=================================================
+# FETCH SOURCE
+#=================================================
+
+ynh_script_progression --message="Fetching source..." --weight=2
+ynh_setup_source --dest_dir="$install_dir"
+mkdir -p "$install_dir/bin"
+chown -R "$app:$app" "$install_dir"
+
+#=================================================
+# RUST TOOLCHAIN
+#=================================================
+
+ynh_script_progression --message="Installing Rust toolchain (rustup)..." --weight=20
+install_rust_toolchain
+
+#=================================================
+# BUILD
+#=================================================
+
+# Cold build: elastos binary + 4 native capsules + 3 WASM capsules.
+# Mirrors home-frontdoor-smoke.sh:135-149 builds. Expect 20-40 min, ~4 GB
+# peak RAM. Subsequent installs reuse cargo cache → ~3-5 min.
+ynh_script_progression --message="Building elastos + capsules from source (cold build is 20-40 min)..." --weight=300
+build_runtime_and_capsules
+
+#=================================================
+# STAGE LOCAL PUBLISHER ARTIFACTS
+#=================================================
+
+# The temp publisher home lives under $data_dir; we tear it down at the
+# end. The Python staging block is copied verbatim from
+# home-frontdoor-smoke.sh:133-234 — it produces the publisher's
+# components.json with checksums + tarballs of each WASM/data capsule.
+
+SOURCE_BOOTSTRAP_DIR="$data_dir/source-bootstrap"
+SOURCE_RUNTIME_HOME="$SOURCE_BOOTSTRAP_DIR/source-runtime"
+SOURCE_RUNTIME_XDG="$SOURCE_RUNTIME_HOME/xdg-data"
+SOURCE_RUNTIME_DATA_DIR="$SOURCE_RUNTIME_XDG/elastos"
+SOURCE_RUNTIME_LOG="$SOURCE_BOOTSTRAP_DIR/source-runtime.log"
+SOURCE_RUNTIME_COORDS="$SOURCE_RUNTIME_DATA_DIR/runtime-coords.json"
+
+mkdir -p "$SOURCE_RUNTIME_DATA_DIR/bin"
+mkdir -p "$SOURCE_RUNTIME_DATA_DIR/ElastOS/SystemServices/Publisher/artifacts"
+install -m 0755 -o "$app" -g "$app" \
+    "$install_dir/elastos/target/release/localhost-provider" \
+    "$SOURCE_RUNTIME_DATA_DIR/bin/localhost-provider"
+
+# Chown the whole bootstrap tree to $app BEFORE any subprocess runs as
+# that user — otherwise elastos / curl can't write into root-owned dirs.
+chown -R "$app:$app" "$SOURCE_BOOTSTRAP_DIR"
+
+ynh_script_progression --message="Downloading kubo (IPFS daemon)..." --weight=3
+download_external_binaries "$SOURCE_RUNTIME_DATA_DIR/ElastOS/SystemServices/Publisher/artifacts"
+
+ynh_script_progression --message="Staging local publisher artifacts..." --weight=5
+
+# All cargo builds share CARGO_TARGET_DIR=$install_dir/elastos/target, so
+# every release binary AND WASM artifact lives under that single tree.
+COMPONENTS_SRC="$install_dir/components.json" \
+COMPONENTS_DEST="$SOURCE_RUNTIME_DATA_DIR/components.json" \
+PUBLISHER_ROOT="$SOURCE_RUNTIME_DATA_DIR/ElastOS/SystemServices/Publisher" \
+SETUP_PLATFORM="linux-amd64" \
+NATIVE_BIN_DIR="$install_dir/elastos/target/release" \
+CAPSULES_SRC="$install_dir/capsules" \
+WASM_TARGET_DIR="$install_dir/elastos/target/wasm32-wasip1/release" \
+python3 - <<'PY'
+import hashlib, json, os, pathlib, shutil, tarfile
+
+components_src = pathlib.Path(os.environ["COMPONENTS_SRC"])
+components_dest = pathlib.Path(os.environ["COMPONENTS_DEST"])
+publisher_root = pathlib.Path(os.environ["PUBLISHER_ROOT"])
+artifacts_dir = publisher_root / "artifacts"
+artifacts_dir.mkdir(parents=True, exist_ok=True)
+platform = os.environ["SETUP_PLATFORM"]
+native_bin = pathlib.Path(os.environ["NATIVE_BIN_DIR"])
+capsules = pathlib.Path(os.environ["CAPSULES_SRC"])
+wasm_target = pathlib.Path(os.environ["WASM_TARGET_DIR"])
+
+manifest = json.loads(components_src.read_text())
+
+def platform_info(name):
+    platforms = manifest["external"][name].get("platforms") or {}
+    info = platforms.get(platform) or platforms.get("*")
+    if not info:
+        raise SystemExit(f"{name} missing release metadata for {platform}")
+    return info
+
+def stamp(info, data: bytes) -> None:
+    info["checksum"] = "sha256:" + hashlib.sha256(data).hexdigest()
+    info["size"] = len(data)
+
+# ── 1) NATIVE BINARIES ──
+for name in ("shell", "localhost-provider", "did-provider", "webspace-provider", "ipfs-provider"):
+    src = native_bin / name
+    if not src.is_file():
+        raise SystemExit(f"missing built artifact for {name}: {src}")
+    info = platform_info(name)
+    dest = artifacts_dir / info["release_path"]
+    shutil.copy2(src, dest)
+    dest.chmod(0o755)
+    stamp(info, dest.read_bytes())
+
+# kubo: external tarball already downloaded by download_external_binaries.
+# We stage the .tar.gz UNCHANGED; the runtime extracts kubo/ipfs from it
+# per components.json's extract_path. (Pre-extracting + staging the bare
+# binary fails: runtime tries to tar -xz it and chokes on "not in gzip".)
+kubo_info = platform_info("kubo")
+kubo_target = artifacts_dir / "kubo-linux-amd64.tar.gz"
+if not kubo_target.is_file():
+    raise SystemExit(f"missing kubo tarball: {kubo_target}. Did download_external_binaries run?")
+kubo_info["release_path"] = kubo_target.name
+stamp(kubo_info, kubo_target.read_bytes())
+
+# ── 2) home-cli: tar with capsule.json + home-cli.wasm ──
+home_cli_dir = capsules / "home-cli"
+info = platform_info("home-cli")
+archive = artifacts_dir / info["release_path"]
+with tarfile.open(archive, "w:gz") as tar:
+    tar.add(home_cli_dir / "capsule.json", arcname="home-cli/capsule.json")
+    tar.add(home_cli_dir / "home-cli.wasm", arcname="home-cli/home-cli.wasm")
+stamp(info, archive.read_bytes())
+
+# ── 3) BROWSER WASM CAPSULES: home + system + chat-room + hey-home ──
+# Each capsule.json declares its entrypoint filename. Cargo may produce
+# the wasm with dashes (chat-room.wasm) or underscores (hey_home.wasm)
+# depending on the package name and how cargo internally treats the
+# target. We read the entrypoint from each capsule.json, then locate the
+# matching wasm file among the candidates cargo might have written.
+for name in ("home", "system", "chat-room", "hey-home"):
+    info = platform_info(name)
+    capsule_dir = capsules / name
+    capsule_meta = json.loads((capsule_dir / "capsule.json").read_text())
+    entrypoint = capsule_meta["entrypoint"]
+    candidates = [
+        wasm_target / entrypoint,
+        wasm_target / f"{name}.wasm",
+        wasm_target / f"{name.replace('-', '_')}.wasm",
+    ]
+    wasm_src = next((c for c in candidates if c.is_file()), None)
+    if wasm_src is None:
+        raise SystemExit(f"no wasm artifact for {name}: tried {[str(c) for c in candidates]}")
+    archive = artifacts_dir / info["release_path"]
+    with tarfile.open(archive, "w:gz") as tar:
+        tar.add(capsule_dir / "capsule.json", arcname=f"{name}/capsule.json")
+        tar.add(wasm_src, arcname=f"{name}/{entrypoint}")
+        browser = capsule_dir / "browser"
+        if browser.is_dir():
+            tar.add(browser, arcname=f"{name}/browser")
+    stamp(info, archive.read_bytes())
+
+# ── 4) DATA CAPSULES (documents, library, inbox) ──
+for name in ("documents", "library", "inbox"):
+    info = platform_info(name)
+    capsule_dir = capsules / name
+    archive = artifacts_dir / info["release_path"]
+    with tarfile.open(archive, "w:gz") as tar:
+        tar.add(capsule_dir / "capsule.json", arcname=f"{name}/capsule.json")
+        tar.add(capsule_dir / "index.html", arcname=f"{name}/index.html")
+    stamp(info, archive.read_bytes())
+
+# Write the patched manifest the local publisher serves.
+components_dest.parent.mkdir(parents=True, exist_ok=True)
+components_dest.write_text(json.dumps(manifest, indent=2) + "\n")
+PY
+
+chown -R "$app:$app" "$SOURCE_BOOTSTRAP_DIR"
+
+#=================================================
+# SPIN UP TEMP PUBLISHER
+#=================================================
+
+SOURCE_API_PORT="$(free_port)"
+ynh_script_progression --message="Starting temp source publisher on 127.0.0.1:$SOURCE_API_PORT..." --weight=3
+
+ynh_exec_as "$app" bash -c "
+    HOME='$SOURCE_RUNTIME_HOME' \
+    XDG_DATA_HOME='$SOURCE_RUNTIME_XDG' \
+    nohup '$install_dir/elastos/target/debug/elastos' serve --addr '127.0.0.1:$SOURCE_API_PORT' \
+        >'$SOURCE_RUNTIME_LOG' 2>&1 &
+    echo \$! > '$SOURCE_BOOTSTRAP_DIR/source-runtime.pid'
+    disown
+"
+
+# Wait for the temp publisher to write its coords file and become healthy
+for _ in $(seq 1 60); do
+    [ -f "$SOURCE_RUNTIME_COORDS" ] && break
+    sleep 0.5
+done
+[ -f "$SOURCE_RUNTIME_COORDS" ] || ynh_die --message="Temp publisher never wrote coords. See $SOURCE_RUNTIME_LOG"
+
+for _ in $(seq 1 60); do
+    curl -fsS --max-time 2 "http://127.0.0.1:$SOURCE_API_PORT/api/health" >/dev/null 2>&1 && break
+    sleep 0.5
+done
+curl -fsS --max-time 2 "http://127.0.0.1:$SOURCE_API_PORT/api/health" >/dev/null 2>&1 \
+    || ynh_die --message="Temp publisher never became healthy. See $SOURCE_RUNTIME_LOG"
+
+#=================================================
+# DISCOVER LOCAL CARRIER BOOTSTRAP
+#=================================================
+
+mapfile -t SOURCE_BOOTSTRAP_LINES < <(discover_local_bootstrap "$SOURCE_RUNTIME_COORDS")
+SOURCE_CONNECT_TICKET="${SOURCE_BOOTSTRAP_LINES[0]:-}"
+SOURCE_NODE_ID="${SOURCE_BOOTSTRAP_LINES[1]:-}"
+[ -n "$SOURCE_CONNECT_TICKET" ] && [ -n "$SOURCE_NODE_ID" ] \
+    || ynh_die --message="Failed to discover local Carrier bootstrap from temp publisher."
+
+#=================================================
+# BOOTSTRAP CLIENT TRUST (writes sources.json pointing at local publisher)
+#=================================================
+
+CLIENT_HOME="$(elastos_home)"
+mkdir -p "$CLIENT_HOME/.local/bin" "$CLIENT_HOME/xdg-data"
+chown -R "$app:$app" "$CLIENT_HOME"
+
+ynh_script_progression --message="Provisioning client trust against local publisher..." --weight=2
+
+# install.sh wants ELASTOS_PUBLISHER_GATEWAY for the bootstrap-time download
+# of the binary/components.json, but since we already have them locally we
+# can point it at a no-op URL and rely on Carrier for the rest. The smoke
+# script uses Elacity's gateway URL even though it doesn't actually reach
+# it for the demo — we do the same for parity.
+ynh_exec_as "$app" \
+    env HOME="$CLIENT_HOME" \
+        XDG_DATA_HOME="$CLIENT_HOME/xdg-data" \
+        ELASTOS_PUBLISHER_GATEWAY="https://elastos.elacitylabs.com" \
+        ELASTOS_MAINTAINER_DID="did:key:z6MkrFPDgDi98Ek6AFHM3VT9bVJytnDf5mfHAV6gyrD5frYj" \
+        ELASTOS_SOURCE_CONNECT_TICKET="$SOURCE_CONNECT_TICKET" \
+        ELASTOS_PUBLISHER_NODE_ID="$SOURCE_NODE_ID" \
+    bash "$install_dir/scripts/install.sh" \
+    || ynh_die --message="install.sh failed to provision sources.json. Check $SOURCE_RUNTIME_LOG."
+
+# We also need the components.json from our local publisher (not Elacity's),
+# because our checksums differ from upstream.
+cp "$SOURCE_RUNTIME_DATA_DIR/components.json" "$CLIENT_HOME/xdg-data/elastos/components.json"
+
+#=================================================
+# SETUP --profile home (fetches via local-Carrier loop)
+#=================================================
+
+ynh_script_progression --message="Running elastos setup --profile home --with chat-room..." --weight=5
+# Home profile (now includes hey-home in this fork's components.json) +
+# chat-room. chat-room is the minimum addition needed for `elastos room
+# open` to start the /apps/<X>/ browser gateway.
+ynh_exec_as "$app" \
+    env HOME="$CLIENT_HOME" \
+        XDG_DATA_HOME="$CLIENT_HOME/xdg-data" \
+    "$install_dir/elastos/target/debug/elastos" setup --profile home --with chat-room,ipfs-provider,kubo \
+    || ynh_die --message="elastos setup --profile home --with chat-room,ipfs-provider,kubo failed. Check $SOURCE_RUNTIME_LOG."
+
+ynh_script_progression --message="Running elastos setup --profile operator (registers operator lane)..." --weight=2
+# operator profile = {shell, localhost-provider, did-provider}, all
+# already installed by --profile home. This second invocation is just
+# the state flip that lets `elastos room open` find an active runtime
+# instead of erroring with "no active local runtime".
+ynh_exec_as "$app" \
+    env HOME="$CLIENT_HOME" \
+        XDG_DATA_HOME="$CLIENT_HOME/xdg-data" \
+    "$install_dir/elastos/target/debug/elastos" setup --profile operator \
+    || ynh_die --message="elastos setup --profile operator failed. Check $SOURCE_RUNTIME_LOG."
+
+# Move the cargo-built elastos binary to its stable location now that setup is done.
+install -D -m 0755 -o "$app" -g "$app" \
+    "$install_dir/elastos/target/debug/elastos" \
+    "$CLIENT_HOME/.local/bin/elastos"
+
+#=================================================
+# TEAR DOWN TEMP PUBLISHER
+#=================================================
+
+ynh_script_progression --message="Stopping temp publisher..." --weight=1
+if [ -f "$SOURCE_BOOTSTRAP_DIR/source-runtime.pid" ]; then
+    SOURCE_PID="$(cat "$SOURCE_BOOTSTRAP_DIR/source-runtime.pid")"
+    kill "$SOURCE_PID" 2>/dev/null || true
+    sleep 1
+    kill -9 "$SOURCE_PID" 2>/dev/null || true
+fi
+ynh_secure_remove --file="$SOURCE_BOOTSTRAP_DIR"
+
+#=================================================
+# WRAPPER + SYSTEMD + NGINX
+#=================================================
+
+install_wrapper
+install_cli_wrapper
+ynh_add_systemd_config
+ynh_add_nginx_config
+
+mkdir -p "/var/log/$app"
+chown -R "$app:$app" "/var/log/$app"
+
+yunohost service add "$app" \
+    --description="Elastos Runtime (serve + room gateway)" \
+    --log="/var/log/$app/$app.log"
+
+#=================================================
+# START THE REAL SERVICE
+#=================================================
+
+ynh_script_progression --message="Starting Elastos Runtime..." --weight=3
+ynh_systemd_action --service_name="$app" --action="start" \
+    --log_path="/var/log/$app/$app.log" \
+    --line_match="room gateway listening"
+
+ynh_script_progression --message="Elastos Runtime installed. Open https://$domain$path/apps/home/ from any LAN browser." --last

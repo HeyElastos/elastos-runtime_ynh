@@ -1,0 +1,38 @@
+#!/bin/bash
+
+source _common.sh
+source /usr/share/yunohost/helpers
+
+ynh_script_progression --message="Stopping Elastos Runtime..." --weight=2
+ynh_systemd_action --service_name="$app" --action="stop"
+
+ynh_script_progression --message="Updating source..." --weight=3
+ynh_setup_source --dest_dir="$install_dir"
+mkdir -p "$install_dir/bin"
+chown -R "$app:$app" "$install_dir"
+
+if [ ! -x "$(rustup_root)/cargo/bin/cargo" ]; then
+    ynh_script_progression --message="Reinstalling Rust toolchain..." --weight=20
+    install_rust_toolchain
+fi
+
+ynh_script_progression --message="Rebuilding elastos + capsules..." --weight=300
+build_runtime_and_capsules
+
+# Replace the binary in the client home with the freshly-built one. State
+# in xdg-data (sources.json, components.json, capsules/) is preserved.
+install -D -m 0755 -o "$app" -g "$app" \
+    "$install_dir/elastos/target/debug/elastos" \
+    "$(elastos_home)/.local/bin/elastos"
+
+install_wrapper
+install_cli_wrapper
+ynh_add_systemd_config
+ynh_add_nginx_config
+
+ynh_script_progression --message="Starting Elastos Runtime..." --weight=3
+ynh_systemd_action --service_name="$app" --action="start" \
+    --log_path="/var/log/$app/$app.log" \
+    --line_match="room gateway listening"
+
+ynh_script_progression --message="Elastos Runtime upgraded." --last

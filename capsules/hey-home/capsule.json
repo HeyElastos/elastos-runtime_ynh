@@ -1,0 +1,26 @@
+{
+  "schema": "elastos.capsule/v1",
+  "name": "hey-home",
+  "version": "0.1.0",
+  "description": "Hey-themed desktop shell for Elastos — welcome screen + frosted launcher",
+  "author": "elastos",
+  "role": "shell",
+  "type": "wasm",
+  "entrypoint": "hey_home.wasm",
+  "requires": [],
+  "resources": {
+    "memory_mb": 64,
+    "gpu": false
+  },
+  "permissions": {
+    "storage": [
+      "localhost://Users/self/.AppData/Identity/*",
+      "localhost://Users/self/.AppData/SystemServices/Shell/*",
+      "localhost://Users/self/.AppData/LocalHost/HeyHome/*"
+    ],
+    "messaging": [
+      "elastos://peer/*",
+      "elastos://did/*"
+    ]
+  }
+}

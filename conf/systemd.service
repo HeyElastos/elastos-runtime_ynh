@@ -1,0 +1,27 @@
+[Unit]
+Description=Elastos Runtime (operator + room gateway)
+After=network.target
+
+[Service]
+Type=simple
+User=__APP__
+Group=__APP__
+WorkingDirectory=__INSTALL_DIR__
+ExecStart=/bin/bash __INSTALL_DIR__/bin/elastos-runtime-wrapper.sh
+StandardOutput=append:/var/log/__APP__/__APP__.log
+StandardError=append:/var/log/__APP__/__APP__.log
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=30
+
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=full
+# ProtectHome would mask /home/yunohost.app/ where our $data_dir lives,
+# blocking the elastos binary at $data_dir/home/.local/bin/elastos from
+# being executable (systemd exit 126, "Access denied"). Leave it off.
+PrivateTmp=true
+ReadWritePaths=__DATA_DIR__ /var/log/__APP__
+
+[Install]
+WantedBy=multi-user.target

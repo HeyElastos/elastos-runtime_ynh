@@ -1,0 +1,19 @@
+#!/bin/bash
+
+source _common.sh
+source /usr/share/yunohost/helpers
+
+ynh_print_info --message="Backing up Elastos Runtime..."
+
+# Built binary + wrapper + source tree (small minus target/, which install removes).
+ynh_backup --src_path="$install_dir"
+
+# Runtime state: identities, capsule rootfs, sources.json, etc.
+ynh_backup --src_path="$data_dir"
+
+# nginx + systemd
+ynh_backup --src_path="/etc/nginx/conf.d/$domain.d/$app.conf"
+ynh_backup --src_path="/etc/systemd/system/$app.service"
+
+# Logs (skip on small backups; --is_big lets ynh exclude them by default)
+ynh_backup --src_path="/var/log/$app" --is_big=1

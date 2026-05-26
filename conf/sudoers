@@ -1,0 +1,5 @@
+# Allow yunohost admins to run the elastos binary as __APP__ without a
+# password. Scoped to a single binary path, so admins can't escalate to
+# arbitrary commands as the app user. Templated by ynh.
+
+%admins ALL=(__APP__) NOPASSWD: __DATA_DIR__/home/.local/bin/elastos

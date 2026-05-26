@@ -1,0 +1,95 @@
+#:schema https://raw.githubusercontent.com/YunoHost/apps/main/schemas/manifest.v2.schema.json
+
+packaging_format = 2
+
+id = "elastos_runtime"
+name = "Elastos Runtime"
+description.en = "Signed capsules, explicit capabilities, and sovereign local execution"
+description.fr = "Capsules signées, capacités explicites, exécution locale souveraine"
+
+version = "0.2.0~ynh1"
+
+maintainers = ["HeyElastos"]
+
+[upstream]
+license = "MIT"
+code = "https://github.com/HeyElastos/elastos-runtime_ynh"
+admindoc = "https://github.com/HeyElastos/elastos-runtime_ynh/blob/main/README.md"
+
+[integration]
+yunohost = ">= 11.2"
+architectures = ["amd64", "arm64"]
+multi_instance = false
+ldap = false
+sso = false
+# Cargo build cache + target/ dominate disk during install; cold build needs
+# headroom. Runtime state under $data_dir is small after install.
+disk = "5G"
+# Cold cargo --release of elastos-server + capsules peaks high.
+ram.build = "4G"
+ram.runtime = "512M"
+
+[install]
+    [install.domain]
+    type = "domain"
+
+    [install.path]
+    type = "path"
+    default = "/elastos"
+
+    [install.init_main_permission]
+    help.en = "Who can reach the runtime through the browser. 'visitors' = anyone on your LAN, no login."
+    type = "group"
+    default = "visitors"
+
+    [install.admin]
+    type = "user"
+
+[resources]
+    [resources.sources.main]
+    # The yunohost package and the runtime source share this repo. The install
+    # script runs `just build` against the unpacked tree.
+    #
+    # Pinned to a commit (not a moving `main` branch tarball) so the sha256
+    # YunoHost 12 requires stays stable. Bump url + sha256 together on every
+    # release — yunohost-bot can automate this via `autoupdate.strategy`.
+    url = "https://github.com/HeyElastos/elastos-runtime_ynh/archive/0b66674b0c86297753a43b91742b054f1c106036.tar.gz"
+    sha256 = "3ad746d3c93c8d573584734fe5a7fee9c143700b0bdef67f92fc805b1e77fbb8"
+    autoupdate.strategy = "latest_github_commit"
+
+    [resources.system_user]
+
+    [resources.install_dir]
+    group = "www-data:r-x"
+
+    [resources.data_dir]
+    # Runtime state (XDG_DATA_HOME/elastos, capsule rootfs, identities) lives
+    # here so it survives upgrades.
+    group = "www-data:rwx"
+
+    [resources.permissions]
+    main.url = "/"
+
+    [resources.ports]
+    main.default = 8090
+    # Expose the room gateway port on the firewall so LAN devices can hit
+    # http://<mini-pc-ip>:8090/apps/home/ directly, in addition to nginx-
+    # proxied https://<yunohost-domain>/elastos/apps/home/.
+    main.exposed = "TCP"
+
+    [resources.apt]
+    packages = [
+        "ca-certificates",
+        "curl",
+        "git",
+        "python3",
+        "openssl",
+        "jq",
+        "build-essential",
+        "pkg-config",
+        "libssl-dev",
+        "libclang-dev",
+        "cmake",
+        "qemu-system-x86",
+        "qemu-utils",
+    ]

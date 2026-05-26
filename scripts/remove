@@ -1,0 +1,23 @@
+#!/bin/bash
+
+source _common.sh
+source /usr/share/yunohost/helpers
+
+ynh_script_progression --message="Stopping and removing systemd service..."
+ynh_remove_systemd_config
+yunohost service remove "$app" 2>/dev/null || true
+
+ynh_script_progression --message="Removing nginx config..."
+ynh_remove_nginx_config
+
+ynh_script_progression --message="Removing CLI wrapper + sudoers..."
+ynh_secure_remove --file="/usr/local/bin/elastos"
+ynh_secure_remove --file="/etc/sudoers.d/$app"
+
+ynh_script_progression --message="Removing Rust toolchain..."
+ynh_secure_remove --file="$(rustup_root)"
+
+ynh_script_progression --message="Removing logs..."
+ynh_secure_remove --file="/var/log/$app"
+
+ynh_script_progression --message="Elastos Runtime removed." --last
