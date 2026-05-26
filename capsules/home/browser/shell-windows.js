@@ -5,6 +5,7 @@ import {
   SYSTEM_APP_ID,
   shellState,
   fetchJson,
+  appRoute,
   targetTitle,
   escapeHtml,
   shouldOpenMaximizedByDefault,
@@ -683,7 +684,7 @@ function syncBrowserWindow(entry, launched) {
 
   frame.onload = syncLoadedFrame;
   if (frame.dataset.route !== launched.route) {
-    frame.src = launched.route;
+    frame.src = appRoute(launched.route);
     frame.dataset.route = launched.route;
     return;
   }

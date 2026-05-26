@@ -74,8 +74,31 @@ export const shellState = {
   requestSummaryRefresh: null,
 };
 
+// Install base derived from the current page (e.g. "/elastos" when mounted
+// at "/elastos/apps/home/", or "" at root). Lets the shell work under
+// arbitrary YunoHost subpath mounts without rebuilding.
+const API_BASE = (() => {
+  if (typeof window === "undefined") return "";
+  const m = window.location.pathname.match(/^(.*?)\/apps\/[^/]+\//);
+  return m ? m[1] : "";
+})();
+
+export function apiUrl(url) {
+  if (typeof url !== "string" || !url.startsWith("/api/")) return url;
+  return API_BASE + url;
+}
+
+// Prefix root-absolute capsule routes (e.g. "/apps/hey-social/") with the
+// same install base. Used when the shell opens an iframe to a sibling
+// capsule — the server returns root-absolute routes, but under a YunoHost
+// subpath the browser needs "/elastos/apps/hey-social/" instead.
+export function appRoute(route) {
+  if (typeof route !== "string" || !route.startsWith("/apps/")) return route;
+  return API_BASE + route;
+}
+
 export async function fetchJson(url, init) {
-  const response = await fetch(url, {
+  const response = await fetch(apiUrl(url), {
     ...init,
     headers: {
       "content-type": "application/json",
@@ -545,6 +568,12 @@ export function glyphTone(targetId) {
   if (targetId.includes("gba") || targetId.includes("emu") || targetId.includes("game")) {
     return "games";
   }
+  if (targetId === "library" || targetId.includes("library") || targetId.includes("media")) {
+    return "docs";
+  }
+  if (targetId.includes("hey")) {
+    return "default";
+  }
   return "default";
 }
 
@@ -610,6 +639,46 @@ function glyphSvg(targetId) {
         <path d="M14 3.75V8h4" />
         <path d="M9 12h6" />
         <path d="M9 15h6" />
+      </svg>
+    `;
+  }
+  if (targetId === "library" || targetId.includes("library") || targetId.includes("media")) {
+    // Stack of books — visually distinct from the document icon.
+    return `
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <rect x="3.75" y="4.5" width="3.5" height="15" rx="1" />
+        <rect x="8.75" y="4.5" width="3.5" height="15" rx="1" />
+        <path d="M14.25 6.5l3.4-1.05a1 1 0 0 1 1.25.68l3.7 12.3a1 1 0 0 1-.68 1.25l-3.4 1.05a1 1 0 0 1-1.25-.68l-3.7-12.3a1 1 0 0 1 .68-1.25Z" />
+      </svg>
+    `;
+  }
+  if (targetId.includes("notepad") || targetId.includes("note")) {
+    return `
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <rect x="5" y="3.5" width="14" height="17" rx="2" />
+        <path d="M9 8h6" />
+        <path d="M9 12h6" />
+        <path d="M9 16h4" />
+      </svg>
+    `;
+  }
+  if (targetId === "hey-social") {
+    // Hey Social — camera+chat combo glyph (photo viewfinder with a
+    // speech bubble inside) to signal "photo + chat" at a glance.
+    return `
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M4 8.25A2.25 2.25 0 0 1 6.25 6h2l1.5-2h4.5l1.5 2h2A2.25 2.25 0 0 1 20 8.25v9A2.25 2.25 0 0 1 17.75 19.5h-11.5A2.25 2.25 0 0 1 4 17.25Z" />
+        <circle cx="12" cy="13" r="3.4" />
+      </svg>
+    `;
+  }
+  if (targetId.includes("hey-home") || targetId.includes("hey") || targetId === "hey") {
+    // Other Hey-* apps (shell, future variants): handwritten cursive curl.
+    return `
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M6 4v16" />
+        <path d="M6 12c2-3 6-3 6 0v8" />
+        <circle cx="18" cy="7" r="1.4" fill="currentColor" stroke="none" />
       </svg>
     `;
   }
