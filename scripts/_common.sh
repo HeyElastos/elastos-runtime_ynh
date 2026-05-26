@@ -104,7 +104,9 @@ build_runtime_and_capsules() {
     done
     # ipfs-provider: host bridge to a local kubo daemon. Adds Hey's storage
     # foundation. Pairs with the kubo binary fetched in download_external_binaries.
-    for crate in did-provider webspace-provider ipfs-provider; do
+    # notepad: capability-aware notes CLI; demonstrates the shell+localhost-provider
+    # auto-grant path against the user's Documents/Notes tree.
+    for crate in did-provider webspace-provider ipfs-provider notepad; do
         cargo_as_app build --release --manifest-path "$install_dir/capsules/$crate/Cargo.toml"
     done
 

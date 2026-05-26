@@ -294,6 +294,26 @@
         }
       }
     },
+    "notepad": {
+      "install_path": "bin/notepad",
+      "description": "Capability-aware notes CLI; auto-granted access to Users/self/Documents/Notes/* via shell+localhost-provider",
+      "platforms": {
+        "linux-amd64": {
+          "cid": "",
+          "checksum": "",
+          "size": 0,
+          "release_path": "notepad-linux-amd64",
+          "install_path": "bin/notepad"
+        },
+        "linux-arm64": {
+          "cid": "",
+          "checksum": "",
+          "size": 0,
+          "release_path": "notepad-linux-arm64",
+          "install_path": "bin/notepad"
+        }
+      }
+    },
     "tunnel-provider": {
       "install_path": "bin/tunnel-provider",
       "description": "Host tunnel provider binary required for immediate public share links",
