@@ -33,6 +33,29 @@ elastos_home() {
     echo "$data_dir/home"
 }
 
+# Generate (idempotently) a 32-byte AES-256 key for the localhost-provider's
+# at-rest encryption. The key file lives under the elastos_runtime user's
+# XDG data home in mode 0600. The wrapper script exports its contents into
+# ELASTOS_LOCALHOST_ENCRYPTION_KEY, which the localhost-provider picks up
+# at Init when its ProviderConfig.encryption_key is empty. Once enabled,
+# every write through the localhost-provider is AES-256-GCM encrypted; an
+# attacker who acquires the YunoHost backup or steals the disk image gets
+# ciphertext only. Root on the live box can still read the key file.
+ensure_localhost_encryption_key() {
+    local home_dir
+    home_dir="$(elastos_home)"
+    local key_dir="$home_dir/xdg-data/elastos"
+    local key_file="$key_dir/.localhost-key"
+    mkdir -p "$key_dir"
+    chown -R "$app:$app" "$key_dir"
+    if [ ! -s "$key_file" ]; then
+        # 32 random bytes → 64-char lowercase hex, no trailing newline.
+        sudo -u "$app" sh -c "head -c 32 /dev/urandom | xxd -p -c 64 | tr -d '\n' > '$key_file'"
+        chmod 0600 "$key_file"
+        chown "$app:$app" "$key_file"
+    fi
+}
+
 install_rust_toolchain() {
     local root
     root="$(rustup_root)"

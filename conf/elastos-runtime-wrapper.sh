@@ -22,6 +22,16 @@ export XDG_DATA_HOME="$HOME/xdg-data"
 ELASTOS_BIN="$HOME/.local/bin/elastos"
 COORDS_FILE="$XDG_DATA_HOME/elastos/runtime-coords.json"
 
+# At-rest encryption for localhost-provider. The key file is generated
+# (or carried over) by the install/upgrade scripts. The localhost-
+# provider reads ELASTOS_LOCALHOST_ENCRYPTION_KEY at Init when its
+# ProviderConfig.encryption_key is empty; once set, all writes are
+# AES-256-GCM and on-disk state is ciphertext only.
+LOCALHOST_KEY_FILE="$XDG_DATA_HOME/elastos/.localhost-key"
+if [ -s "$LOCALHOST_KEY_FILE" ]; then
+    export ELASTOS_LOCALHOST_ENCRYPTION_KEY="$(cat "$LOCALHOST_KEY_FILE")"
+fi
+
 "$ELASTOS_BIN" serve &
 SERVE_PID=$!
 

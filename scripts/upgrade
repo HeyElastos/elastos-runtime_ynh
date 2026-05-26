@@ -30,6 +30,14 @@ install_cli_wrapper
 ynh_add_systemd_config
 ynh_add_nginx_config
 
+# Make sure the at-rest encryption key for localhost-provider exists
+# before the service starts. Idempotent — already-generated keys are
+# left alone. Older installs predating this commit get one minted
+# here; their existing plaintext files keep working via the
+# legacy-data tolerance path in the provider's read code.
+ynh_script_progression --message="Ensuring localhost-provider encryption key is present..." --weight=1
+ensure_localhost_encryption_key
+
 # Make sure capsules added to the install flow since the previous
 # upgrade get pulled in for existing installs too. `setup --with`
 # is idempotent — already-installed components are a no-op.
