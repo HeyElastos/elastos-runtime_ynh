@@ -265,8 +265,10 @@ const randomBytes = (n) => {
 };
 
 // Enroll a passkey for the given nickname. The browser/OS handles the
-// real keypair generation in secure hardware; we just record the
-// credential ID + transports for later assertions.
+// real keypair generation in secure hardware; we record the credential
+// ID, the public key (SPKI bytes), the public-key algorithm, and the
+// transports. The algorithm is needed at assertion time to import the
+// public key into Web Crypto for local signature verification.
 const enrollPasskey = async (name) => {
   const challenge = randomBytes(32);
   const userHandle = randomBytes(32);
@@ -289,7 +291,11 @@ const enrollPasskey = async (name) => {
       attestation: "none",
       authenticatorSelection: {
         residentKey: "preferred",
-        userVerification: "preferred",
+        // Require UV (PIN / biometric) rather than "preferred" so a
+        // bare touch isn't enough — combined with local sig verify
+        // below this closes the "compromised browser fakes assertion"
+        // hole.
+        userVerification: "required",
       },
     },
   });
@@ -302,30 +308,137 @@ const enrollPasskey = async (name) => {
     const pk = response.getPublicKey();
     if (pk) publicKeyB64u = b64uEncode(new Uint8Array(pk));
   }
+  const publicKeyAlgorithm =
+    response.getPublicKeyAlgorithm ? response.getPublicKeyAlgorithm() : null;
   const transports =
     response.getTransports ? response.getTransports() : [];
 
   return {
     id: b64uEncode(new Uint8Array(cred.rawId)),
     publicKey: publicKeyB64u,
+    publicKeyAlgorithm,
     userHandle: b64uEncode(userHandle),
     transports,
     createdAt: new Date().toISOString(),
   };
 };
 
+// ── WebAuthn local signature verification ────────────────────────────
+// Without this, the assertPasskey path trusts the OS authenticator's
+// claimed success blindly. A compromised browser process or malicious
+// extension could fabricate an assertion that looks like a successful
+// gesture without the real authenticator being touched. Locally
+// verifying the signature against the registered public key closes
+// that hole — only the real authenticator (which holds the private
+// key) can produce a signature that verifies.
+
+// ASN.1 DER ECDSA signature → raw r||s for Web Crypto.
+// WebAuthn ES256 signatures are DER-encoded; Web Crypto's ECDSA verify
+// wants 64 raw bytes (32-byte r, 32-byte s).
+const derToRawECDSA = (der) => {
+  let i = 2;
+  if ((der[1] & 0x80) !== 0) i = 2 + (der[1] & 0x7f);
+  if (der[i] !== 0x02) throw new Error("DER: missing r INTEGER tag");
+  const rLen = der[i + 1];
+  let r = der.slice(i + 2, i + 2 + rLen);
+  i = i + 2 + rLen;
+  if (der[i] !== 0x02) throw new Error("DER: missing s INTEGER tag");
+  const sLen = der[i + 1];
+  let s = der.slice(i + 2, i + 2 + sLen);
+  while (r[0] === 0x00 && r.length > 32) r = r.slice(1);
+  while (r.length < 32) r = new Uint8Array([0, ...r]);
+  while (s[0] === 0x00 && s.length > 32) s = s.slice(1);
+  while (s.length < 32) s = new Uint8Array([0, ...s]);
+  const raw = new Uint8Array(64);
+  raw.set(r, 0);
+  raw.set(s, 32);
+  return raw;
+};
+
+const constantTimeEqual = (a, b) => {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a[i] ^ b[i];
+  return diff === 0;
+};
+
+// Returns true if the assertion's signature is genuinely produced by
+// the authenticator that holds the private key corresponding to the
+// stored public key. Also checks: assertion type is "webauthn.get",
+// challenge matches the one we issued, RP ID hash matches our origin.
+const verifyAssertionSignature = async (cred, assertion, expectedChallenge) => {
+  try {
+    if (!cred.publicKey) return false;
+    const alg = cred.publicKeyAlgorithm || -7; // default ES256 for legacy creds
+    const spki = b64uDecode(cred.publicKey);
+
+    // 1. Verify clientDataJSON's type + challenge.
+    const clientDataBytes = new Uint8Array(assertion.response.clientDataJSON);
+    const clientData = JSON.parse(new TextDecoder().decode(clientDataBytes));
+    if (clientData.type !== "webauthn.get") return false;
+    const expectedChallengeB64u = b64uEncode(expectedChallenge);
+    if (clientData.challenge !== expectedChallengeB64u) return false;
+
+    // 2. Verify rpIdHash (first 32 bytes of authenticatorData) matches
+    //    sha256(hostname).
+    const authData = new Uint8Array(assertion.response.authenticatorData);
+    if (authData.length < 37) return false; // rpIdHash(32) + flags(1) + counter(4)
+    const rpIdHash = authData.slice(0, 32);
+    const expectedRpHash = new Uint8Array(
+      await crypto.subtle.digest("SHA-256",
+        new TextEncoder().encode(window.location.hostname))
+    );
+    if (!constantTimeEqual(rpIdHash, expectedRpHash)) return false;
+
+    // 3. Verify the UV flag is set (UP bit = 0x01, UV bit = 0x04).
+    const flags = authData[32];
+    if ((flags & 0x01) === 0) return false; // UP must be set
+    if ((flags & 0x04) === 0) return false; // UV must be set (we required it at enroll)
+
+    // 4. Verify the signature: signed data = authenticatorData || sha256(clientDataJSON).
+    const clientHash = new Uint8Array(
+      await crypto.subtle.digest("SHA-256", clientDataBytes)
+    );
+    const signedData = new Uint8Array(authData.length + 32);
+    signedData.set(authData, 0);
+    signedData.set(clientHash, authData.length);
+
+    let importParams, verifyParams;
+    let sigBytes = new Uint8Array(assertion.response.signature);
+    if (alg === -7) {
+      importParams = { name: "ECDSA", namedCurve: "P-256" };
+      verifyParams = { name: "ECDSA", hash: { name: "SHA-256" } };
+      sigBytes = derToRawECDSA(sigBytes);
+    } else if (alg === -8) {
+      importParams = { name: "Ed25519" };
+      verifyParams = { name: "Ed25519" };
+    } else if (alg === -257) {
+      importParams = { name: "RSASSA-PKCS1-v1_5", hash: { name: "SHA-256" } };
+      verifyParams = { name: "RSASSA-PKCS1-v1_5" };
+    } else {
+      return false;
+    }
+    const pubKey = await crypto.subtle.importKey(
+      "spki", spki, importParams, false, ["verify"]
+    );
+    return await crypto.subtle.verify(verifyParams, pubKey, sigBytes, signedData);
+  } catch (err) {
+    console.warn("[hey-home] verifyAssertionSignature failed", err);
+    return false;
+  }
+};
+
 // Assert a passkey against the credentials stored in the profile.
-// Returns the assertion on success; throws if the user cancels or no
-// authenticator matches.
+// Returns the assertion on success; throws if the user cancels, no
+// authenticator matches, OR the signature fails local verification.
 const assertPasskey = async (profile) => {
-  const allowCredentials = (profile.passkeys || []).map((pk) => ({
+  const creds = profile.passkeys || [];
+  if (creds.length === 0) throw new Error("No passkey enrolled on this profile");
+  const allowCredentials = creds.map((pk) => ({
     id: b64uDecode(pk.id),
     type: "public-key",
     transports: pk.transports || [],
   }));
-  if (allowCredentials.length === 0) {
-    throw new Error("No passkey enrolled on this profile");
-  }
   const challenge = randomBytes(32);
 
   const assertion = await navigator.credentials.get({
@@ -333,16 +446,57 @@ const assertPasskey = async (profile) => {
       challenge,
       rpId: window.location.hostname,
       timeout: 60_000,
-      userVerification: "preferred",
+      userVerification: "required",
       allowCredentials,
     },
   });
-
   if (!assertion) throw new Error("Passkey authentication cancelled");
-  // We trust the OS authenticator's UV gesture. A future hardening
-  // pass should COSE-decode pk.publicKey and verify the assertion
-  // signature locally before considering the unlock successful.
+
+  // Identify which stored cred produced this assertion.
+  const usedId = b64uEncode(new Uint8Array(assertion.rawId));
+  const used = creds.find((c) => c.id === usedId);
+  if (!used) throw new Error("Assertion from unknown credential");
+
+  // The OS gesture isn't enough on its own — verify the signature
+  // locally against the registered public key.
+  const verified = await verifyAssertionSignature(used, assertion, challenge);
+  if (!verified) throw new Error("Passkey assertion failed signature verification");
+
   return assertion;
+};
+
+// requireAuth — prompt the user for either a passkey or PIN.
+// Used to gate destructive lock-screen actions (e.g. "Switch identity")
+// behind the same authentication the unlock flow uses. Returns true on
+// successful auth, false if the user cancels or fails.
+const requireAuth = async (profile) => {
+  const hasPasskey = passkeySupported() && (profile.passkeys || []).length > 0;
+  // Try passkey first when available — fast, no UI of our own.
+  if (hasPasskey) {
+    try {
+      await assertPasskey(profile);
+      return true;
+    } catch (err) {
+      console.warn("[hey-home] passkey auth declined; falling back to PIN", err);
+      // Fall through to PIN prompt only if user cancelled. For genuine
+      // verification failures (signature wrong) we still allow PIN as
+      // an alternative — the PIN itself is rate-limited.
+    }
+  }
+  // PIN path via the existing frosted hey-modal prompt.
+  const heyPromptFn = window.heyPrompt;
+  if (typeof heyPromptFn !== "function") return false;
+  const { pinHash, pinSalt } = readPinFields(profile);
+  if (!pinHash || !pinSalt) {
+    // No PIN configured — and (above) no passkey worked. Deny.
+    return false;
+  }
+  const pin = await heyPromptFn(
+    "Enter your 6-digit PIN to continue",
+    { title: "Confirm", confirmLabel: "Continue", cancelLabel: "Cancel", type: "password", placeholder: "••••••" }
+  );
+  if (!pin) return false;
+  return verifyPin(pin, profile);
 };
 
 // ── DOM helper ─────────────────────────────────────────────────────
@@ -570,6 +724,19 @@ const buildWelcome = (profile) => {
     "Switch identity",
   ]);
   switchBtn.addEventListener("click", async () => {
+    // SECURITY: gate the destructive "Switch identity" path behind the
+    // same authentication the unlock flow requires. Without this, anyone
+    // with physical access to the locked screen can erase the profile
+    // (denial-of-service / takeover). requireAuth() asks for a passkey
+    // first, falls back to PIN.
+    const authed = await requireAuth(profile);
+    if (!authed) {
+      window.heyAlert?.("Authentication required to switch identity.", {
+        title: "Switch identity",
+        confirmLabel: "OK",
+      });
+      return;
+    }
     const ok = await (window.heyConfirm || ((m) => Promise.resolve(confirm(m))))(
       "This will erase the Hey-Home profile on this node and return to first-run setup. Your recovery key is the only way to come back.",
       {
@@ -651,11 +818,32 @@ const buildWelcome = (profile) => {
     setTimeout(then, dots.length * 30 + 300);
   };
 
+  // PIN brute-force lockout schedule (exponential after 5 failures, cap 1h).
+  // Lockout duration in ms after the Nth failure:
+  //   attempts < 5: no lockout (just wrong-flash)
+  //   attempt 5:    1s
+  //   attempt 6:    2s
+  //   attempt 7:    4s
+  //   ...
+  //   attempt 17+:  3600s (1h cap)
+  // After ~17 wrong attempts an attacker is locked out for 1h between
+  // each subsequent try — extrapolating to 1M PIN combos that's ~114
+  // years to brute force. State persists in profile.heyHome so a
+  // refresh/reload doesn't reset.
+  const lockoutMsForAttempts = (n) =>
+    n < 5 ? 0 : Math.min(Math.pow(2, n - 5) * 1000, 3_600_000);
+
   const tryUnlock = async () => {
     if (!hasPin) {
-      // Migration path: profile predates the PIN gate; force PIN setup
-      // before letting them in.
       promptPinSetup();
+      return;
+    }
+    const hh = profile.heyHome || {};
+    // Check active lockout first.
+    if (hh.lockedUntil && hh.lockedUntil > Date.now()) {
+      const remaining = Math.ceil((hh.lockedUntil - Date.now()) / 1000);
+      hint.textContent = `Locked. Try again in ${remaining}s`;
+      wrongFlash();
       return;
     }
     if (hiddenPin.value.length !== 6) {
@@ -665,11 +853,29 @@ const buildWelcome = (profile) => {
     unlockBtn.disabled = true;
     const ok = await verifyPin(hiddenPin.value, profile);
     if (ok) {
+      // Reset attempt counters on successful unlock.
+      profile.heyHome = { ...(profile.heyHome || {}), failedAttempts: 0, lockedUntil: null };
+      await saveProfile(profile);
       hint.textContent = "Welcome back…";
       successFlash(() => handOffToDesktop(root, greeting));
     } else {
       unlockBtn.disabled = false;
-      hint.textContent = "Wrong PIN";
+      const attempts = (hh.failedAttempts || 0) + 1;
+      const lockoutMs = lockoutMsForAttempts(attempts);
+      profile.heyHome = {
+        ...(profile.heyHome || {}),
+        failedAttempts: attempts,
+        lockedUntil: lockoutMs > 0 ? Date.now() + lockoutMs : null,
+      };
+      await saveProfile(profile);
+      if (lockoutMs > 0) {
+        hint.textContent = `Locked. Try again in ${Math.ceil(lockoutMs / 1000)}s`;
+      } else {
+        const left = Math.max(0, 5 - attempts);
+        hint.textContent = left > 0
+          ? `Wrong PIN — ${left} ${left === 1 ? "try" : "tries"} until lockout`
+          : "Wrong PIN";
+      }
       wrongFlash();
     }
   };
