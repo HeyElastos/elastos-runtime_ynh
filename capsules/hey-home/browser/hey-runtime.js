@@ -22,8 +22,14 @@
 // ─────────────────────────────────────────────────────────────────────
 
 (() => {
-  const STORAGE_BASE = "/api/localhost";
-  const PROVIDER_BASE = "/api/provider";
+  // Install base derived from page path so the shell works under YunoHost
+  // subpath mounts (e.g. "/elastos/apps/home/" → API_BASE = "/elastos").
+  const API_BASE = (() => {
+    const m = window.location.pathname.match(/^(.*?)\/apps\/[^/]+\//);
+    return m ? m[1] : "";
+  })();
+  const STORAGE_BASE = API_BASE + "/api/localhost";
+  const PROVIDER_BASE = API_BASE + "/api/provider";
   const TOKEN_STORE_KEY = "hey-home-capability-tokens";
 
   // ── Capability tokens ────────────────────────────────────────────
@@ -49,7 +55,7 @@
   };
 
   const requestCapabilityToken = async (resource, action = "write") => {
-    const post = await fetch("/api/capability/request", {
+    const post = await fetch(API_BASE + "/api/capability/request", {
       method: "POST",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
@@ -69,7 +75,7 @@
       await new Promise((r) => setTimeout(r, delays[Math.min(i, delays.length - 1)]));
       i++;
       const r = await fetch(
-        `/api/capability/request/${encodeURIComponent(initial.request_id)}`,
+        `${API_BASE}/api/capability/request/${encodeURIComponent(initial.request_id)}`,
         { credentials: "include" }
       );
       if (!r.ok) continue;
@@ -190,14 +196,14 @@
   // ── Capability flow ──────────────────────────────────────────────
   const capability = {
     request: ({ resource, action }) =>
-      fetch("/api/capability/request", {
+      fetch(API_BASE + "/api/capability/request", {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ resource, action }),
       }).then((r) => r.json()),
     status: (id) =>
-      fetch(`/api/capability/request/${encodeURIComponent(id)}`, {
+      fetch(`${API_BASE}/api/capability/request/${encodeURIComponent(id)}`, {
         credentials: "include",
       }).then((r) => r.json()),
     acquire: getCapabilityToken,

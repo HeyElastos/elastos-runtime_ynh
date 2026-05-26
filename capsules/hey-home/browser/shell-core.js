@@ -74,8 +74,22 @@ export const shellState = {
   requestSummaryRefresh: null,
 };
 
+// Install base derived from the current page (e.g. "/elastos" when mounted
+// at "/elastos/apps/home/", or "" at root). Lets the shell work under
+// arbitrary YunoHost subpath mounts without rebuilding.
+const API_BASE = (() => {
+  if (typeof window === "undefined") return "";
+  const m = window.location.pathname.match(/^(.*?)\/apps\/[^/]+\//);
+  return m ? m[1] : "";
+})();
+
+export function apiUrl(url) {
+  if (typeof url !== "string" || !url.startsWith("/api/")) return url;
+  return API_BASE + url;
+}
+
 export async function fetchJson(url, init) {
-  const response = await fetch(url, {
+  const response = await fetch(apiUrl(url), {
     ...init,
     headers: {
       "content-type": "application/json",
