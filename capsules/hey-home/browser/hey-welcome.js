@@ -561,6 +561,31 @@ const buildGreeting = (name) => el("div", { id: "hey-greeting" }, [
   el("div", { class: "hw-greet-sub" }, ["Your iroh node is online · zero servers"]),
 ]);
 
+// Refuse to hand off to the desktop if a vault has been set up but
+// isn't unlocked. Without this gate, an attacker who defeats the
+// "soft" PIN check (or just bypasses the welcome layer via DevTools)
+// reaches the desktop even when the user's actual data is sealed
+// behind passkey-PRF. Returns true on success (vault OK, or no vault
+// configured), false if hand-off should be blocked.
+const enforceVaultGate = async () => {
+  if (!window.heyVault) return true; // vault module not loaded — pre-vault era
+  try {
+    const hasVault = await window.heyVault.hasVault();
+    if (!hasVault) return true; // no vault → no constraint
+    if (window.heyVault.isUnlocked()) return true; // vault unlocked → proceed
+  } catch (err) {
+    console.warn("[hey-home] vault gate check failed", err);
+    // Fail open on infrastructure errors — but log loudly.
+    return true;
+  }
+  // Vault exists but isn't unlocked: refuse hand-off.
+  window.heyAlert?.(
+    "This account has a passkey-protected vault. Tap your passkey to unlock — PIN alone won't open vault data.",
+    { title: "Vault locked", confirmLabel: "OK" }
+  );
+  return false;
+};
+
 const handOffToDesktop = (root, greeting) => {
   // 1) Flare: data-state="unlocking" runs the gold glow burst + card release.
   // 2) After ~450ms, fade greeting in; lock state flips after a moment.
@@ -894,6 +919,13 @@ const buildWelcome = (profile) => {
       // Reset attempt counters on successful unlock.
       profile.heyHome = { ...(profile.heyHome || {}), failedAttempts: 0, lockedUntil: null };
       await saveProfile(profile);
+      // PIN passed — but if a vault is configured, the master key
+      // isn't derived from PIN. Refuse hand-off so vault-sealed data
+      // stays inaccessible. User has to tap passkey or use recovery.
+      if (!(await enforceVaultGate())) {
+        unlockBtn.disabled = false;
+        return;
+      }
       hint.textContent = "Welcome back…";
       successFlash(() => handOffToDesktop(root, greeting));
     } else {
@@ -955,6 +987,8 @@ const buildWelcome = (profile) => {
       hashPin(firstPin, salt).then(async (pinHash) => {
         const updated = writePinFields(profile, { pinSalt: salt, pinHash });
         await saveProfile(updated);
+        // Same vault-gate as the regular PIN unlock path.
+        if (!(await enforceVaultGate())) return;
         hint.textContent = "PIN saved · unlocking…";
         successFlash(() => handOffToDesktop(root, greeting));
       });
@@ -969,19 +1003,24 @@ const buildWelcome = (profile) => {
       passkeyBtnLabel.textContent = "Tap your authenticator…";
       try {
         const { prfOutput } = await assertPasskey(profile);
-        // If this is a PRF-enabled passkey and the user has a vault,
-        // unwrap the master key into memory now. Failures here are
-        // non-fatal: the lock screen still hands off to the desktop,
-        // just without vault unlock (so any vault-stored data stays
-        // sealed until the user re-asserts with a working PRF auth).
-        if (prfOutput && window.heyVault) {
-          try {
-            if (await window.heyVault.hasVault()) {
-              await window.heyVault.unlockVaultWithPRF(prfOutput);
-            }
-          } catch (vErr) {
-            console.warn("[hey-home] vault unlock failed (continuing)", vErr);
+        // If a vault is configured, unwrap the master key now. With
+        // the vault gate in place below, failing this means we refuse
+        // hand-off — the user can't reach the desktop without the
+        // master key materialized.
+        if (window.heyVault && (await window.heyVault.hasVault())) {
+          if (!prfOutput) {
+            throw new Error(
+              "This passkey doesn't produce a PRF output — can't unlock vault. " +
+              "Re-enroll a PRF-capable authenticator (Yubikey 5.7+, Touch ID on " +
+              "macOS 14+, modern Windows Hello, Android 14+) or unlock via recovery key."
+            );
           }
+          await window.heyVault.unlockVaultWithPRF(prfOutput);
+        }
+        if (!(await enforceVaultGate())) {
+          passkeyBtn.disabled = false;
+          passkeyBtnLabel.textContent = wasText;
+          return;
         }
         // Visual confirmation: flash all pins gold
         const dots = pins.querySelectorAll(".hw-pin");
@@ -1356,6 +1395,13 @@ const renderKeyCard = (container, profile, recoveryKey, root) => {
   finishBtn.addEventListener("click", async () => {
     finishBtn.disabled = true;
     await saveProfile(profile);
+    // At signup with PRF, vault was initialized + masterKey is already in
+    // memory, so enforceVaultGate returns true. With a non-PRF passkey
+    // or no passkey, no vault exists and the gate is a no-op.
+    if (!(await enforceVaultGate())) {
+      finishBtn.disabled = false;
+      return;
+    }
     const greeting = buildGreeting(profile.name);
     document.body.appendChild(greeting);
     handOffToDesktop(root, greeting);
