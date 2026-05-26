@@ -345,15 +345,18 @@ html::after {
    macOS traffic-light circles in place of the upstream icon buttons.
    ───────────────────────────────────────────────────────────────────*/
 .window {
-  background: rgba(7, 16, 39, 0.94);
+  /* Match the dock's frosted material — same blur, same border token,
+     same shadow profile. Background sits between the dock's --frosted-bg
+     (8% white over the wallpaper) and the prior near-opaque navy: dark
+     enough that app content stays readable on top, light enough that
+     the wallpaper blobs bleed through behind the chrome. */
+  background: rgba(15, 23, 42, 0.55);
   border: 1px solid var(--frosted-border);
-  border-radius: 14px;
-  box-shadow: 0 25px 50px -10px rgba(0, 0, 0, 0.65),
+  border-radius: 16px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5),
               0 0 0 1px rgba(255, 255, 255, 0.05);
-  /* Reduced blur — windows are already nearly opaque (0.94 alpha) so
-     heavy backdrop blur added cost with little visual gain. */
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
+  backdrop-filter: blur(40px);
+  -webkit-backdrop-filter: blur(40px);
   overflow: hidden;
 }
 .window-head {
