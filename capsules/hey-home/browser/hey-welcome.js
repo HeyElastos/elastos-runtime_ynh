@@ -429,8 +429,11 @@ const verifyAssertionSignature = async (cred, assertion, expectedChallenge) => {
 };
 
 // Assert a passkey against the credentials stored in the profile.
-// Returns the assertion on success; throws if the user cancels, no
-// authenticator matches, OR the signature fails local verification.
+// Returns { assertion, prfOutput }: the assertion is always present
+// on success; prfOutput is a Uint8Array(32) when the authenticator
+// supports the PRF extension and the user has a vault, otherwise null.
+// Throws if the user cancels, no authenticator matches, OR the
+// signature fails local verification.
 const assertPasskey = async (profile) => {
   const creds = profile.passkeys || [];
   if (creds.length === 0) throw new Error("No passkey enrolled on this profile");
@@ -441,6 +444,11 @@ const assertPasskey = async (profile) => {
   }));
   const challenge = randomBytes(32);
 
+  // Always request PRF if we have a vault — harmless if unsupported,
+  // gives us the master-key derivation material when supported. The
+  // input here MUST match what hey-vault.js used at enrollment.
+  const prfInput = new TextEncoder().encode("hey-home-vault-v1").buffer;
+
   const assertion = await navigator.credentials.get({
     publicKey: {
       challenge,
@@ -448,6 +456,7 @@ const assertPasskey = async (profile) => {
       timeout: 60_000,
       userVerification: "required",
       allowCredentials,
+      extensions: { prf: { eval: { first: prfInput } } },
     },
   });
   if (!assertion) throw new Error("Passkey authentication cancelled");
@@ -462,7 +471,12 @@ const assertPasskey = async (profile) => {
   const verified = await verifyAssertionSignature(used, assertion, challenge);
   if (!verified) throw new Error("Passkey assertion failed signature verification");
 
-  return assertion;
+  // Extract PRF output if the authenticator produced one.
+  const prfRaw =
+    assertion.getClientExtensionResults?.()?.prf?.results?.first;
+  const prfOutput = prfRaw ? new Uint8Array(prfRaw) : null;
+
+  return { assertion, prfOutput };
 };
 
 // requireAuth — prompt the user for either a passkey or PIN.
@@ -954,7 +968,21 @@ const buildWelcome = (profile) => {
       const wasText = passkeyBtnLabel.textContent;
       passkeyBtnLabel.textContent = "Tap your authenticator…";
       try {
-        await assertPasskey(profile);
+        const { prfOutput } = await assertPasskey(profile);
+        // If this is a PRF-enabled passkey and the user has a vault,
+        // unwrap the master key into memory now. Failures here are
+        // non-fatal: the lock screen still hands off to the desktop,
+        // just without vault unlock (so any vault-stored data stays
+        // sealed until the user re-asserts with a working PRF auth).
+        if (prfOutput && window.heyVault) {
+          try {
+            if (await window.heyVault.hasVault()) {
+              await window.heyVault.unlockVaultWithPRF(prfOutput);
+            }
+          } catch (vErr) {
+            console.warn("[hey-home] vault unlock failed (continuing)", vErr);
+          }
+        }
         // Visual confirmation: flash all pins gold
         const dots = pins.querySelectorAll(".hw-pin");
         dots.forEach((d, idx) => {
@@ -1033,8 +1061,50 @@ const buildSetup = () => {
       passkeyBtn.disabled = true;
       passkeyBtn.textContent = "Tap your authenticator…";
       try {
-        const credential = await enrollPasskey(name);
-        await proceedToKeyCard({ name, passkey: credential });
+        // Prefer the PRF-enabled enrollment so this passkey can both
+        // unlock AND derive the vault master key. If the authenticator
+        // can't do PRF, fall back to the plain enrollment — the vault
+        // simply won't be set up, and the lock screen stays UX-level.
+        let credential = null;
+        let prfOutput = null;
+        if (window.heyVault?.enrollPasskeyForVault) {
+          try {
+            const vaultEnroll = await window.heyVault.enrollPasskeyForVault({ name });
+            credential = vaultEnroll.credential;
+            prfOutput = vaultEnroll.prfOutput;
+          } catch (vaultErr) {
+            if (vaultErr.name === "PRFNotSupported") {
+              console.warn("[hey-home] PRF not supported by this authenticator — vault skipped");
+            } else {
+              throw vaultErr;
+            }
+          }
+        }
+        if (!credential) {
+          credential = await enrollPasskey(name);
+        } else {
+          // Repackage the credential into the same shape enrollPasskey
+          // returns, so proceedToKeyCard can store it in profile.passkeys.
+          const response = credential.response;
+          let publicKeyB64u = null;
+          if (response.getPublicKey) {
+            const pk = response.getPublicKey();
+            if (pk) publicKeyB64u = b64uEncode(new Uint8Array(pk));
+          }
+          const publicKeyAlgorithm =
+            response.getPublicKeyAlgorithm ? response.getPublicKeyAlgorithm() : null;
+          const transports =
+            response.getTransports ? response.getTransports() : [];
+          credential = {
+            id: b64uEncode(new Uint8Array(credential.rawId)),
+            publicKey: publicKeyB64u,
+            publicKeyAlgorithm,
+            transports,
+            createdAt: new Date().toISOString(),
+            prfSupported: true,
+          };
+        }
+        await proceedToKeyCard({ name, passkey: credential, prfOutput });
       } catch (err) {
         console.error("[hey-home] passkey enrollment failed", err);
         passkeyBtn.disabled = false;
@@ -1085,12 +1155,26 @@ const buildSetup = () => {
   // key card, and never written to storage. Only its SHA-256 hash
   // (recoveryKeyHash) plus the derived Ed25519 public key (pubKeyHex)
   // are persisted — same shape Hey Social writes via writeSharedIdentity.
-  const proceedToKeyCard = async ({ name, passkey }) => {
+  const proceedToKeyCard = async ({ name, passkey, prfOutput }) => {
     const ident = window.heyIdentity;
     if (!ident) throw new Error("hey-identity.js not loaded");
     const recoveryKey = ident.generateRecoveryKey();
     const { didKey, pubKeyHex } = await ident.expandKeypair(recoveryKey);
     const recoveryKeyHash = await ident.hashAuthKey(recoveryKey);
+
+    // If the passkey supports PRF, initialize the vault NOW — wraps the
+    // master key with both the PRF output and the recovery key (so
+    // either path can unlock later). Failures here downgrade silently:
+    // signup completes, lock screen is UX-only without a vault.
+    let vaultInitialized = false;
+    if (prfOutput && window.heyVault?.initVault) {
+      try {
+        await window.heyVault.initVault({ prfOutput, recoveryHex: recoveryKey });
+        vaultInitialized = true;
+      } catch (err) {
+        console.warn("[hey-home] vault init failed; continuing without vault", err);
+      }
+    }
 
     let pinSalt = null;
     let pinHash = null;

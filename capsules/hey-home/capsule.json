@@ -16,7 +16,8 @@
     "storage": [
       "localhost://Users/self/.AppData/Identity/*",
       "localhost://Users/self/.AppData/SystemServices/Shell/*",
-      "localhost://Users/self/.AppData/LocalHost/HeyHome/*"
+      "localhost://Users/self/.AppData/LocalHost/HeyHome/*",
+      "localhost://Users/self/.AppData/HeyVault/*"
     ],
     "messaging": [
       "elastos://peer/*",
