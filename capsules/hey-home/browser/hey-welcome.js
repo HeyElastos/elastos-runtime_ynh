@@ -678,16 +678,28 @@ const buildWelcome = (profile) => {
   });
 
   const hasPasskey = (profile.passkeys || []).length > 0 && passkeySupported();
+  const hasPin = !!readPinFields(profile).pinHash;
+  // Passkey-only mode: profile has a passkey and no PIN. Don't render
+  // the PIN UI at all — passkey is the only (and strongest) unlock
+  // method, no need to also expose a 6-digit weaker fallback.
+  const passkeyOnly = hasPasskey && !hasPin;
 
   // PIN dots
   const pins = el("div", { class: "hw-pins" });
   for (let i = 0; i < 6; i++) pins.appendChild(el("div", { class: "hw-pin" }));
   const hint = el("div", { class: "hw-hint" }, [
-    hasPasskey ? "Tap your passkey or enter recovery PIN" : "Enter recovery PIN",
+    passkeyOnly
+      ? "Tap your passkey to unlock"
+      : hasPasskey ? "Tap your passkey or enter recovery PIN" : "Enter recovery PIN",
   ]);
 
-  const passkeyBtnLabel = el("span", {}, ["Use passkey"]);
-  const passkeyBtn = hasPasskey ? el("button", { class: "hw-btn", type: "button" }, [
+  const passkeyBtnLabel = el("span", {}, [
+    passkeyOnly ? "Unlock with passkey" : "Use passkey",
+  ]);
+  const passkeyBtn = hasPasskey ? el("button", {
+    class: passkeyOnly ? "hw-btn primary" : "hw-btn",
+    type: "button",
+  }, [
     svg({ viewBox: "0 0 24 24", fill: "currentColor", style: "width:14px;height:14px;" },
       '<path d="M12 2a5 5 0 0 0-5 5v3H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8a2 2 0 0 0-2-2h-1V7a5 5 0 0 0-5-5Zm-3 8V7a3 3 0 0 1 6 0v3H9Z"/>'),
     passkeyBtnLabel,
@@ -699,7 +711,14 @@ const buildWelcome = (profile) => {
       style: "width:14px;height:14px;" },
       '<path d="M5 12h14M13 5l7 7-7 7"/>'),
   ]);
-  const buttons = el("div", { class: "hw-buttons" }, [passkeyBtn, unlockBtn]);
+  // Hide PIN-related UI in passkey-only mode.
+  if (passkeyOnly) {
+    pins.style.display = "none";
+    unlockBtn.style.display = "none";
+  }
+  const buttons = el("div", { class: "hw-buttons" },
+    passkeyOnly ? [passkeyBtn] : [passkeyBtn, unlockBtn]
+  );
   const passkeyError = el("div", {
     class: "hw-passkey-error",
     style: "display:none;",
@@ -763,7 +782,6 @@ const buildWelcome = (profile) => {
   //
   // Legacy profiles (no pinHash): prompt the user to set one before
   // their first unlock.
-  const hasPin = !!readPinFields(profile).pinHash;
   const dots = pins.querySelectorAll(".hw-pin");
 
   const hiddenPin = el("input", {
@@ -835,6 +853,12 @@ const buildWelcome = (profile) => {
 
   const tryUnlock = async () => {
     if (!hasPin) {
+      // Profile has no PIN. If a passkey is enrolled, that IS the
+      // unlock method — don't force-set a PIN on top (passkey is the
+      // stronger credential; a PIN fallback would just be the weakest
+      // link). If neither is set, this is a legacy profile pre-dating
+      // the PIN gate — force-set one so unlock isn't impossible.
+      if (hasPasskey) return;
       promptPinSetup();
       return;
     }
@@ -1047,8 +1071,15 @@ const buildSetup = () => {
   const build = el("div", { class: "hw-build" }, ["hey-home · v0.1.0 · first-run setup"]);
   root.appendChild(el("div", { class: "hw-bottom" }, [mesh, build, el("span")]));
 
-  // Build the profile (with passkey if chosen), prompt PIN setup, then
-  // show the recovery-key card. PIN gates every future unlock.
+  // Build the profile, optionally prompt PIN setup, then show the
+  // recovery-key card.
+  //
+  // PIN is only collected when NO passkey was enrolled. A passkey is
+  // a 256-bit hardware-backed credential; a PIN is ~20 bits and would
+  // just become the weakest link if it sat alongside as a fallback.
+  // Passkey-only profiles unlock by passkey; PIN-only profiles unlock
+  // by PIN; users who want both can attach a passkey later from a
+  // settings page (TBD).
   //
   // The raw recoveryKey is held in a local variable, shown ONCE on the
   // key card, and never written to storage. Only its SHA-256 hash
@@ -1060,11 +1091,17 @@ const buildSetup = () => {
     const recoveryKey = ident.generateRecoveryKey();
     const { didKey, pubKeyHex } = await ident.expandKeypair(recoveryKey);
     const recoveryKeyHash = await ident.hashAuthKey(recoveryKey);
-    // Inline PIN-setup overlay BEFORE the key card. Two-stage: enter, confirm.
-    const pinSalt = generatePinSalt();
-    const pin = await collectNewPin(step1);
-    const pinHash = await hashPin(pin, pinSalt);
-    const profile = writePinFields({
+
+    let pinSalt = null;
+    let pinHash = null;
+    if (!passkey) {
+      // No passkey — PIN is the only unlock method, so collect it.
+      pinSalt = generatePinSalt();
+      const pin = await collectNewPin(step1);
+      pinHash = await hashPin(pin, pinSalt);
+    }
+
+    const baseProfile = {
       name,
       didKey,
       pubKeyHex,
@@ -1072,7 +1109,11 @@ const buildSetup = () => {
       passkeys: passkey ? [passkey] : [],
       createdAt: new Date().toISOString(),
       createdBy: "hey-home",
-    }, { pinSalt, pinHash });
+    };
+    const profile = pinHash
+      ? writePinFields(baseProfile, { pinSalt, pinHash })
+      : baseProfile;
+
     step1.classList.add("hw-step-exit");
     await new Promise((r) => setTimeout(r, 320));
     step1.style.display = "none";
