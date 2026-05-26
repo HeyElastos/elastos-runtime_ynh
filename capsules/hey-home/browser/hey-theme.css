@@ -198,6 +198,18 @@ html::after {
   letter-spacing: 0.02em;
 }
 
+/* Original Elastos logo (the wide gradient wordmark from stock home) —
+   tall enough to read at toolbar height, auto width since the source
+   SVG is 6:1. */
+.toolbar-elastos-logo {
+  height: 18px;
+  width: auto;
+  display: block;
+  margin-right: 10px;
+  pointer-events: none;
+  user-select: none;
+}
+
 /* Toolbar wordmark — handwritten "Elastos · Hey" */
 .hey-brand-wordmark {
   font-family: "Dancing Script", cursive;
