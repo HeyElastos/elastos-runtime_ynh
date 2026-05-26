@@ -10,21 +10,15 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <title>Hey-Home · Elastos</title>
     <!--
-      Content-Security-Policy — defense in depth against XSS-injected
-      <script> tags. Allowances:
-        script 'unsafe-inline' + 'unsafe-eval' — the upstream shell's
-          WASM init does eval-style work, and we attach inline event
-          handlers in dynamically-created DOM.
-        style 'unsafe-inline' — Tailwind-ish inline styles + Google
-          Fonts injection.
-        font + style allow https://fonts.googleapis.com / gstatic.com
-          for the Dancing Script + Inter wordmark fonts.
-        connect-src 'self' — every runtime call (localhost-provider,
-          capability, provider/*) is same-origin via the gateway.
-        object-src 'none' + base-uri 'self' + form-action 'self' —
-          shut down plug-in embeds, base-href tricks, form exfiltration.
+      CSP intentionally NOT set here. An earlier attempt at a strict
+      CSP broke the upstream shell's WASM / worker-via-blob script
+      loading and locked out the launcher + topbar painting. Defense-
+      in-depth XSS protection should come from the runtime gateway
+      sending a CSP header per-capsule (where the policy can be tuned
+      to whatever the shell actually needs) rather than a one-size
+      meta tag baked into the HTML. Re-add only after testing with the
+      live shell + every WASM capsule the user might launch.
     -->
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self';" />
     <link rel="manifest" href="./manifest.webmanifest?v=home-20260427b" />
     <link rel="icon" href="./elastos-home-icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="./elastos-home-icon-192.png" />
