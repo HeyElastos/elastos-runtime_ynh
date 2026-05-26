@@ -172,14 +172,24 @@ for name in ("home", "system", "chat-room", "hey-home"):
             tar.add(browser, arcname=f"{name}/browser")
     stamp(info, archive.read_bytes())
 
-# ── 4) DATA CAPSULES (documents, library, inbox) ──
-for name in ("documents", "library", "inbox"):
+# ── 4) DATA CAPSULES (documents, library, inbox, hey-social) ──
+# hey-social ships a Vite-built React bundle: capsule.json + index.html +
+# an assets/ subtree + the brand SVG. The other three are minimal
+# (capsule.json + index.html only). Loop handles both shapes — include
+# assets/ + any *.svg sitting at the root if they exist, otherwise just
+# the two files.
+for name in ("documents", "library", "inbox", "hey-social"):
     info = platform_info(name)
     capsule_dir = capsules / name
     archive = artifacts_dir / info["release_path"]
     with tarfile.open(archive, "w:gz") as tar:
         tar.add(capsule_dir / "capsule.json", arcname=f"{name}/capsule.json")
         tar.add(capsule_dir / "index.html", arcname=f"{name}/index.html")
+        assets_dir = capsule_dir / "assets"
+        if assets_dir.is_dir():
+            tar.add(assets_dir, arcname=f"{name}/assets")
+        for extra in capsule_dir.glob("*.svg"):
+            tar.add(extra, arcname=f"{name}/{extra.name}")
     stamp(info, archive.read_bytes())
 
 # Write the patched manifest the local publisher serves.
@@ -267,7 +277,7 @@ cp "$SOURCE_RUNTIME_DATA_DIR/components.json" "$CLIENT_HOME/xdg-data/elastos/com
 # SETUP --profile home (fetches via local-Carrier loop)
 #=================================================
 
-ynh_script_progression --message="Running elastos setup --profile home --with chat-room,ipfs-provider,kubo,inbox,library,documents..." --weight=5
+ynh_script_progression --message="Running elastos setup --profile home --with chat-room,ipfs-provider,kubo,inbox,library,documents,hey-social..." --weight=5
 # Home profile (now includes hey-home in this fork's components.json) +
 # chat-room. chat-room is the minimum addition needed for `elastos room
 # open` to start the /apps/<X>/ browser gateway.
@@ -284,8 +294,8 @@ ynh_script_progression --message="Running elastos setup --profile home --with ch
 ynh_exec_as "$app" \
     env HOME="$CLIENT_HOME" \
         XDG_DATA_HOME="$CLIENT_HOME/xdg-data" \
-    "$install_dir/elastos/target/debug/elastos" setup --profile home --with chat-room,ipfs-provider,kubo,inbox,library,documents \
-    || ynh_die --message="elastos setup --profile home --with chat-room,ipfs-provider,kubo,inbox,library,documents failed. Check $SOURCE_RUNTIME_LOG."
+    "$install_dir/elastos/target/debug/elastos" setup --profile home --with chat-room,ipfs-provider,kubo,inbox,library,documents,hey-social \
+    || ynh_die --message="elastos setup --profile home --with chat-room,ipfs-provider,kubo,inbox,library,documents,hey-social failed. Check $SOURCE_RUNTIME_LOG."
 
 ynh_script_progression --message="Running elastos setup --profile operator (registers operator lane)..." --weight=2
 # operator profile = {shell, localhost-provider, did-provider}, all

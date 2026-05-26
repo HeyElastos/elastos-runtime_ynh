@@ -639,8 +639,18 @@ function glyphSvg(targetId) {
       </svg>
     `;
   }
-  if (targetId.includes("hey-home") || targetId.includes("hey-social") || targetId === "hey") {
-    // Hey's brand "h" — handwritten cursive curl in a rounded tile.
+  if (targetId === "hey-social") {
+    // Hey Social — camera+chat combo glyph (photo viewfinder with a
+    // speech bubble inside) to signal "photo + chat" at a glance.
+    return `
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M4 8.25A2.25 2.25 0 0 1 6.25 6h2l1.5-2h4.5l1.5 2h2A2.25 2.25 0 0 1 20 8.25v9A2.25 2.25 0 0 1 17.75 19.5h-11.5A2.25 2.25 0 0 1 4 17.25Z" />
+        <circle cx="12" cy="13" r="3.4" />
+      </svg>
+    `;
+  }
+  if (targetId.includes("hey-home") || targetId.includes("hey") || targetId === "hey") {
+    // Other Hey-* apps (shell, future variants): handwritten cursive curl.
     return `
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <path d="M6 4v16" />

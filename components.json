@@ -549,6 +549,20 @@
           "install_path": "models/Qwen3.5-9B-Q4_K_M.gguf"
         }
       }
+    },
+    "hey-social": {
+      "install_path": "capsules/hey-social",
+      "description": "Hey Social \u2014 photo + video + chat social app on Elastos",
+      "platforms": {
+        "*": {
+          "cid": "",
+          "checksum": "",
+          "size": 0,
+          "release_path": "hey-social.tar.gz",
+          "extract_path": "hey-social",
+          "install_path": "capsules/hey-social"
+        }
+      }
     }
   },
   "profiles": {
