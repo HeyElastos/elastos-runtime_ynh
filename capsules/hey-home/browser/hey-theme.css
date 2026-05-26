@@ -688,14 +688,37 @@ body[data-locked="loading"]::before {
   padding-right: 4px;
 }
 
-/* Hide the upstream icon buttons in the toolbar (inbox bell + fullscreen
-   icon). The simulator's topbar is text + status only; if we want these
-   actions later they should be capsule shortcuts, not toolbar buttons. */
-.toolbar .inbox-btn,
-.toolbar .fullscreen-btn,
+/* Topbar icon buttons (inbox + fullscreen). Restored from the
+   previous hidden state — fullscreen is genuinely useful on this
+   shell, and the inbox badge tied into the runtime's summary endpoint
+   is a real cross-app affordance. Inherits the .toolbar-btn polish
+   pass styling (frosted hover, brand-ring focus). */
 .toolbar #toolbar-inbox,
 .toolbar #toolbar-fullscreen {
-  display: none !important;
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+}
+.toolbar #toolbar-inbox img,
+.toolbar #toolbar-fullscreen img {
+  width: 16px;
+  height: 16px;
+  opacity: 0.85;
+  filter: brightness(1.1);
+}
+.toolbar #toolbar-inbox:hover img,
+.toolbar #toolbar-fullscreen:hover img {
+  opacity: 1;
+  filter: brightness(1.2) drop-shadow(0 0 4px var(--accent-glow, rgba(212,184,75,0.4)));
+}
+.toolbar-clock {
+  margin-left: 12px;
+  padding: 3px 9px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  color: var(--text);
+  font-weight: 500;
 }
 
 /* Context menu (right-click on shortcuts / desktop) — frosted Hey style.
