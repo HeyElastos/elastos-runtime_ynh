@@ -88,6 +88,15 @@ export function apiUrl(url) {
   return API_BASE + url;
 }
 
+// Prefix root-absolute capsule routes (e.g. "/apps/hey-social/") with the
+// same install base. Used when the shell opens an iframe to a sibling
+// capsule — the server returns root-absolute routes, but under a YunoHost
+// subpath the browser needs "/elastos/apps/hey-social/" instead.
+export function appRoute(route) {
+  if (typeof route !== "string" || !route.startsWith("/apps/")) return route;
+  return API_BASE + route;
+}
+
 export async function fetchJson(url, init) {
   const response = await fetch(apiUrl(url), {
     ...init,
