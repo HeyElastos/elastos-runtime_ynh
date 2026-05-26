@@ -58,7 +58,12 @@ pub async fn serve_browser_app_index(
     AxumPath(app): AxumPath<String>,
 ) -> Response {
     let mut response = serve_browser_capsule_path(&state.data_dir, &app, None).await;
-    if app == super::gateway::HOME_CAPSULE_ID && response.status().is_success() {
+    // Mint the home-session cookie when serving any shell-role capsule
+    // (stock `home`, plus the hey-home fork). Without this, navigating
+    // straight to /apps/hey-home/ leaves the browser without a cookie
+    // and every /api/apps/home/* call comes back 403.
+    let issues_home_session = app == super::gateway::HOME_CAPSULE_ID || app == "hey-home";
+    if issues_home_session && response.status().is_success() {
         match super::gateway::home_session_cookie_header(
             &state.data_dir,
             super::gateway::request_uses_tls(&headers),
