@@ -41,13 +41,18 @@ ensure_localhost_encryption_key
 # Make sure capsules added to the install flow since the previous
 # upgrade get pulled in for existing installs too. `setup --with`
 # is idempotent — already-installed components are a no-op.
-ynh_script_progression --message="Ensuring notepad capsule is installed..." --weight=2
+#
+# inbox / library / documents are the GUI-launchable data capsules
+# that should appear in the dock's launcher. Notepad is intentionally
+# absent: its capsule.json declares microvm + rootfs.ext4, which the
+# install pipeline doesn't build yet.
+ynh_script_progression --message="Ensuring GUI capsules (inbox/library/documents) are installed..." --weight=2
 sudo -u "$app" \
     HOME="$(elastos_home)" \
-    XDG_DATA_HOME="$(elastos_home)/.local/share" \
+    XDG_DATA_HOME="$(elastos_home)/xdg-data" \
     XDG_CONFIG_HOME="$(elastos_home)/.config" \
-    "$install_dir/elastos/target/debug/elastos" setup --with notepad \
-    || ynh_print_warn --message="elastos setup --with notepad failed (continuing — notepad may already be present)."
+    "$install_dir/elastos/target/debug/elastos" setup --with inbox,library,documents \
+    || ynh_print_warn --message="elastos setup --with inbox,library,documents failed (continuing — they may already be present)."
 
 ynh_script_progression --message="Starting Elastos Runtime..." --weight=3
 ynh_systemd_action --service_name="$app" --action="start" \

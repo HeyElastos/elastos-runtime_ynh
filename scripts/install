@@ -267,18 +267,25 @@ cp "$SOURCE_RUNTIME_DATA_DIR/components.json" "$CLIENT_HOME/xdg-data/elastos/com
 # SETUP --profile home (fetches via local-Carrier loop)
 #=================================================
 
-ynh_script_progression --message="Running elastos setup --profile home --with chat-room,ipfs-provider,kubo,notepad..." --weight=5
+ynh_script_progression --message="Running elastos setup --profile home --with chat-room,ipfs-provider,kubo,inbox,library,documents..." --weight=5
 # Home profile (now includes hey-home in this fork's components.json) +
 # chat-room. chat-room is the minimum addition needed for `elastos room
 # open` to start the /apps/<X>/ browser gateway.
-# notepad is a native capability-aware notes CLI: built by
-# build_runtime_and_capsules, staged alongside the providers, and
-# registered in components.json so --with notepad resolves.
+#
+# GUI-launchable apps that show in the dock's launcher:
+#   chat-room   → federated chat (WASM)
+#   inbox       → cross-app notifications (data capsule with index.html)
+#   library     → media library (data capsule with index.html)
+#   documents   → document viewer (data capsule with index.html)
+# Notepad is NOT in this list — its capsule.json declares it as a
+# microvm with rootfs.ext4 entrypoint, but the install pipeline only
+# builds native + WASM + data capsules. Re-add when a microvm build
+# step exists.
 ynh_exec_as "$app" \
     env HOME="$CLIENT_HOME" \
         XDG_DATA_HOME="$CLIENT_HOME/xdg-data" \
-    "$install_dir/elastos/target/debug/elastos" setup --profile home --with chat-room,ipfs-provider,kubo,notepad \
-    || ynh_die --message="elastos setup --profile home --with chat-room,ipfs-provider,kubo,notepad failed. Check $SOURCE_RUNTIME_LOG."
+    "$install_dir/elastos/target/debug/elastos" setup --profile home --with chat-room,ipfs-provider,kubo,inbox,library,documents \
+    || ynh_die --message="elastos setup --profile home --with chat-room,ipfs-provider,kubo,inbox,library,documents failed. Check $SOURCE_RUNTIME_LOG."
 
 ynh_script_progression --message="Running elastos setup --profile operator (registers operator lane)..." --weight=2
 # operator profile = {shell, localhost-provider, did-provider}, all
