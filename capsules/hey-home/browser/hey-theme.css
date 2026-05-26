@@ -163,9 +163,22 @@ html::after {
   z-index: 2;
 }
 
-/* Top toolbar — flat translucent strip */
+/* Top toolbar — full-width frosted strip.
+   Upstream style.css fixes the toolbar to `width: max-content` + a
+   transform-centered pill in the middle of the screen. That's the
+   "topbar looks broken / missing" symptom — it's there, just tiny.
+   Override to a real desktop menu-bar shape: full viewport width,
+   anchored at top:0, with the brand on the left and status / clock
+   on the right (the toolbar-spacer's `margin-right:auto` already
+   pushes the two groups apart). */
 .toolbar {
-  background: rgba(2, 9, 22, 0.5);
+  left: 0;
+  right: 0;
+  width: auto;
+  max-width: none;
+  transform: none;
+  justify-content: flex-start;
+  background: rgba(2, 9, 22, 0.62);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
   border-bottom: 1px solid var(--frosted-border);
