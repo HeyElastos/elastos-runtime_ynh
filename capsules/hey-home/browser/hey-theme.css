@@ -766,3 +766,162 @@ body[data-locked="loading"]::before {
   box-shadow: 0 0 0 3px var(--brand-ring) !important;
   outline: none;
 }
+
+/* ─────────────────────────────────────────────────────────────────────
+   Polish pass — covers stock-styling bleed-through across the rest of
+   the UI surface: toolbar buttons, inbox badge, taskbar entries,
+   launcher cards / search / groups / empty state, window iframe + snap
+   preview, drag ghost, global selection.
+   ─────────────────────────────────────────────────────────────────────*/
+
+/* Toolbar buttons (inbox, fullscreen) — soft frosted hover instead of
+   the bare 0.8-opacity stock look. */
+.toolbar-btn {
+  border-radius: 6px;
+  transition: background 0.15s ease, opacity 0.15s ease;
+}
+.toolbar-btn:hover {
+  background: rgba(255, 255, 255, 0.07);
+  opacity: 1;
+}
+.toolbar-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--brand-ring);
+}
+
+/* Inbox count badge — accent amber instead of the stock red pip. */
+.toolbar-inbox-count {
+  background: var(--accent) !important;
+  color: var(--bg-deep, #020617) !important;
+  font-weight: 700 !important;
+  box-shadow: 0 0 0 1.5px rgba(2, 9, 22, 0.6) !important;
+}
+
+/* Taskbar app entries — gentle frosted hover so the running-app icons
+   feel like the rest of the dock. */
+.taskbar-entry {
+  border-radius: 10px;
+  transition: background 0.15s ease;
+}
+.taskbar-entry:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+/* The CSS-only "four squares" launcher icon — repaint in accent gold
+   so it matches the brand instead of the stock white. */
+.taskbar-icon-launcher::before {
+  background:
+    linear-gradient(var(--accent) 0 0) left top / 7px 7px no-repeat,
+    linear-gradient(var(--accent) 0 0) right top / 7px 7px no-repeat,
+    linear-gradient(var(--accent) 0 0) left bottom / 7px 7px no-repeat,
+    linear-gradient(var(--accent) 0 0) right bottom / 7px 7px no-repeat !important;
+  filter: drop-shadow(0 0 6px rgba(212, 184, 75, 0.35));
+}
+
+/* Launcher card title — drop the stock soft-blue color, use Hey's
+   primary text color so titles are crisp on the frosted card. */
+.launcher-card-title {
+  color: var(--text) !important;
+  letter-spacing: 0.01em;
+  font-weight: 500;
+}
+.launcher-card-body {
+  gap: 0.4rem;
+}
+
+/* Launcher empty state — center it + use Hey's muted tone. */
+.launcher-empty {
+  color: var(--muted) !important;
+  font-style: italic;
+  text-align: center;
+  padding: 28px 12px;
+}
+
+/* Launcher group headings — slightly more present + accent-tinted. */
+.launcher-group-heading {
+  color: var(--muted) !important;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+/* Launcher search field icon — recolor to accent so it matches the
+   gold theme rather than the stock muted blue. */
+.launcher-search-wrap::before {
+  filter: brightness(1.2) saturate(1.4) hue-rotate(-25deg);
+  opacity: 0.65;
+}
+
+/* Window iframe — transparent so the embedded app's own background
+   shows through (apps with dark themes won't flash white). */
+.window-frame {
+  background: transparent !important;
+}
+
+/* Window snap preview — when dragging a window near a screen edge,
+   the stock preview is a light-blue tint. Recolor to accent so it
+   matches the rest of the dock. */
+.window-snap-preview {
+  background: rgba(212, 184, 75, 0.08) !important;
+  box-shadow:
+    inset 0 0 0 1.5px rgba(212, 184, 75, 0.55),
+    0 0 24px rgba(212, 184, 75, 0.15) !important;
+  border-radius: 14px !important;
+}
+
+/* Desktop-shortcut drag ghost — bump the frosted look to match the
+   rest of the Hey aesthetic. */
+.desktop-shortcut-ghost {
+  background: rgba(2, 9, 22, 0.55) !important;
+  border: 1px solid rgba(212, 184, 75, 0.3) !important;
+  border-radius: 12px !important;
+  backdrop-filter: blur(14px) !important;
+  -webkit-backdrop-filter: blur(14px) !important;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4) !important;
+}
+
+/* App-glyph tone variants — the launcher / shortcut icons that use
+   different "tone" hues per category. Tinted toward Hey's gold for
+   the active/hovered state so the desktop reads coherent. */
+.desktop-shortcut:hover .app-glyph,
+.launcher-card:hover .app-glyph {
+  filter: brightness(1.08) saturate(1.1) drop-shadow(0 0 6px rgba(212, 184, 75, 0.18));
+}
+
+/* Global text selection — amber tint instead of the OS-default blue. */
+::selection {
+  background: rgba(212, 184, 75, 0.32);
+  color: #fff;
+}
+::-moz-selection {
+  background: rgba(212, 184, 75, 0.32);
+  color: #fff;
+}
+
+/* Focus ring polish — anywhere the stock leaves a default browser
+   focus outline, replace with Hey's brand ring. */
+button:focus-visible,
+[role="button"]:focus-visible,
+input:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--brand-ring);
+}
+
+/* Native scrollbar — slim, frosted, accent thumb. Webkit-only, but
+   Firefox uses scrollbar-color further down via :root. */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(212, 184, 75, 0.45);
+}
+html { scrollbar-color: rgba(255, 255, 255, 0.10) transparent; }
