@@ -545,6 +545,12 @@ export function glyphTone(targetId) {
   if (targetId.includes("gba") || targetId.includes("emu") || targetId.includes("game")) {
     return "games";
   }
+  if (targetId === "library" || targetId.includes("library") || targetId.includes("media")) {
+    return "docs";
+  }
+  if (targetId.includes("hey")) {
+    return "default";
+  }
   return "default";
 }
 
@@ -610,6 +616,36 @@ function glyphSvg(targetId) {
         <path d="M14 3.75V8h4" />
         <path d="M9 12h6" />
         <path d="M9 15h6" />
+      </svg>
+    `;
+  }
+  if (targetId === "library" || targetId.includes("library") || targetId.includes("media")) {
+    // Stack of books — visually distinct from the document icon.
+    return `
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <rect x="3.75" y="4.5" width="3.5" height="15" rx="1" />
+        <rect x="8.75" y="4.5" width="3.5" height="15" rx="1" />
+        <path d="M14.25 6.5l3.4-1.05a1 1 0 0 1 1.25.68l3.7 12.3a1 1 0 0 1-.68 1.25l-3.4 1.05a1 1 0 0 1-1.25-.68l-3.7-12.3a1 1 0 0 1 .68-1.25Z" />
+      </svg>
+    `;
+  }
+  if (targetId.includes("notepad") || targetId.includes("note")) {
+    return `
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <rect x="5" y="3.5" width="14" height="17" rx="2" />
+        <path d="M9 8h6" />
+        <path d="M9 12h6" />
+        <path d="M9 16h4" />
+      </svg>
+    `;
+  }
+  if (targetId.includes("hey-home") || targetId.includes("hey-social") || targetId === "hey") {
+    // Hey's brand "h" — handwritten cursive curl in a rounded tile.
+    return `
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M6 4v16" />
+        <path d="M6 12c2-3 6-3 6 0v8" />
+        <circle cx="18" cy="7" r="1.4" fill="currentColor" stroke="none" />
       </svg>
     `;
   }
