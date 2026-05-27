@@ -345,23 +345,25 @@ html::after {
    macOS traffic-light circles in place of the upstream icon buttons.
    ───────────────────────────────────────────────────────────────────*/
 .window {
-  /* Match the dock's frosted material — same blur, same border token,
-     same shadow profile. Background sits between the dock's --frosted-bg
-     (8% white over the wallpaper) and the prior near-opaque navy: dark
-     enough that app content stays readable on top, light enough that
-     the wallpaper blobs bleed through behind the chrome. */
-  background: rgba(15, 23, 42, 0.55);
-  border: 1px solid var(--frosted-border);
+  /* Same warm-frosted material as the topbar, dock, and launcher popover.
+     Light mode: cream tint. Dark mode: deep navy. All four surfaces now
+     share one recipe so the desktop reads as a single material system. */
+  background: rgba(255, 245, 230, 0.55);
+  border: 1px solid rgba(180, 200, 255, 0.30);
   border-radius: 16px;
-  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5),
-              0 0 0 1px rgba(255, 255, 255, 0.05);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.55),
+    0 16px 40px rgba(10, 20, 40, 0.30),
+    0 0 0 1px rgba(255, 255, 255, 0.06);
   backdrop-filter: blur(40px);
   -webkit-backdrop-filter: blur(40px);
   overflow: hidden;
 }
 .window-head {
-  background: rgba(15, 23, 42, 0.85) !important;
-  border-bottom: 1px solid var(--frosted-border);
+  /* Transparent so the window's warm-frosted body shows through; the
+     bottom hairline is the only thing separating chrome from content. */
+  background: transparent !important;
+  border-bottom: 1px solid rgba(120, 140, 180, 0.22);
   min-height: 36px !important;
   height: 36px;
   padding: 0 12px !important;
@@ -1114,5 +1116,30 @@ html { scrollbar-color: rgba(255, 255, 255, 0.10) transparent; }
     box-shadow:
       inset 0 1px 0 rgba(255, 255, 255, 0.08),
       0 6px 20px rgba(0, 0, 0, 0.45);
+  }
+}
+
+/* Dark-mode window chrome — match the topbar / dock / launcher recipe. */
+@media (prefers-color-scheme: dark) {
+  .window {
+    background: rgba(15, 22, 38, 0.55);
+    border-color: rgba(120, 160, 220, 0.30);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.08),
+      0 16px 40px rgba(0, 0, 0, 0.55),
+      0 0 0 1px rgba(255, 255, 255, 0.04);
+  }
+  .window-head {
+    border-bottom-color: rgba(120, 160, 220, 0.22);
+  }
+  .window-head-title {
+    color: rgba(255, 255, 255, 0.78);
+  }
+}
+
+/* Light-mode head title: darker text so it reads on warm-cream chrome. */
+@media (prefers-color-scheme: light), (prefers-color-scheme: no-preference) {
+  .window-head-title {
+    color: rgba(30, 40, 60, 0.72);
   }
 }

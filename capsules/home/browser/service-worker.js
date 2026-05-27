@@ -1,4 +1,4 @@
-const CACHE_NAME = "elastos-home-20260527b";
+const CACHE_NAME = "elastos-home-20260527c";
 const CACHE_PREFIX = "elastos-home-";
 
 self.addEventListener("install", (event) => {
