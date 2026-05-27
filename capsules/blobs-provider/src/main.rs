@@ -39,21 +39,30 @@ enum Request {
     Drop { hash: String },
 }
 
+// Wire protocol matches elastos-runtime's ProviderResponse (bridge.rs):
+//   { "status": "ok",    "data": <value> }
+//   { "status": "error", "code": "<short>", "message": "<long>" }
+// Anything else and the Init handshake fails with BridgeError::InitFailed,
+// which the runtime logs at debug! and the provider never registers.
 #[derive(Debug, Serialize)]
-struct Response {
-    ok: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    error: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    data: Option<serde_json::Value>,
+#[serde(tag = "status", rename_all = "snake_case")]
+enum Response {
+    Ok {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        data: Option<serde_json::Value>,
+    },
+    Error {
+        code: String,
+        message: String,
+    },
 }
 
 impl Response {
     fn ok(data: serde_json::Value) -> Self {
-        Self { ok: true, error: None, data: Some(data) }
+        Self::Ok { data: Some(data) }
     }
     fn err(msg: impl Into<String>) -> Self {
-        Self { ok: false, error: Some(msg.into()), data: None }
+        Self::Error { code: "blobs_provider".into(), message: msg.into() }
     }
 }
 
