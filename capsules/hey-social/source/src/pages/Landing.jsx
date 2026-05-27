@@ -1,10 +1,152 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import { signUp } from "../api/auth";
 import { passkeySignup, passkeySupported } from "../api/passkey";
 import { setProfile } from "../hooks/useProfile";
 import { copyToClipboard } from "../utils/clipboard";
+import { readSharedIdentity, writeSharedIdentity } from "../lib/shell";
+import { setSession } from "../lib/session";
+import { expandKeypair, hashAuthKey, bytesToHex, sign, ELASTOS_IDENTITY_PRF_INPUT } from "../lib/identity";
+import { storage } from "../lib/runtime";
+
+// ── Unified-identity adoption (Approach A step 5f) ──────────────────
+//
+// When a user signed up via the home shell's welcome screen (passkey
+// path), the shared identity at .AppData/Identity/profile.json
+// already holds their didKey + passkey credentials. Hey Social
+// shouldn't ask them to sign up again — it should adopt that
+// identity in one tap. This block does the WebAuthn assertion, calls
+// /api/auth/unlock to graduate the runtime session, then synthesizes
+// Hey's local profile from the shared identity record. No Hey-side
+// passkey-challenge.json write needed (which would 403 in PreAuth).
+
+const apiBase = () => {
+  if (typeof window === "undefined") return "";
+  const m = window.location.pathname.match(/^(.*?)\/apps\/[^/]+\//);
+  return m ? m[1] : "";
+};
+
+const authedFetch = (path, init = {}) => {
+  const bearer =
+    typeof window !== "undefined"
+      ? window.sessionStorage.getItem("hey-runtime-token")
+      : null;
+  return fetch(apiBase() + path, {
+    credentials: "include",
+    ...init,
+    headers: {
+      "Content-Type": "application/json",
+      ...(init.headers || {}),
+      ...(bearer ? { Authorization: `Bearer ${bearer}` } : {}),
+    },
+  });
+};
+
+const b64uDecode = (b64u) => {
+  const pad = (4 - (b64u.length % 4)) % 4;
+  const b64 = b64u.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat(pad);
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+};
+
+// Adopt the home-welcome-signed-up identity into Hey Social. Returns
+// true on success; the caller navigates after.
+const adoptSharedIdentityViaPasskey = async (shared) => {
+  if (!shared?.didKey) throw new Error("No shared identity to adopt");
+  const allowCreds = (shared.passkeys || [])
+    .map((pk) => {
+      try {
+        return { id: b64uDecode(pk.id), type: "public-key", transports: pk.transports || [] };
+      } catch { return null; }
+    })
+    .filter(Boolean);
+  if (allowCreds.length === 0) {
+    throw new Error("Shared identity has no passkey credentials to assert");
+  }
+
+  // Server-issued challenge — avoids writing Hey's own
+  // passkey-challenge.json, which would 403 in PreAuth.
+  const challResp = await authedFetch("/api/auth/unlock/challenge", { method: "POST" });
+  if (!challResp.ok) throw new Error(`unlock challenge HTTP ${challResp.status}`);
+  const { challenge_id, challenge_hex } = await challResp.json();
+  if (!challenge_id || !challenge_hex) throw new Error("unlock challenge response invalid");
+  const challengeBytes = new Uint8Array(
+    challenge_hex.match(/.{2}/g).map((h) => parseInt(h, 16))
+  );
+
+  // WebAuthn assertion requesting the identity-PRF (matches what the
+  // welcome screen used at enrollment).
+  const assertion = await navigator.credentials.get({
+    publicKey: {
+      challenge: challengeBytes,
+      rpId: window.location.hostname,
+      timeout: 60_000,
+      userVerification: "required",
+      allowCredentials: allowCreds,
+      extensions: {
+        prf: { eval: { first: ELASTOS_IDENTITY_PRF_INPUT } },
+      },
+    },
+  });
+  if (!assertion) throw new Error("Passkey assertion cancelled");
+
+  const prfRaw = assertion.getClientExtensionResults?.()?.prf?.results?.first;
+  const identityPrf = prfRaw ? new Uint8Array(prfRaw) : null;
+  if (!identityPrf || identityPrf.length !== 32) {
+    throw new Error("Passkey didn't return PRF output — can't derive identity");
+  }
+
+  // Sign the challenge with the identityPrf-derived Ed25519 key and
+  // submit to /api/auth/unlock for server-side verification.
+  const authKey = bytesToHex(identityPrf);
+  const { seed, didKey } = expandKeypair(authKey);
+  const signatureHex = sign(challengeBytes, seed);
+  const unlockResp = await authedFetch("/api/auth/unlock", {
+    method: "POST",
+    body: JSON.stringify({ method: "passkey", challenge_id, signature_hex: signatureHex }),
+  });
+  if (!unlockResp.ok) {
+    throw new Error(`unlock denied (HTTP ${unlockResp.status})`);
+  }
+
+  // Session is now Authenticated. Stand up Hey's session keypair +
+  // local profile so the app can sign + write as the same DID.
+  await setSession(authKey);
+  const authKeyHash = await hashAuthKey(authKey);
+  const user = {
+    id: crypto.randomUUID(),
+    name: shared.name || "Hey user",
+    authKeyHash,
+    didKey,
+    role: "general",
+    avatar: shared.avatar || "",
+    bio: shared.bio || "",
+    followers: [], following: [],
+    pendingFollowers: [], pendingFollowing: [],
+    createdAt: shared.createdAt || new Date().toISOString(),
+  };
+  await storage.writeJson("profile.json", user).catch((err) =>
+    console.warn("[hey] adopt: profile write failed", err)
+  );
+  return {
+    user: {
+      id: user.id,
+      name: user.name,
+      bio: user.bio,
+      avatar: user.avatar,
+      role: user.role,
+      didKey,
+      counts: { followers: 0, following: 0 },
+    },
+    authKey,
+    accessToken: "capsule-session",
+    refreshToken: "capsule-session",
+    accessTokenUpdatedAt: new Date().toISOString(),
+  };
+};
 
 export const FloatingScene = () => (
   <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden="true">
@@ -236,6 +378,44 @@ const Landing = () => {
   const [passkeyBusy, setPasskeyBusy] = useState(false);
   const canUsePasskey = passkeySupported();
 
+  // Step 5f: unified-identity adoption. If the user already signed up
+  // via the home-shell welcome screen, the shared identity file on the
+  // node carries their did:key + passkey credential list. Skip Hey's
+  // signup wizard and offer one-click adoption instead.
+  const [sharedIdentity, setSharedIdentity] = useState(null);
+  const [adoptBusy, setAdoptBusy] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const shared = await readSharedIdentity().catch(() => null);
+      if (cancelled) return;
+      if (shared?.didKey && (shared.passkeys || []).length > 0) {
+        setSharedIdentity(shared);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  const handleAdoptSharedIdentity = async () => {
+    setError(null);
+    setAdoptBusy(true);
+    try {
+      const data = await adoptSharedIdentityViaPasskey(sharedIdentity);
+      const profile = {
+        user: data.user,
+        accessToken: data.accessToken,
+        refreshToken: data.refreshToken,
+      };
+      setProfile(profile);
+      navigate("/");
+    } catch (err) {
+      console.error("[hey] adopt-shared failed", err);
+      setError(err.message || "Couldn't sign in with your existing passkey.");
+    } finally {
+      setAdoptBusy(false);
+    }
+  };
+
   const handlePasskeySignup = async () => {
     setError(null);
     if (!name.trim()) {
@@ -321,11 +501,47 @@ const Landing = () => {
           Just pick a nickname and we'll generate your secret key.
         </p>
 
+        {sharedIdentity && (
+          <div
+            className="relative mx-auto mt-12 max-w-md animate-fade-up"
+            style={{ animationDelay: "1.5s" }}
+          >
+            <div className="frosted-card flex flex-col gap-3 p-5 text-left">
+              <p className="text-xs uppercase tracking-[0.3em] text-muted">
+                Welcome back
+              </p>
+              <p className="text-lg font-semibold text-primary">
+                {sharedIdentity.name || "Your Elastos identity is on this node"}
+              </p>
+              <p className="text-xs text-muted leading-5">
+                You already signed up via the lock screen with a passkey. Tap
+                to sign in here too — no second account needed.
+              </p>
+              <button
+                type="button"
+                onClick={handleAdoptSharedIdentity}
+                disabled={adoptBusy}
+                className="unfrost mt-1 inline-flex items-center justify-center gap-2 rounded-full bg-accent px-5 py-3 text-sm font-semibold text-accent-text shadow-lg transition hover:bg-amber-300 disabled:opacity-50"
+              >
+                <svg viewBox="0 0 24 24" className="h-4 w-4 fill-current">
+                  <path d="M12 2a5 5 0 0 0-5 5v3H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8a2 2 0 0 0-2-2h-1V7a5 5 0 0 0-5-5Zm-3 8V7a3 3 0 0 1 6 0v3H9Z" />
+                </svg>
+                {adoptBusy ? "Tap your passkey…" : "Sign in with my passkey"}
+              </button>
+              {error && (
+                <p className="text-xs text-red-400">{error}</p>
+              )}
+            </div>
+          </div>
+        )}
+
         <div
-          className="relative mx-auto mt-16 max-w-md animate-fade-up"
+          className={`relative mx-auto mt-16 max-w-md animate-fade-up ${
+            sharedIdentity ? "opacity-60" : ""
+          }`}
           style={{ animationDelay: "1.6s" }}
         >
-          <ArrowCue />
+          {!sharedIdentity && <ArrowCue />}
 
           <form
             onSubmit={handleSubmit}
