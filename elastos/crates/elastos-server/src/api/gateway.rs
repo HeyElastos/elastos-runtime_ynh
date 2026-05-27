@@ -645,6 +645,13 @@ struct HomeTargetSummary {
     attach_kind: String,
     role: CapsuleRole,
     target_kind: HomeTargetKind,
+    /// Capsule-relative icon path declared in the capsule's manifest
+    /// (e.g. "hey-icon.svg"). The launcher resolves this against the
+    /// capsule's route to render `<img src="<route><icon>">`. Null
+    /// when the capsule didn't declare one — the launcher falls back
+    /// to its hardcoded glyph for that target.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    icon: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -1429,6 +1436,7 @@ fn home_targets(data_dir: &std::path::Path) -> Vec<HomeTargetSummary> {
                 route: format!("/apps/{}/", app.name),
                 title: app_shell_title(&app.name),
                 description: app_shell_description(&app.name, app.description),
+                icon: app.icon,
                 target: app.name,
                 attach_kind: "iframe".to_string(),
                 role: app.role,
@@ -1446,6 +1454,7 @@ fn home_targets(data_dir: &std::path::Path) -> Vec<HomeTargetSummary> {
                     &capsule.viewer,
                     capsule.description.as_deref(),
                 ),
+                icon: None,
                 target: capsule.name,
                 attach_kind: "iframe".to_string(),
                 role: CapsuleRole::Content,

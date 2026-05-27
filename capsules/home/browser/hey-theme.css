@@ -1196,3 +1196,29 @@ body.dragging-window .window .window-body * {
 /* The dragged window's title bar / resize handles still need pointer
    events (setPointerCapture target). Title and resize handles aren't
    inside window-body so the rule above already leaves them alone. */
+
+/* Capsule manifest-declared icons (.capsule-icon-img) — when a capsule's
+   capsule.json declares an `icon` field, mountGlyph renders an <img>
+   instead of an inline SVG glyph. Fill the glyph container fully so the
+   capsule's own artwork dominates without the tonal background bleeding
+   through. Drop the tonal gradient when an img icon is in use; the
+   capsule's icon supplies its own visual identity. */
+.app-glyph[data-icon-kind="manifest"],
+.taskbar-item-icon[data-icon-kind="manifest"],
+.window-head-icon[data-icon-kind="manifest"],
+.desktop-shortcut-icon[data-icon-kind="manifest"] {
+  background: transparent;
+  box-shadow: none;
+  border: none;
+}
+.app-glyph .capsule-icon-img,
+.taskbar-item-icon .capsule-icon-img,
+.window-head-icon .capsule-icon-img,
+.desktop-shortcut-icon .capsule-icon-img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+  user-select: none;
+  -webkit-user-drag: none;
+}

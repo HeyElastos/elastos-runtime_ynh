@@ -4,6 +4,7 @@
   "version": "0.1.0",
   "description": "Hey Social — photo, video, and chat on Elastos. Federated peer-to-peer via Carrier; media on IPFS; sovereign identity via passkey + did:key.",
   "author": "HeyElastos",
+  "icon": "hey-icon.svg",
   "role": "app",
   "type": "data",
   "entrypoint": "index.html",

@@ -26,6 +26,12 @@ pub(crate) struct LaunchableBrowserCapsule {
     pub name: String,
     pub description: Option<String>,
     pub role: CapsuleRole,
+    /// Optional path (relative to the capsule root) to the capsule's
+    /// brand icon — comes straight from `capsule.json`'s `icon` field.
+    /// The launcher uses this to render the real icon via
+    /// `<img src="/apps/<name>/<icon>">` instead of the hardcoded
+    /// glyph fallback in `shell-core.js`.
+    pub icon: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -146,6 +152,7 @@ pub(crate) fn list_launchable_browser_capsules(data_dir: &Path) -> Vec<Launchabl
                     name: capsule.manifest.name,
                     description: capsule.manifest.description,
                     role: capsule.manifest.role,
+                    icon: capsule.manifest.icon,
                 });
         }
     }

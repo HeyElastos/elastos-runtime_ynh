@@ -546,6 +546,29 @@ export function clampDesktopLayoutToViewport() {
 export function mountGlyph(container, targetId, forcedTone) {
   const tone = forcedTone || glyphTone(targetId);
   container.dataset.tone = tone;
+  // Prefer the capsule's own brand icon when its manifest declared one.
+  // `currentSummary.targets[i]` carries the icon path + capsule route
+  // surfaced from `capsule.json`'s `icon` field — see
+  // `home_targets()` in elastos-server/src/api/gateway.rs.
+  // Falls back to the hardcoded glyph for capsules that didn't declare
+  // an icon, so the launcher stays consistent during the rollout.
+  const target = targetById(shellState.currentSummary, targetId);
+  if (target && typeof target.icon === "string" && target.icon) {
+    const route = appRoute(target.route) || target.route;
+    const url = route.endsWith("/")
+      ? `${route}${target.icon}`
+      : `${route}/${target.icon}`;
+    // Resolve relative to the iframe URL so it works under whatever
+    // YunoHost subpath the runtime is mounted at.
+    const src = url.startsWith("http") ? url : url;
+    const safeAlt = (target.title || targetId).replace(/"/g, "&quot;");
+    container.innerHTML =
+      `<img src="${src}" alt="${safeAlt}" draggable="false" ` +
+      `class="capsule-icon-img" loading="lazy" />`;
+    container.dataset.iconKind = "manifest";
+    return;
+  }
+  container.dataset.iconKind = "glyph";
   container.innerHTML = glyphSvg(targetId);
 }
 
