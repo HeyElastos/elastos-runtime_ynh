@@ -29,6 +29,14 @@
 
   --frosted-bg: rgba(255, 255, 255, 0.08);
   --frosted-border: rgba(255, 255, 255, 0.12);
+
+  /* Shared chrome material — both topbar and dock use this exact value
+     so they read as identical color regardless of the wallpaper showing
+     through. Slightly darker + more opaque than --frosted-bg so the
+     two strips don't drift apart visually when one sits over a light
+     wallpaper region and the other over a dark one. */
+  --chrome-bg: rgba(15, 18, 26, 0.62);
+  --chrome-border: rgba(255, 255, 255, 0.10);
   --shadow: 0 24px 80px rgba(2, 9, 22, 0.55);
   --shadow-soft: 0 12px 28px rgba(2, 9, 22, 0.35);
 
@@ -191,10 +199,9 @@ html::after {
   max-width: calc(100vw - 28px);
   transform: translateX(-50%);
   justify-content: flex-start;
-  background: var(--frosted-bg);
-  border: 1px solid var(--frosted-border);
+  background: var(--chrome-bg);
+  border: 1px solid var(--chrome-border);
   border-radius: 18px;
-  border-bottom: 1px solid var(--frosted-border);
   backdrop-filter: blur(40px);
   -webkit-backdrop-filter: blur(40px);
   box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
@@ -363,13 +370,11 @@ html::after {
   padding-bottom: var(--taskbar-offset);
 }
 .taskbar-inner {
-  /* Reverted to the lighter --frosted-bg per user request — the
-     darker tint that's still applied to .toolbar above looked good
-     on the topbar but felt too heavy on the dock. The dock's app
-     icons supply their own contrast against the wallpaper, so the
-     lighter material reads cleanly even at the same blur level. */
-  background: var(--frosted-bg);
-  border: 1px solid var(--frosted-border);
+  /* Shared --chrome-bg with the topbar so the two strips read as
+     identical material regardless of which part of the wallpaper
+     is showing through. */
+  background: var(--chrome-bg);
+  border: 1px solid var(--chrome-border);
   border-radius: 18px;
   padding: 7px 10px;
   backdrop-filter: blur(40px);
