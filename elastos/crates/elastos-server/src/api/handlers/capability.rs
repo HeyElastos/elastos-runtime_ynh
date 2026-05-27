@@ -137,8 +137,16 @@ pub async fn request_capability(
                 }
             }
             if let Some(grant_resource) = grant_resource {
+                // Bind the issued token to the session ID (NOT the capsule ID).
+                // enforce_capability in storage.rs validates the token against
+                // session.id.as_str(); the first arg of grant() is used as the
+                // capsule_id field inside the token and that field is what the
+                // validator compares to session.id. Mismatch → "Permission
+                // denied" even with a valid bearer.
+                let _ = capsule_id; // capsule_id was the manifest lookup key,
+                                     // not the validation binding
                 let token = state.capability_manager.grant(
-                    capsule_id,
+                    session.id.as_str(),
                     grant_resource,
                     action,
                     TokenConstraints::default(),
