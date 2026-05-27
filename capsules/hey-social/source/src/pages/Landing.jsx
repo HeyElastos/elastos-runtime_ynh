@@ -43,6 +43,32 @@ const authedFetch = (path, init = {}) => {
   });
 };
 
+// When the user lands on hey-social directly (not via hey-home unlock),
+// the session is PreAuth and the auth-gate refuses capability tokens, so
+// readSharedIdentity() returns null even though an identity exists on
+// disk. /api/auth/state is exempt from the gate and returns a sanitized
+// identity_preview slice (name/didKey/has_passkey/passkeys[id,transports])
+// — enough to render the "Welcome back" adoption card. Mirrors the same
+// preview fallback hey-home's lock screen uses.
+const serverAuthStatePreview = async () => {
+  try {
+    const r = await authedFetch("/api/auth/state", { method: "GET" });
+    if (!r.ok) return null;
+    const data = await r.json();
+    if (!data?.identity_present || !data.identity_preview) return null;
+    const preview = data.identity_preview;
+    if (!preview.didKey) return null;
+    return {
+      name: preview.name || "",
+      didKey: preview.didKey,
+      passkeys: Array.isArray(preview.passkeys) ? preview.passkeys : [],
+      previewOnly: true,
+    };
+  } catch (_) {
+    return null;
+  }
+};
+
 const b64uDecode = (b64u) => {
   const pad = (4 - (b64u.length % 4)) % 4;
   const b64 = b64u.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat(pad);
@@ -623,7 +649,16 @@ const Landing = () => {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const shared = await readSharedIdentity().catch(() => null);
+      // Primary: capability-gated read of the full shared identity file.
+      // Works for graduated sessions (hey-home unlocked → cookie travels).
+      let shared = await readSharedIdentity().catch(() => null);
+      // Fallback: PreAuth-exempt /api/auth/state preview. Required when
+      // the user lands on hey-social directly without unlocking hey-home
+      // first — otherwise they'd see the signup form instead of "Welcome
+      // back" even though their identity is right there on disk.
+      if (!shared?.didKey) {
+        shared = await serverAuthStatePreview();
+      }
       if (cancelled) return;
       if (shared?.didKey) {
         setSharedIdentity(shared);
