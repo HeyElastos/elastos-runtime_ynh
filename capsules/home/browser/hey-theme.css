@@ -997,20 +997,21 @@ html { scrollbar-color: rgba(255, 255, 255, 0.10) transparent; }
 .taskbar-item-icon,
 .window-head-icon {
   position: relative;
-  background: rgba(255, 255, 255, 0.42);
-  backdrop-filter: blur(22px);
-  -webkit-backdrop-filter: blur(22px);
-  border: 1px solid rgba(255, 255, 255, 0.55);
+  background: rgba(255, 255, 255, 0.30);
+  backdrop-filter: blur(28px) saturate(160%);
+  -webkit-backdrop-filter: blur(28px) saturate(160%);
+  border: 1px solid rgba(255, 255, 255, 0.65);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.7),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.04),
-    0 10px 24px rgba(0, 0, 0, 0.14);
-  overflow: visible;
-  isolation: isolate;       /* keep ::before's negative z-index local */
+    inset 0 1px 0 rgba(255, 255, 255, 0.85),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.06),
+    0 12px 28px rgba(0, 0, 0, 0.20);
+  overflow: hidden;             /* clip the halo so it stays inside the icon */
+  isolation: isolate;
 }
 
-/* The colored halo behind. Offset down-right so it peeks out like the
-   reference (Twitter bird's blue circle, FB's blue square, etc.). */
+/* The colored halo fills the card from inside — a colored-glass orb,
+   not an outer shadow. Diagonal placement so it reads as a glowing
+   gradient rather than a flat fill. */
 .app-glyph::before,
 .taskbar-item-icon::before,
 .window-head-icon::before {
@@ -1018,10 +1019,14 @@ html { scrollbar-color: rgba(255, 255, 255, 0.10) transparent; }
   position: absolute;
   inset: 0;
   border-radius: inherit;
-  background: var(--halo-color, #5b7fdb);
-  filter: blur(14px);
-  opacity: 0.85;
-  transform: translate(5px, 6px) scale(0.95);
+  background: radial-gradient(
+    circle at 65% 70%,
+    var(--halo-color, #4f6dff) 0%,
+    var(--halo-color, #4f6dff) 35%,
+    transparent 95%
+  );
+  filter: blur(8px) saturate(140%);
+  opacity: 0.92;
   z-index: -1;
   pointer-events: none;
 }
@@ -1037,36 +1042,36 @@ html { scrollbar-color: rgba(255, 255, 255, 0.10) transparent; }
   filter: drop-shadow(0 1px 1.5px rgba(0, 0, 0, 0.22));
 }
 
-/* Per-tone halo colors. Single saturated swatch — the 14px blur turns
-   it into a glow that reads through the card. */
+/* Per-tone halo colors. Saturated swatches — the blur turns them into
+   a glow that reads through the card. */
 .app-glyph[data-tone="default"],
 .taskbar-item-icon[data-tone="default"],
 .window-head-icon[data-tone="default"] {
-  --halo-color: #5b7fdb;
+  --halo-color: #4f6dff;
 }
 .app-glyph[data-tone="system"],
 .taskbar-item-icon[data-tone="system"],
 .window-head-icon[data-tone="system"] {
-  background: rgba(255, 255, 255, 0.42);
-  --halo-color: #f08a2b;
+  background: rgba(255, 255, 255, 0.30);
+  --halo-color: #ff7a18;
 }
 .app-glyph[data-tone="room"],
 .taskbar-item-icon[data-tone="room"],
 .window-head-icon[data-tone="room"] {
-  background: rgba(255, 255, 255, 0.42);
-  --halo-color: #4469cb;
+  background: rgba(255, 255, 255, 0.30);
+  --halo-color: #2d5cff;
 }
 .app-glyph[data-tone="docs"],
 .taskbar-item-icon[data-tone="docs"],
 .window-head-icon[data-tone="docs"] {
-  background: rgba(255, 255, 255, 0.42);
-  --halo-color: #1d8be0;
+  background: rgba(255, 255, 255, 0.30);
+  --halo-color: #00a8ff;
 }
 .app-glyph[data-tone="games"],
 .taskbar-item-icon[data-tone="games"],
 .window-head-icon[data-tone="games"] {
-  background: rgba(255, 255, 255, 0.42);
-  --halo-color: #8b5cf6;
+  background: rgba(255, 255, 255, 0.30);
+  --halo-color: #a855f7;
 }
 
 /* Dark-mode tweak: lower base opacity so the frosted card reads against
@@ -1103,19 +1108,21 @@ html { scrollbar-color: rgba(255, 255, 255, 0.10) transparent; }
    reads as part of the scene rather than a separate UI surface.
    ───────────────────────────────────────────────────────────────── */
 .toolbar {
-  background: rgba(255, 245, 230, 0.55);
-  border-bottom: 1px solid rgba(180, 200, 255, 0.28);
+  background: rgba(255, 244, 224, 0.72) !important;
+  backdrop-filter: blur(60px) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(60px) saturate(180%) !important;
+  border-bottom: 1px solid rgba(140, 170, 230, 0.40);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.6),
-    0 6px 20px rgba(10, 20, 40, 0.12);
+    inset 0 1px 0 rgba(255, 255, 255, 0.75),
+    0 8px 24px rgba(10, 20, 40, 0.18);
 }
 @media (prefers-color-scheme: dark) {
   .toolbar {
-    background: rgba(15, 22, 38, 0.55);
-    border-bottom: 1px solid rgba(120, 160, 220, 0.30);
+    background: rgba(12, 18, 32, 0.72) !important;
+    border-bottom: 1px solid rgba(100, 150, 220, 0.40);
     box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.08),
-      0 6px 20px rgba(0, 0, 0, 0.45);
+      inset 0 1px 0 rgba(255, 255, 255, 0.10),
+      0 8px 24px rgba(0, 0, 0, 0.55);
   }
 }
 
