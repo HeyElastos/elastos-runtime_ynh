@@ -104,6 +104,7 @@ pub fn gateway_router(state: GatewayState) -> Router {
         )
         .route("/api/apps/home/runtime/ensure", post(home_runtime_ensure))
         .route("/api/apps/home/runtime-token", post(home_runtime_token))
+        .route("/api/apps/:capsule/runtime-token", post(capsule_runtime_token))
         .route("/api/apps/home/launch", post(home_launch))
         .route("/api/apps/inbox/summary", get(inbox_summary))
         .route("/api/apps/inbox/actions", post(inbox_action))
@@ -1347,6 +1348,43 @@ async fn home_runtime_token(
         ));
     }
     match mint_capsule_runtime_token(&state.data_dir, HOME_CAPSULE_ID).await {
+        Ok(token) => Ok(Json(HomeRuntimeTokenResponse { token })),
+        Err(err) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": err.to_string() })),
+        )),
+    }
+}
+
+/// POST /api/apps/:capsule/runtime-token
+///
+/// Generic cookie-to-Bearer handshake for any browser capsule that
+/// the user reached without going through the home dock. The cookie
+/// (set by serve_browser_app_index when /apps/<capsule>/ was served)
+/// proves the browser came in through the gateway's front door; the
+/// minted bearer is bound to capsule_id and starts in PreAuth, so
+/// capability auto-grant + the auth gate still apply.
+async fn capsule_runtime_token(
+    State(state): State<GatewayState>,
+    Path(capsule): Path<String>,
+    headers: HeaderMap,
+) -> Result<Json<HomeRuntimeTokenResponse>, (StatusCode, Json<serde_json::Value>)> {
+    // Home keeps its dedicated route (/api/apps/home/runtime-token) for
+    // backward-compat with the shell's existing handshake — disallow
+    // the generic path for home so the two flows don't drift.
+    if capsule == HOME_CAPSULE_ID {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({ "error": "use /api/apps/home/runtime-token" })),
+        ));
+    }
+    if let Err(err) = require_capsule_token(&state.data_dir, &headers, &capsule) {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({ "error": err.to_string() })),
+        ));
+    }
+    match mint_capsule_runtime_token(&state.data_dir, &capsule).await {
         Ok(token) => Ok(Json(HomeRuntimeTokenResponse { token })),
         Err(err) => Err((
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -2719,6 +2757,30 @@ pub(crate) fn home_session_cookie_header(
     )
 }
 
+/// Issue a session cookie for any browser capsule, mirroring
+/// `home_session_cookie_header` but scoped to `/api/apps/<capsule>`.
+/// Lets a visitor who loaded `/apps/<capsule>/` directly trade the
+/// cookie for a runtime bearer via POST /api/apps/<capsule>/runtime-token.
+/// The minted bearer starts in PreAuth — the capsule still has to walk
+/// the user through /api/auth/unlock or /api/auth/setup before any
+/// storage/provider call returns data.
+pub(crate) fn capsule_session_cookie_header(
+    data_dir: &std::path::Path,
+    capsule_id: &str,
+    secure: bool,
+) -> anyhow::Result<HeaderValue> {
+    let token = issue_home_launch_token(data_dir, capsule_id)?;
+    let cookie_name = format!("{capsule_id}-session");
+    let cookie_path = format!("/api/apps/{capsule_id}");
+    home_launch_cookie_header(
+        &cookie_name,
+        &token,
+        HOME_LAUNCH_TOKEN_TTL_SECS,
+        &cookie_path,
+        secure,
+    )
+}
+
 fn home_launch_cookie_header(
     name: &str,
     token: &str,
@@ -2781,6 +2843,25 @@ fn require_home_token(data_dir: &std::path::Path, headers: &HeaderMap) -> anyhow
         headers,
         &[HOME_CAPSULE_ID],
         Some(HOME_SESSION_COOKIE),
+    )
+    .map(|_| ())
+}
+
+/// Same as `require_home_token` but checks the per-capsule
+/// `<capsule_id>-session` cookie set by serve_browser_app_index for
+/// non-home browser capsules. Used by the generic
+/// /api/apps/:capsule/runtime-token endpoint.
+fn require_capsule_token(
+    data_dir: &std::path::Path,
+    headers: &HeaderMap,
+    capsule_id: &str,
+) -> anyhow::Result<()> {
+    let cookie_name = format!("{capsule_id}-session");
+    require_home_launch_token_for_any_from(
+        data_dir,
+        headers,
+        &[capsule_id],
+        Some(cookie_name.as_str()),
     )
     .map(|_| ())
 }

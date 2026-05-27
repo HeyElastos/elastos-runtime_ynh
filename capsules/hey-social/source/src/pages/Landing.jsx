@@ -8,7 +8,7 @@ import { copyToClipboard } from "../utils/clipboard";
 import { readSharedIdentity, writeSharedIdentity } from "../lib/shell";
 import { setSession } from "../lib/session";
 import { expandKeypair, generateAuthKey, hashAuthKey, bytesToHex, sign, ELASTOS_IDENTITY_PRF_INPUT } from "../lib/identity";
-import { storage } from "../lib/runtime";
+import { storage, bearerReady } from "../lib/runtime";
 
 // ── Unified-identity adoption (Approach A step 5f) ──────────────────
 //
@@ -27,7 +27,12 @@ const apiBase = () => {
   return m ? m[1] : "";
 };
 
-const authedFetch = (path, init = {}) => {
+const authedFetch = async (path, init = {}) => {
+  // Wait for the boot handshake — on direct visits the bearer doesn't
+  // exist yet; on dock-launched visits it's already in sessionStorage
+  // and bearerReady resolves immediately. After this, read the token
+  // fresh in case the handshake just wrote it.
+  await bearerReady;
   const bearer =
     typeof window !== "undefined"
       ? window.sessionStorage.getItem("hey-runtime-token")

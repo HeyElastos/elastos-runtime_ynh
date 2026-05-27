@@ -25,7 +25,11 @@ const API_BASE = (() => {
 // recipe as lib/runtime.js — must be present as Authorization: Bearer or
 // the runtime's auth_middleware returns 401 before the handler runs.
 const RUNTIME_TOKEN_KEY = "hey-runtime-token";
-const RUNTIME_TOKEN = (() => {
+// Read whatever the URL/sessionStorage already has. After lib/runtime.js's
+// bearerReady completes (cookie-to-Bearer handshake on direct visits),
+// sessionStorage holds the freshly minted token; re-read at call time so
+// safeGetJson/safePutJson don't fire with a null Authorization header.
+const readBearer = () => {
   if (typeof window === "undefined") return null;
   try {
     const fromUrl = new URLSearchParams(window.location.search).get("runtime_token");
@@ -37,9 +41,11 @@ const RUNTIME_TOKEN = (() => {
   } catch {
     return null;
   }
-})();
-const bearerHeaders = () =>
-  RUNTIME_TOKEN ? { Authorization: `Bearer ${RUNTIME_TOKEN}` } : {};
+};
+const bearerHeaders = () => {
+  const t = readBearer();
+  return t ? { Authorization: `Bearer ${t}` } : {};
+};
 
 const SHELL_MARKER_PATH =
   `${API_BASE}/api/localhost/Users/self/.AppData/SystemServices/Shell/active.json`;
@@ -52,13 +58,18 @@ const SHARED_IDENTITY_PATH =
 // SystemServices/Shell/* under permissions.storage so the runtime
 // auto-grants immediately. Caller path is /elastos/api/localhost/...;
 // the runtime's permission system uses localhost:// URIs.
-import { getCapabilityToken } from "./runtime";
+import { getCapabilityToken, bearerReady } from "./runtime";
 
 const pathToResource = (apiPath) =>
   "localhost://" + apiPath.replace(/^.*?\/api\/localhost\//, "");
 
 const safeGetJson = async (path) => {
   try {
+    // Block until lib/runtime.js's boot handshake has tried to mint a
+    // bearer (or proven there's no cookie). Otherwise direct visits to
+    // /apps/hey-social/ — where the URL has no ?runtime_token=… —
+    // would always 401 here.
+    await bearerReady;
     const resource = pathToResource(path);
     const cap = await getCapabilityToken(resource, "read");
     const r = await fetch(path, {
@@ -75,6 +86,7 @@ const safeGetJson = async (path) => {
 
 const safePutJson = async (path, value) => {
   try {
+    await bearerReady;
     const resource = pathToResource(path);
     const cap = await getCapabilityToken(resource, "write");
     const r = await fetch(path, {

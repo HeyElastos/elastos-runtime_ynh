@@ -64,17 +64,29 @@ pub async fn serve_browser_app_index(
     AxumPath(app): AxumPath<String>,
 ) -> Response {
     let mut response = serve_browser_capsule_path(&state.data_dir, &app, None).await;
-    if app == super::gateway::HOME_CAPSULE_ID && response.status().is_success() {
-        match super::gateway::home_session_cookie_header(
-            &state.data_dir,
-            super::gateway::request_uses_tls(&headers),
-        ) {
-            Ok(cookie) => {
-                response.headers_mut().append(SET_COOKIE, cookie);
-            }
-            Err(err) => {
-                return (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response()
-            }
+    if !response.status().is_success() {
+        return response;
+    }
+    // Set a per-capsule session cookie so the capsule's JS can trade
+    // it for a runtime bearer on boot, even when the user reached the
+    // capsule directly (bookmark, refresh after sessionStorage clear)
+    // without going through the home dock launcher. Home keeps its
+    // dedicated helper for backwards-compat with existing callers; all
+    // other capsules use the generic capsule_session_cookie_header,
+    // which mirrors the home shape with a /<capsule>-session cookie
+    // name scoped to /api/apps/<capsule>.
+    let secure = super::gateway::request_uses_tls(&headers);
+    let cookie_result = if app == super::gateway::HOME_CAPSULE_ID {
+        super::gateway::home_session_cookie_header(&state.data_dir, secure)
+    } else {
+        super::gateway::capsule_session_cookie_header(&state.data_dir, &app, secure)
+    };
+    match cookie_result {
+        Ok(cookie) => {
+            response.headers_mut().append(SET_COOKIE, cookie);
+        }
+        Err(err) => {
+            return (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response()
         }
     }
     response

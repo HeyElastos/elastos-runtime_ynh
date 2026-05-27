@@ -56,7 +56,14 @@ const PROVIDER_BASE = `${API_BASE}/api/provider`;
 // Detect that transition by comparing the current URL runtime_token to
 // the one we cached last; if they differ, flush the capability cache.
 const RUNTIME_TOKEN_KEY = "hey-runtime-token";
-const RUNTIME_TOKEN = (() => {
+// Read the bearer synchronously from URL or sessionStorage. May be null
+// when the user reached the capsule directly (bookmark, refresh) instead
+// of through the home dock. In that case bearerReady below performs a
+// cookie-to-Bearer handshake against /api/apps/hey-social/runtime-token,
+// using the per-capsule session cookie serve_browser_app_index set on
+// the index response. Without this fallback, every runtime call would
+// 401 because auth_middleware requires Authorization: Bearer.
+let RUNTIME_TOKEN = (() => {
   if (typeof window === "undefined") return null;
   try {
     const fromUrl = new URLSearchParams(window.location.search).get("runtime_token");
@@ -72,6 +79,42 @@ const RUNTIME_TOKEN = (() => {
     return sessionStorage.getItem(RUNTIME_TOKEN_KEY);
   } catch {
     return null;
+  }
+})();
+
+// Pulled out so the capsule id is in one place — must match the
+// route name used by the gateway when serving /apps/<name>/.
+const CAPSULE_ID = "hey-social";
+
+// Boot handshake. Resolves to true once a bearer is available (either
+// the one we already had, or one freshly minted via the per-capsule
+// cookie). Resolves to false on failure so call sites can decide
+// whether to surface a 401 or silently proceed. Storage helpers below
+// await this before issuing requests.
+export const bearerReady = (async () => {
+  if (RUNTIME_TOKEN) return true;
+  if (typeof window === "undefined") return false;
+  try {
+    const resp = await fetch(apiUrl(`/api/apps/${CAPSULE_ID}/runtime-token`), {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+    });
+    if (!resp.ok) {
+      console.warn(`[hey-social] runtime-token handshake failed: ${resp.status}`);
+      return false;
+    }
+    const data = await resp.json();
+    if (data && typeof data.token === "string" && data.token) {
+      RUNTIME_TOKEN = data.token;
+      try { sessionStorage.setItem(RUNTIME_TOKEN_KEY, RUNTIME_TOKEN); } catch (_) {}
+      return true;
+    }
+    return false;
+  } catch (err) {
+    console.warn("[hey-social] runtime-token handshake error:", err);
+    return false;
   }
 })();
 
@@ -119,6 +162,10 @@ const schemeToResource = (scheme) => {
 // Acquire a capability token for the given resource + action. Returns
 // the token string, null if denied, or throws on transport error.
 const requestCapabilityToken = async (resource, action = "write") => {
+  // Wait for the cookie-to-Bearer handshake (or its failure) so the
+  // request below carries Authorization: Bearer when possible. Without
+  // this, a direct visit to /apps/hey-social/ would 401 here.
+  await bearerReady;
   const post = await fetch(apiUrl("/api/capability/request"), {
     method: "POST",
     credentials: "include",
