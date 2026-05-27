@@ -316,6 +316,7 @@ pub async fn start_server_with_sessions(config: ServerConfig) -> anyhow::Result<
             .route("/api/auth/unlock", post(handlers::auth::unlock))
             .route("/api/auth/setup", post(handlers::auth::setup))
             .route("/api/auth/state", get(handlers::auth::auth_state))
+            .route("/api/auth/wrapped-seed", get(handlers::auth::wrapped_seed))
             .layer(axum_middleware::from_fn_with_state(
                 api_state.clone(),
                 auth_middleware,

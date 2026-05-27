@@ -493,6 +493,51 @@ const hashPin = async (pin, saltHex) => {
   return bytesToHex(new Uint8Array(bits));
 };
 
+// AES-GCM-wrap the 32-byte signing seed under a PBKDF2-from-PIN key.
+// Stored alongside pinHash/pinSalt in profile.heyHome.pinWrappedSeed so
+// the server can decrypt the seed at PIN unlock and hand it to Hey
+// Social — PIN-only users skip the 64-char recovery-key paste.
+//
+// Hardened over the pinHash derivation:
+//   - separate 16-byte salt (the seed-wrap target is offline-brute-
+//     forceable from a stolen backup, so we don't want pinHash and
+//     pinWrappedSeed sharing a salt that lets an attacker amortize)
+//   - 200k PBKDF2 iterations (twice pinHash) — the wrap is the more
+//     valuable secret so it deserves a heavier KDF
+const PIN_WRAP_ITERATIONS = 200_000;
+
+const wrapSeedWithPin = async (pin, recoveryKeyHex) => {
+  const seedBytes = hexToBytes(recoveryKeyHex);
+  if (seedBytes.length !== 32) {
+    throw new Error("wrapSeedWithPin: seed must be 32 bytes");
+  }
+  const wrapSaltBytes = new Uint8Array(16);
+  crypto.getRandomValues(wrapSaltBytes);
+  const nonceBytes = new Uint8Array(12);
+  crypto.getRandomValues(nonceBytes);
+
+  const enc = new TextEncoder();
+  const baseKey = await crypto.subtle.importKey(
+    "raw", enc.encode(pin), "PBKDF2", false, ["deriveBits"]
+  );
+  const wrapKeyBits = await crypto.subtle.deriveBits(
+    { name: "PBKDF2", salt: wrapSaltBytes, iterations: PIN_WRAP_ITERATIONS, hash: "SHA-256" },
+    baseKey, 256
+  );
+  const aesKey = await crypto.subtle.importKey(
+    "raw", wrapKeyBits, "AES-GCM", false, ["encrypt"]
+  );
+  const ctBuf = await crypto.subtle.encrypt(
+    { name: "AES-GCM", iv: nonceBytes }, aesKey, seedBytes
+  );
+  return {
+    salt:  bytesToHex(wrapSaltBytes),
+    nonce: bytesToHex(nonceBytes),
+    ct:    bytesToHex(new Uint8Array(ctBuf)),
+    iters: PIN_WRAP_ITERATIONS,
+  };
+};
+
 // Read the PIN fields from a profile. They were originally stored at
 // the top level; we now namespace them under `profile.heyHome` so Hey
 // Social treats them as foreign-app state instead of unknown top-level
@@ -1667,11 +1712,23 @@ const buildSetup = () => {
 
     let pinSalt = null;
     let pinHash = null;
+    let pinWrappedSeed = null;
     if (!passkey) {
       // No passkey — PIN is the only unlock method, so collect it.
       pinSalt = generatePinSalt();
       const pin = await collectNewPin(step1, root);
       pinHash = await hashPin(pin, pinSalt);
+      // Wrap the signing seed with a PBKDF2-from-PIN key so /api/auth/
+      // unlock can decrypt it server-side and hand it to Hey Social.
+      // Without this, PIN-only users have to paste their 64-char
+      // recovery key every time they open Hey Social — clunky and
+      // discouraging when the runtime already has all the inputs it
+      // needs to do the right thing.
+      try {
+        pinWrappedSeed = await wrapSeedWithPin(pin, recoveryKey);
+      } catch (err) {
+        console.warn("[hey-home] PIN seed-wrap failed; auto-sign-in will be unavailable", err);
+      }
     }
 
     const baseProfile = {
@@ -1683,9 +1740,15 @@ const buildSetup = () => {
       createdAt: new Date().toISOString(),
       createdBy: "hey-home",
     };
-    const profile = pinHash
+    let profile = pinHash
       ? writePinFields(baseProfile, { pinSalt, pinHash })
       : baseProfile;
+    if (pinWrappedSeed) {
+      profile = {
+        ...profile,
+        heyHome: { ...(profile.heyHome || {}), pinWrappedSeed },
+      };
+    }
 
     // Flare bridges the two cards: glow brightens as step1 lifts away
     // and is still fading when step2 enters, so the swap feels like one

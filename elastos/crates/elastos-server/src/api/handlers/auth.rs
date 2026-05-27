@@ -276,6 +276,13 @@ pub struct AuthGateState {
     challenges: Arc<Mutex<HashMap<String, (Vec<u8>, Instant)>>>,
     /// session_token → recent failed attempts (rate limit)
     failures: Arc<Mutex<HashMap<String, FailedAttempts>>>,
+    /// session_token → decrypted seed (hex). Populated by the PIN
+    /// unlock path when the identity carries a pinWrappedSeed; cleared
+    /// on session logout / TTL eviction. Hey Social's Landing reads
+    /// this via GET /api/auth/wrapped-seed so PIN-only users skip the
+    /// "paste your 64-char recovery key" prompt — the PIN they just
+    /// typed at unlock unwrapped the same seed Hey Social needs.
+    seed_cache: Arc<Mutex<HashMap<String, String>>>,
 }
 
 impl AuthGateState {
@@ -304,6 +311,7 @@ impl AuthGateState {
             unlock_window,
             challenges: Arc::new(Mutex::new(HashMap::new())),
             failures: Arc::new(Mutex::new(HashMap::new())),
+            seed_cache: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 }
@@ -466,12 +474,21 @@ pub async fn unlock(
         }
     };
 
-    let verified = match body {
-        UnlockRequest::Pin { pin } => verify_pin(&pin, &identity),
+    // For the PIN path we need the PIN value AFTER verification to
+    // unwrap the seed envelope, so split the match into a verify step
+    // that retains the PIN.
+    let (verified, pin_for_unwrap) = match body {
+        UnlockRequest::Pin { pin } => {
+            let ok = verify_pin(&pin, &identity);
+            (ok, if ok { Some(pin) } else { None })
+        }
         UnlockRequest::Passkey {
             challenge_id,
             signature_hex,
-        } => verify_passkey(&state, &challenge_id, &signature_hex, &identity).await,
+        } => (
+            verify_passkey(&state, &challenge_id, &signature_hex, &identity).await,
+            None,
+        ),
     };
 
     if !verified {
@@ -490,6 +507,21 @@ pub async fn unlock(
 
     // Clear rate-limit counters for this session
     state.failures.lock().await.remove(&session.token);
+
+    // PIN path: if the identity carries a pinWrappedSeed envelope,
+    // unwrap it with the (just-verified) PIN and cache the plaintext
+    // seed against this session's token. Hey Social's Landing pulls
+    // it via GET /api/auth/wrapped-seed and auto-adopts the identity,
+    // sparing the user the 64-char recovery-key paste.
+    if let (Some(pin), Some(wrapped)) = (pin_for_unwrap.as_deref(), identity.pin_wrapped_seed()) {
+        if let Some(seed_hex) = unwrap_pin_seed(pin, wrapped) {
+            state
+                .seed_cache
+                .lock()
+                .await
+                .insert(session.token.clone(), seed_hex);
+        }
+    }
 
     // Graduate this session immediately.
     state
@@ -697,6 +729,43 @@ pub struct SetupResponse {
     pub reason: Option<String>,
 }
 
+/// GET /api/auth/wrapped-seed
+///
+/// Returns the plaintext signing seed for the calling session IF the
+/// PIN unlock that graduated this session also unwrapped a stored
+/// pinWrappedSeed envelope. Used by Hey Social's Landing to skip the
+/// 64-char recovery-key paste for PIN-only users.
+///
+/// Returns 404 when:
+///   - the session is PreAuth (gate refuses anyway)
+///   - the user signed in with a passkey (no PIN, no unwrap)
+///   - the identity file has no pinWrappedSeed (older signups)
+///   - the session entry was evicted (server restart, etc.)
+///
+/// Returns 200 { seed_hex } when the cache hit succeeds.
+#[derive(Serialize)]
+pub struct WrappedSeedResponse { pub seed_hex: String }
+
+pub async fn wrapped_seed(
+    State(state): State<AuthGateState>,
+    Extension(session): Extension<Session>,
+) -> Response {
+    // Auth gate already enforced graduated by being inside the authed
+    // router, but defense-in-depth: refuse PreAuth callers explicitly.
+    if !matches!(session.auth_state, AuthState::Authenticated) {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    let cache = state.seed_cache.lock().await;
+    match cache.get(&session.token) {
+        Some(seed_hex) => (
+            StatusCode::OK,
+            Json(WrappedSeedResponse { seed_hex: seed_hex.clone() }),
+        )
+            .into_response(),
+        None => StatusCode::NOT_FOUND.into_response(),
+    }
+}
+
 /// GET /api/auth/state
 pub async fn auth_state(
     State(state): State<AuthGateState>,
@@ -836,7 +905,35 @@ pub struct HeyHomeFields {
     pub pin_salt: Option<String>,
     #[serde(default, rename = "pinHash")]
     pub pin_hash: Option<String>,
+    /// Optional PIN-wrapped seed envelope written by hey-welcome.js at
+    /// signup. Carries the client's signing seed encrypted under a
+    /// PBKDF2-from-PIN key with a salt distinct from pinSalt so a PIN
+    /// brute-force against pinHash doesn't doubly leak to the seed.
+    /// When present, the PIN unlock path can decrypt this and cache
+    /// the plaintext seed for the duration of the session, letting
+    /// Hey Social adopt the identity without asking the user to paste
+    /// their 64-char recovery key.
+    #[serde(default, rename = "pinWrappedSeed")]
+    pub pin_wrapped_seed: Option<PinWrappedSeed>,
 }
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct PinWrappedSeed {
+    /// PBKDF2 salt, hex-encoded. 16 bytes recommended. Distinct from
+    /// the unlock-hash pinSalt for domain separation.
+    pub salt: String,
+    /// AES-256-GCM nonce, hex-encoded. 12 bytes.
+    pub nonce: String,
+    /// AES-256-GCM ciphertext of the 32-byte seed, hex-encoded.
+    /// Length = 32 (plaintext) + 16 (auth tag) = 48 bytes hex = 96 chars.
+    pub ct: String,
+    /// KDF iteration count for PBKDF2. Default 200_000 if the client
+    /// didn't send one (older payloads).
+    #[serde(default = "default_pin_wrap_iterations")]
+    pub iters: u32,
+}
+
+fn default_pin_wrap_iterations() -> u32 { 200_000 }
 
 impl SharedIdentity {
     pub fn did_key(&self) -> Option<&str> {
@@ -858,6 +955,38 @@ impl SharedIdentity {
             .and_then(|h| h.pin_hash.as_deref())
             .or(self.pin_hash_legacy.as_deref())
     }
+
+    pub fn pin_wrapped_seed(&self) -> Option<&PinWrappedSeed> {
+        self.hey_home
+            .as_ref()
+            .and_then(|h| h.pin_wrapped_seed.as_ref())
+    }
+}
+
+/// Given a verified PIN + the identity's pinWrappedSeed envelope,
+/// return the plaintext seed as hex. Returns None if any decode /
+/// decrypt step fails. The caller MUST verify the PIN against pinHash
+/// before calling this — passing an unverified PIN would just produce
+/// noise (decryption fails closed) but rate-limit-wise it's the
+/// unlock handler's job to gate the attempt.
+fn unwrap_pin_seed(pin: &str, wrapped: &PinWrappedSeed) -> Option<String> {
+    let salt = hex::decode(&wrapped.salt).ok()?;
+    let nonce_bytes = hex::decode(&wrapped.nonce).ok()?;
+    if nonce_bytes.len() != 12 { return None; }
+    let ct = hex::decode(&wrapped.ct).ok()?;
+    let iters = wrapped.iters.max(50_000);
+
+    // PBKDF2-HMAC-SHA256(PIN, salt, iters) → 32-byte AES key.
+    // Domain-separated from the unlock hash via the distinct salt the
+    // client stores under pinWrappedSeed.salt.
+    let mut key = [0u8; 32];
+    pbkdf2::pbkdf2::<Hmac<Sha256>>(pin.as_bytes(), &salt, iters, &mut key).ok()?;
+
+    let cipher = Aes256Gcm::new_from_slice(&key).ok()?;
+    let nonce = Nonce::from_slice(&nonce_bytes);
+    let plaintext = cipher.decrypt(nonce, ct.as_ref()).ok()?;
+    if plaintext.len() != 32 { return None; }
+    Some(hex::encode(plaintext))
 }
 
 // At-rest encryption envelope — same JSON shape the localhost-provider

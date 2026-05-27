@@ -665,8 +665,34 @@ const Landing = () => {
         shared = await serverAuthStatePreview();
       }
       if (cancelled) return;
-      if (shared?.didKey) {
-        setSharedIdentity(shared);
+      if (!shared?.didKey) return;
+      setSharedIdentity(shared);
+
+      // Auto-adopt for PIN-only users: if hey-home stored a pin-wrapped
+      // seed and the user already unlocked the node with their PIN, the
+      // server has the plaintext seed cached against this session.
+      // Pull it down + run the same adoption ceremony the user would
+      // get by pasting their 64-char recovery key — but invisibly.
+      // Passkey-equipped identities skip this; tapping the passkey is
+      // already a one-tap path with stronger authentication.
+      const hasPasskey = (shared.passkeys || []).length > 0;
+      if (hasPasskey) return;
+      try {
+        const r = await authedFetch("/api/auth/wrapped-seed", { method: "GET" });
+        if (!r.ok) return; // 404 just means no cached seed; user pastes manually
+        const data = await r.json();
+        if (!data?.seed_hex || cancelled) return;
+        const adopted = await adoptSharedIdentityWithAuthKey(shared, data.seed_hex);
+        if (cancelled) return;
+        setProfile({
+          user: adopted.user,
+          accessToken: adopted.accessToken,
+          refreshToken: adopted.refreshToken,
+        });
+        navigate("/");
+      } catch (err) {
+        // Fail open — fall back to manual recovery-key paste UI.
+        console.warn("[hey] PIN auto-adopt failed; falling back to manual", err);
       }
     })();
     return () => { cancelled = true; };
