@@ -401,6 +401,11 @@ pub async fn start_server_with_sessions(config: ServerConfig) -> anyhow::Result<
             capability_manager: Some(capability_manager.clone()),
         };
 
+        // Axum's default body limit is 2MB — way too small for IPFS media
+        // uploads and large profile blobs. Raise to 100MB to match nginx's
+        // client_max_body_size (anything larger should chunk).
+        const STORAGE_BODY_LIMIT: usize = 100 * 1024 * 1024;
+
         let storage_router = Router::new()
             .route("/api/localhost", get(handlers::storage_get_root))
             .route("/api/localhost/", get(handlers::storage_get_root))
@@ -409,6 +414,7 @@ pub async fn start_server_with_sessions(config: ServerConfig) -> anyhow::Result<
             .route("/api/localhost/*path", delete(handlers::storage_delete))
             .route("/api/localhost/*path", head(handlers::storage_stat))
             .route("/api/localhost/*path", post(handlers::storage_post))
+            .layer(axum::extract::DefaultBodyLimit::max(STORAGE_BODY_LIMIT))
             .layer(axum_middleware::from_fn_with_state(
                 api_state.clone(),
                 auth_middleware,
@@ -421,6 +427,7 @@ pub async fn start_server_with_sessions(config: ServerConfig) -> anyhow::Result<
                 "/api/provider/:scheme/:op",
                 post(handlers::provider::provider_proxy),
             )
+            .layer(axum::extract::DefaultBodyLimit::max(STORAGE_BODY_LIMIT))
             .layer(axum_middleware::from_fn_with_state(
                 api_state.clone(),
                 auth_middleware,
