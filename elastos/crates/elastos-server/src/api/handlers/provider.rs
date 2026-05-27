@@ -97,8 +97,14 @@ fn build_capability_resource(scheme: &str, op: &str, request: &Value) -> Result<
                 None => Ok(format!("elastos://ai/meta/{}", op)),
             }
         }
-        "did" | "peer" => Ok(format!("elastos://{}/*", scheme)),
-        _ => Ok(format!("{}://*", scheme)),
+        // Every provider scheme is namespaced under elastos:// in capsule
+        // manifests (permissions.messaging entries like 'elastos://ipfs/*',
+        // 'elastos://hey-transcoder/*', etc.). Match the same form here so
+        // capability tokens issued for the manifest's pattern validate
+        // against the request's resource — without this, ipfs maps to
+        // 'ipfs://*' and the manifest's 'elastos://ipfs/*' token doesn't
+        // match, returning 403 'Capability denied: WrongResource'.
+        _ => Ok(format!("elastos://{}/*", scheme)),
     }
 }
 
