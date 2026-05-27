@@ -463,26 +463,22 @@ html::after {
 .window-action-btn[data-action='minimize']::before { content: "−"; font-size: 11px; transform: translateY(-1px); }
 .window-action-btn[data-action='maximize']::before { content: "+"; font-size: 10px; }
 
-/* Launcher popover — same warm-frosted material as the topbar.
-   Light mode: cream tint. Dark mode: deep navy. blur(40px) matches. */
+/* Launcher popover — darker frosted material so the app cards and
+   labels inside read cleanly against bright wallpapers. The previous
+   cream tint at 55% opacity let too much wallpaper light through and
+   washed out the launcher-card text. Same dark-slate base the topbar
+   uses, but with slightly higher opacity (0.82 vs 0.72) since the
+   popover is a floating panel — it needs to feel weighted, not just
+   tinted. The dock itself stays on the lighter material. */
 .launcher-popover {
-  background: rgba(255, 245, 230, 0.55);
-  border: 1px solid rgba(180, 200, 255, 0.30);
+  background: rgba(11, 17, 32, 0.82);
+  border: 1px solid rgba(255, 255, 255, 0.10);
   border-radius: 22px;
-  backdrop-filter: blur(40px);
-  -webkit-backdrop-filter: blur(40px);
+  backdrop-filter: blur(40px) saturate(140%);
+  -webkit-backdrop-filter: blur(40px) saturate(140%);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.6),
-    0 28px 70px rgba(10, 20, 40, 0.18);
-}
-@media (prefers-color-scheme: dark) {
-  .launcher-popover {
-    background: rgba(15, 22, 38, 0.55);
-    border-color: rgba(120, 160, 220, 0.30);
-    box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.08),
-      0 28px 70px rgba(0, 0, 0, 0.55);
-  }
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    0 28px 70px rgba(0, 0, 0, 0.55);
 }
 .launcher-search-field {
   background: rgba(255, 255, 255, 0.05);
