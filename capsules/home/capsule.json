@@ -17,7 +17,9 @@
       "localhost://Users/self/.AppData/Identity/*",
       "localhost://Users/self/.AppData/SystemServices/Shell/*",
       "localhost://Users/self/.AppData/LocalHost/HeyHome/*",
-      "localhost://Users/self/.AppData/HeyVault/*"
+      "localhost://Users/self/.AppData/HeyVault/*",
+      "localhost://Users/self/.AppData/LocalHost/Hey/profile.json",
+      "localhost://Users/self/.AppData/LocalHost/Hey/passkey-creds.json"
     ],
     "messaging": [
       "elastos://peer/*",

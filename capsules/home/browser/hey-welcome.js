@@ -36,6 +36,18 @@ const SHELL_MARKER_PATH =
   "Users/self/.AppData/SystemServices/Shell/active.json";
 const LEGACY_PROFILE_PATH =
   "Users/self/.AppData/LocalHost/HeyHome/profile.json";
+// Hey Social profile + passkey creds. The home shell reads these as a
+// LAST-RESORT migration source: if a Hey Social user exists on this
+// node but the shared identity file was never written (the user signed
+// up via Hey before the passkeySignup→writeSharedIdentity fix), the
+// home shell would otherwise show the SIGNUP wizard on every new
+// device — letting a stranger overwrite the node's identity. With this
+// path readable, we backfill the shared identity from Hey's profile
+// and the lock screen shows up correctly on first visit.
+const HEY_PROFILE_PATH =
+  "Users/self/.AppData/LocalHost/Hey/profile.json";
+const HEY_PASSKEY_CREDS_PATH =
+  "Users/self/.AppData/LocalHost/Hey/passkey-creds.json";
 const LOCAL_CACHE_KEY = "hey-home-profile";
 
 const runtimeAvailable = () =>
@@ -168,6 +180,35 @@ const loadProfile = async () => {
       await runtimePut(SHARED_IDENTITY_PATH, migrated);
       await idbPut(migrated);
       return migrated;
+    }
+    // SECURITY-CRITICAL last-resort migration: if a Hey Social user
+    // exists on this node but the shared identity was never written
+    // (Hey signup before db9ae38), back-fill the shared identity from
+    // it. Without this, ANY device hitting the home shell URL would
+    // see the signup wizard — strangers could overwrite the node's
+    // identity. With this, the lock screen shows up correctly.
+    const heyProfile = await runtimeGet(HEY_PROFILE_PATH);
+    if (heyProfile.ok && heyProfile.value && heyProfile.value.didKey) {
+      const heyCreds = await runtimeGet(HEY_PASSKEY_CREDS_PATH);
+      const passkeys = (heyCreds.ok && Array.isArray(heyCreds.value)) ? heyCreds.value : [];
+      const migrated = {
+        name: heyProfile.value.name || "Hey user",
+        didKey: heyProfile.value.didKey,
+        pubKeyHex: null,
+        recoveryKeyHash: heyProfile.value.authKeyHash || "",
+        passkeys,
+        avatar: heyProfile.value.avatar || "",
+        bio: heyProfile.value.bio || "",
+        createdAt: heyProfile.value.createdAt || new Date().toISOString(),
+        createdBy: "hey-home-migration-from-hey-social",
+      };
+      console.info("[hey-home] migrating Hey Social profile → shared Identity (security backfill)");
+      const saved = await runtimePut(SHARED_IDENTITY_PATH, migrated);
+      if (saved.ok) {
+        localPut(migrated);
+        await idbPut(migrated);
+        return migrated;
+      }
     }
     return null;
   }
@@ -1358,6 +1399,21 @@ const buildSetup = () => {
   const proceedToKeyCard = async ({ name, passkey, prfOutput, identityPrf }) => {
     const ident = window.heyIdentity;
     if (!ident) throw new Error("hey-identity.js not loaded");
+
+    // SECURITY: re-check the shared identity right before writing it.
+    // Closes a race window: between page-load (when buildSetup decided
+    // to show the wizard) and now, another device or capsule may have
+    // written the shared identity. Writing here would overwrite the
+    // legitimate user's identity. If we detect one, refuse and tell
+    // the user to sign in instead.
+    const existingShared = await runtimeGet(SHARED_IDENTITY_PATH);
+    if (existingShared.ok && existingShared.value && existingShared.value.didKey) {
+      throw new Error(
+        "This node already has a user. Reload the page and sign in with " +
+        "your existing passkey or recovery PIN instead of signing up."
+      );
+    }
+
     // Unified cross-capsule identity. When the passkey produced an
     // identity-PRF output ('elastos-identity-v1'), derive the recovery
     // key from those 32 bytes — every Elastos capsule using the same

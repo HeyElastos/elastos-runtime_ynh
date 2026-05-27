@@ -21,6 +21,14 @@ pub struct CapsuleManifest {
     pub description: Option<String>,
     #[serde(default)]
     pub author: Option<String>,
+    /// Optional path (relative to the capsule root) to the capsule's
+    /// own icon — e.g. "hey-icon.svg", "favicon.svg". The home shell
+    /// surfaces this via `/api/apps/home/summary` so the launcher /
+    /// desktop / taskbar can render the capsule's real brand icon
+    /// instead of the hardcoded glyph fallback in `shell-core.js`.
+    /// Browser capsules: served via /elastos/apps/<name>/<icon>.
+    #[serde(default)]
+    pub icon: Option<String>,
     pub role: CapsuleRole,
 
     #[serde(rename = "type")]
