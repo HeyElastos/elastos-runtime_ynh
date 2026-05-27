@@ -3,6 +3,7 @@
 //! This module contains the handler functions for the HTTP API endpoints.
 
 pub mod attach;
+pub mod auth;
 pub mod capability;
 pub mod docs;
 pub mod identity;

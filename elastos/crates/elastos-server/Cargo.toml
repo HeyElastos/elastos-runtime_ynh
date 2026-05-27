@@ -56,6 +56,14 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 sha2 = "0.10"
 hex = "0.4"
 rand = "0.8"
+# HMAC-SHA256 + PBKDF2 for server-side verification of the lock-screen
+# PIN. Must match the JS-side parameters in capsules/home/browser/
+# hey-welcome.js (PBKDF2-HMAC-SHA256, 100_000 iterations, 32-byte
+# output, raw UTF-8 pin bytes, per-user salt) — otherwise the hash
+# the server computes won't match the hash stored in the shared
+# identity file.
+hmac = "0.12"
+pbkdf2 = { version = "0.12", default-features = false }
 
 # URL parsing (used by identity HTTP handlers)
 url = "2.5"

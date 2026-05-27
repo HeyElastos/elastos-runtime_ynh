@@ -262,6 +262,35 @@ pub async fn start_server_with_sessions(config: ServerConfig) -> anyhow::Result<
         Router::new()
     };
 
+    // Auth gate (lock-screen counterpart). PIN / passkey unlock +
+    // server-side session graduation. The challenge endpoint is
+    // public (mints a random number); unlock and state require a
+    // valid session token (auth_middleware), which the home capsule
+    // session cookie already provides.
+    let (auth_gate_public, auth_gate_authed) = if let Some(ref dir) = data_dir {
+        let auth_state = handlers::auth::AuthGateState::new(
+            dir.clone(),
+            session_registry.clone(),
+        );
+        let public = Router::new()
+            .route(
+                "/api/auth/unlock/challenge",
+                post(handlers::auth::issue_challenge),
+            )
+            .with_state(auth_state.clone());
+        let authed = Router::new()
+            .route("/api/auth/unlock", post(handlers::auth::unlock))
+            .route("/api/auth/state", get(handlers::auth::auth_state))
+            .layer(axum_middleware::from_fn_with_state(
+                api_state.clone(),
+                auth_middleware,
+            ))
+            .with_state(auth_state);
+        (public, authed)
+    } else {
+        (Router::new(), Router::new())
+    };
+
     // Authenticated routes (require valid session token, rate-limited)
     let auth_routes = Router::new()
         .route("/api/session", get(handlers::session_info))
@@ -525,6 +554,8 @@ pub async fn start_server_with_sessions(config: ServerConfig) -> anyhow::Result<
     let mut app = Router::new()
         .merge(public_routes)
         .merge(attach_routes)
+        .merge(auth_gate_public)
+        .merge(auth_gate_authed)
         .merge(auth_routes)
         .merge(shell_routes)
         .merge(orchestrator_routes)
