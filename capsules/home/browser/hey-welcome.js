@@ -702,6 +702,30 @@ const enforceVaultGate = async () => {
   return false;
 };
 
+// Brief, repeatable glow flare across the backdrop orbs. Used at every
+// slide transition (step1 → step2, PIN setup card appearing, PIN
+// confirm, passkey gesture, etc.) to keep the screen feeling alive as
+// the user moves toward the desktop. The CSS handles the actual filter
+// transition — this just toggles the attribute.
+const flareGlows = (root, duration = 650) => {
+  if (!root) return;
+  root.setAttribute("data-flare", "true");
+  setTimeout(() => root.removeAttribute("data-flare"), duration);
+};
+
+// Re-trigger a step's enter animation when it's shown after being
+// display:none. CSS handles the animation; we have to remove and re-add
+// the data-replay attribute across a paint to reset animation-name.
+const replayStepEnter = (step) => {
+  if (!step) return;
+  step.setAttribute("data-replay", "true");
+  // Force a reflow so the browser commits the "animation: none" state
+  // before we remove the attribute, otherwise the reset is coalesced
+  // away and the animation never restarts.
+  void step.offsetWidth;
+  step.removeAttribute("data-replay");
+};
+
 const handOffToDesktop = (root, greeting) => {
   // 1) Flare: data-state="unlocking" runs the gold glow burst + card release.
   // 2) After ~450ms, fade greeting in; lock state flips after a moment.
@@ -1353,7 +1377,7 @@ const buildSetup = () => {
     if (!passkey) {
       // No passkey — PIN is the only unlock method, so collect it.
       pinSalt = generatePinSalt();
-      const pin = await collectNewPin(step1);
+      const pin = await collectNewPin(step1, root);
       pinHash = await hashPin(pin, pinSalt);
     }
 
@@ -1370,16 +1394,21 @@ const buildSetup = () => {
       ? writePinFields(baseProfile, { pinSalt, pinHash })
       : baseProfile;
 
+    // Flare bridges the two cards: glow brightens as step1 lifts away
+    // and is still fading when step2 enters, so the swap feels like one
+    // continuous beat instead of two disconnected ones.
+    flareGlows(root, 850);
     step1.classList.add("hw-step-exit");
-    await new Promise((r) => setTimeout(r, 320));
+    await new Promise((r) => setTimeout(r, 240));
     step1.style.display = "none";
     renderKeyCard(step2, profile, recoveryKey, root);
     step2.style.display = "flex";
+    replayStepEnter(step2);
   };
 
   // Replace step1 contents with a PIN-setup card; resolve when the user
   // has entered the same 6 digits twice.
-  const collectNewPin = (container) => new Promise((resolve) => {
+  const collectNewPin = (container, root) => new Promise((resolve) => {
     container.innerHTML = "";
     const card = el("div", { class: "hw-pin-setup" }, [
       el("h2", { class: "hw-pin-setup-title" }, ["Set your unlock PIN"]),
@@ -1400,6 +1429,10 @@ const buildSetup = () => {
     card.appendChild(hiddenPin);
     container.appendChild(card);
     container.style.display = "flex";
+    // Glow flare so the appearance of the PIN card reads as "next slide"
+    // rather than a sudden in-place swap.
+    flareGlows(root, 700);
+    replayStepEnter(container);
 
     setTimeout(() => hiddenPin.focus(), 100);
     pinDots.addEventListener("click", () => hiddenPin.focus());
@@ -1423,6 +1456,7 @@ const buildSetup = () => {
         updateDots();
         stage = "confirm";
         hint.textContent = "Confirm the PIN";
+        flareGlows(root, 500);
         return;
       }
       if (hiddenPin.value !== firstPin) {
@@ -1436,6 +1470,7 @@ const buildSetup = () => {
         return;
       }
       hint.textContent = "Saving…";
+      flareGlows(root, 800);
       resolve(firstPin);
     });
   });

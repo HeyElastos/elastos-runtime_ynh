@@ -25,9 +25,14 @@
   pointer-events: none;
 }
 
-/* Floating decorative glows */
+/* Floating decorative glows. Transitions on `filter` are how the
+   per-slide flare effect works — see `[data-flare="true"]` below.
+   The float keyframes only animate `transform`, so filter transitions
+   don't fight the floating motion. */
 .hw-glow {
   position: absolute; border-radius: 50%; pointer-events: none;
+  transition: filter 0.55s cubic-bezier(0.22, 0.84, 0.31, 1);
+  will-change: transform, filter;
 }
 .hw-glow.a {
   top: 8%; left: 10%; width: 460px; height: 460px;
@@ -46,6 +51,21 @@
   background: radial-gradient(circle closest-side, rgba(244,114,182,0.42) 0%, rgba(244,114,182,0.16) 40%, transparent 75%);
   filter: blur(80px);
   animation: hw-float-c 18s ease-in-out infinite;
+}
+
+/* Per-slide glow flare. Triggered by the JS helper `flareGlows()` at
+   step transitions (step1 → step2, PIN setup appearance, PIN confirm)
+   by setting data-flare="true" on the root for ~600ms. Differs from
+   the unlock flare in that it's softer, repeatable, and only affects
+   filter — letting the float keyframes keep running smoothly. */
+#hey-welcome[data-flare="true"] .hw-glow.a {
+  filter: blur(90px) brightness(1.7) saturate(1.3);
+}
+#hey-welcome[data-flare="true"] .hw-glow.b {
+  filter: blur(100px) brightness(1.7) saturate(1.3);
+}
+#hey-welcome[data-flare="true"] .hw-glow.c {
+  filter: blur(80px) brightness(1.7) saturate(1.3);
 }
 @keyframes hw-float-a {
   0%,100% { transform: translate(0,0) scale(1); }
@@ -305,19 +325,25 @@
   padding: 0 24px;
   /* Enter animation: fade + lift + slight blur clearing. Applies on
      attach AND whenever the step becomes visible again. */
-  animation: hw-step-enter 0.45s cubic-bezier(0.22, 0.84, 0.31, 1) both;
+  animation: hw-step-enter 0.55s cubic-bezier(0.22, 0.84, 0.31, 1) both;
+}
+/* Re-trigger the enter animation when a previously hidden step is
+   shown again. JS adds data-replay then removes it on the next frame
+   (animation-name reset triggers a fresh run). */
+.hw-setup-step[data-replay="true"] {
+  animation: none;
 }
 .hw-setup-step.hw-step-exit {
   /* Exit: drift up + fade. Triggered before swapping step1 → step2. */
-  animation: hw-step-exit 0.35s cubic-bezier(0.4, 0, 0.7, 0.4) forwards;
+  animation: hw-step-exit 0.4s cubic-bezier(0.4, 0, 0.7, 0.4) forwards;
   pointer-events: none;
 }
 @keyframes hw-step-enter {
-  from { opacity: 0; transform: translateY(28px) scale(0.985); filter: blur(4px); }
+  from { opacity: 0; transform: translateY(32px) scale(0.98); filter: blur(5px); }
   to   { opacity: 1; transform: none; filter: blur(0); }
 }
 @keyframes hw-step-exit {
-  to { opacity: 0; transform: translateY(-22px) scale(0.97); filter: blur(6px); }
+  to { opacity: 0; transform: translateY(-26px) scale(0.965); filter: blur(7px); }
 }
 
 /* ── PIN entry feedback ──────────────────────────────────────────── */
