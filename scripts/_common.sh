@@ -50,7 +50,23 @@ ensure_localhost_encryption_key() {
     chown -R "$app:$app" "$key_dir"
     if [ ! -s "$key_file" ]; then
         # 32 random bytes → 64-char lowercase hex, no trailing newline.
-        sudo -u "$app" sh -c "head -c 32 /dev/urandom | xxd -p -c 64 | tr -d '\n' > '$key_file'"
+        # Use openssl (already in apt deps) instead of xxd which isn't
+        # installed on a stock Debian YunoHost — without it the prior
+        # pipeline failed silently and the redirect left the key file
+        # 0 bytes, which the wrapper then refused to export, which
+        # made localhost-provider store every Users/* file in
+        # plaintext. ynh_die if the key write fails so we never end
+        # up with an empty key file masquerading as a valid one.
+        sudo -u "$app" sh -c "openssl rand -hex 32 | tr -d '\n' > '$key_file'" \
+            || ynh_die --message="Failed to generate localhost encryption key at $key_file"
+        # Defense in depth: confirm the file actually has 64 hex chars
+        # before declaring success. Catches the case where openssl was
+        # in PATH but the redirect was blocked by permissions.
+        local key_len
+        key_len="$(wc -c <"$key_file" 2>/dev/null || echo 0)"
+        if [ "$key_len" -lt 64 ]; then
+            ynh_die --message="Localhost encryption key write produced $key_len bytes (expected 64). Aborting before plaintext-at-rest regression."
+        fi
         chmod 0600 "$key_file"
         chown "$app:$app" "$key_file"
     fi
