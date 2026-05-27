@@ -183,15 +183,17 @@ html::after {
   max-width: none;
   transform: none;
   justify-content: flex-start;
-  /* Same frosted material as the bottom dock (.taskbar-inner): the
-     --frosted-bg/border vars and the heavy 40px backdrop blur. Keeps
-     the strip shape (border-bottom only, no rounded corners) but
-     visually unified with the dock so they read as one design. */
-  background: var(--frosted-bg);
-  backdrop-filter: blur(40px);
-  -webkit-backdrop-filter: blur(40px);
-  border-bottom: 1px solid var(--frosted-border);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+  /* Darker frosted tint so text (clock, brand-surface, mesh pill)
+     reads cleanly against bright / busy wallpapers. The previous
+     `--frosted-bg` (rgba(255,255,255,0.08)) bled too much light
+     through on photo backgrounds and washed out the labels. The
+     darker tint is shared with the dock below so the two chrome
+     strips stay visually unified. */
+  background: rgba(11, 17, 32, 0.72);
+  backdrop-filter: blur(40px) saturate(140%);
+  -webkit-backdrop-filter: blur(40px) saturate(140%);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.45);
   min-height: var(--toolbar-h);
   padding: 0 14px;
   /* Strong text color so labels read against the frosted glass in
@@ -336,12 +338,17 @@ html::after {
   padding-bottom: var(--taskbar-offset);
 }
 .taskbar-inner {
-  background: var(--frosted-bg);
-  border: 1px solid var(--frosted-border);
+  /* Same darker tint as the toolbar (see .toolbar comment above):
+     bright wallpapers were leaking through the 8%-white glass and
+     making the dock buttons hard to read. Sticking with saturate()
+     keeps the wallpaper colors visible without dominating. */
+  background: rgba(11, 17, 32, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 18px;
   padding: 7px 10px;
-  backdrop-filter: blur(40px);
-  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(40px) saturate(140%);
+  -webkit-backdrop-filter: blur(40px) saturate(140%);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.55);
 }
 .taskbar-item {
   border-radius: 14px;
@@ -627,11 +634,11 @@ body[data-locked="loading"]::before {
   gap: 6px !important;
   padding: 7px 10px !important;
   border-radius: 18px !important;
-  background: var(--frosted-bg) !important;
-  border: 1px solid var(--frosted-border) !important;
-  backdrop-filter: blur(40px) !important;
-  -webkit-backdrop-filter: blur(40px);
-  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5) !important;
+  background: rgba(11, 17, 32, 0.72) !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  backdrop-filter: blur(40px) saturate(140%) !important;
+  -webkit-backdrop-filter: blur(40px) saturate(140%);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.55) !important;
 }
 .taskbar-primary {
   display: flex !important;
