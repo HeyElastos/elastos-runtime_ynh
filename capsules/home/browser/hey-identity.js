@@ -210,6 +210,17 @@
     return bytesToHex(new Uint8Array(sigBuf));
   };
 
+  // Convenience: expand a 32-byte seed (hex) into a signing key, sign,
+  // and return the signature as hex. Used for /api/auth/unlock's
+  // passkey path — the JS gets identityPrf out of a passkey assertion,
+  // derives the Ed25519 keypair from it, and signs a server challenge
+  // to prove possession of the private key (same key whose pubkey
+  // gives the stored did:key).
+  const signWithSeed = async (seedHex, message) => {
+    const { privKey } = await seedToKeyMaterial(seedHex);
+    return sign(message, privKey);
+  };
+
   const verify = async (message, signatureHex, publicKey) => {
     try {
       if (!(publicKey instanceof Uint8Array) || publicKey.length !== 32) return false;
@@ -249,6 +260,7 @@
     expandKeypair,
     hashAuthKey,
     sign,
+    signWithSeed,
     verify,
     publicKeyToDidKey,
     didKeyToPublicKey,

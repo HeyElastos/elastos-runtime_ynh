@@ -53,6 +53,125 @@ const LOCAL_CACHE_KEY = "hey-home-profile";
 const runtimeAvailable = () =>
   typeof window !== "undefined" && !!window.heyRuntime;
 
+// ── Auth-gate endpoints (Approach A step 5c) ─────────────────────────
+//
+// The server side (handlers/auth.rs) verifies the proof and graduates
+// the calling session from PreAuth to Authenticated. When the gate is
+// disabled (ELASTOS_AUTH_GATE=0, today's default), these calls are
+// effectively no-ops on the server — the session was Authenticated by
+// default. When enabled, they're load-bearing.
+//
+// Either way the JS treats them as best-effort: a failure here doesn't
+// abort the local unlock UX. If the server refuses, capability calls
+// will surface their own 401s and the user re-tries.
+
+const apiBase = () => {
+  if (typeof window === "undefined") return "";
+  const m = window.location.pathname.match(/^(.*?)\/apps\/[^/]+\//);
+  return m ? m[1] : "";
+};
+
+const authFetch = async (path, init = {}) => {
+  // Wait for hey-runtime.js to complete the cookie → Bearer handshake
+  // (step 5b) before sending — auth_middleware on the server only
+  // accepts Authorization: Bearer, and the bearer comes from the
+  // handshake. Falls through plain if heyRuntime isn't loaded yet
+  // (design preview).
+  let bearer = null;
+  try {
+    if (window.heyRuntime?.bearerReady) {
+      bearer = await window.heyRuntime.bearerReady;
+    }
+  } catch (_) { /* ignore */ }
+  const headers = {
+    "Content-Type": "application/json",
+    ...(init.headers || {}),
+    ...(bearer ? { Authorization: `Bearer ${bearer}` } : {}),
+  };
+  return fetch(apiBase() + path, {
+    credentials: "include",
+    ...init,
+    headers,
+  });
+};
+
+// Submit a PIN proof. Server runs PBKDF2 against the stored salt/hash
+// and graduates the session on match. Returns true on success.
+const serverUnlockWithPin = async (pin) => {
+  try {
+    const r = await authFetch("/api/auth/unlock", {
+      method: "POST",
+      body: JSON.stringify({ method: "pin", pin }),
+    });
+    return r.ok;
+  } catch (err) {
+    console.warn("[hey-home] /api/auth/unlock (pin) failed:", err);
+    return false;
+  }
+};
+
+// Sign a server-issued challenge with the passkey-derived Ed25519 key
+// to prove possession. The signature is verified against the stored
+// did:key (Ed25519 multicodec).
+const serverUnlockWithPasskey = async (identityPrf) => {
+  if (!identityPrf || identityPrf.length !== 32) return false;
+  try {
+    const challengeResp = await fetch(
+      apiBase() + "/api/auth/unlock/challenge",
+      { method: "POST", credentials: "include" }
+    );
+    if (!challengeResp.ok) return false;
+    const { challenge_id, challenge_hex } = await challengeResp.json();
+    if (!challenge_id || !challenge_hex) return false;
+    const challengeBytes = new Uint8Array(
+      challenge_hex.match(/.{2}/g).map((h) => parseInt(h, 16))
+    );
+    // Derive the same Ed25519 keypair the server expects (from
+    // identityPrf, the passkey's PRF output) and sign the challenge.
+    const ident = window.heyIdentity;
+    if (!ident?.signWithSeed) return false;
+    const seed = Array.from(identityPrf)
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("");
+    const signatureHex = await ident.signWithSeed(seed, challengeBytes);
+    if (!signatureHex) return false;
+    const r = await authFetch("/api/auth/unlock", {
+      method: "POST",
+      body: JSON.stringify({
+        method: "passkey",
+        challenge_id,
+        signature_hex: signatureHex,
+      }),
+    });
+    return r.ok;
+  } catch (err) {
+    console.warn("[hey-home] /api/auth/unlock (passkey) failed:", err);
+    return false;
+  }
+};
+
+// First-run setup. Refuses server-side if an identity already exists.
+// Returns true on success — the caller still does the client-side
+// write so localStorage / IDB caches stay in sync.
+const serverSetup = async (profile, passkeyCreds) => {
+  try {
+    const r = await authFetch("/api/auth/setup", {
+      method: "POST",
+      body: JSON.stringify({
+        profile,
+        passkey_creds: passkeyCreds || [],
+      }),
+    });
+    if (!r.ok) {
+      console.warn("[hey-home] /api/auth/setup failed:", r.status);
+    }
+    return r.ok;
+  } catch (err) {
+    console.warn("[hey-home] /api/auth/setup failed:", err);
+    return false;
+  }
+};
+
 const runtimeGet = async (path) => {
   if (!runtimeAvailable()) return { ok: false, status: 0 };
   try { return { ok: true, value: await window.heyRuntime.storage.readJson(path) }; }
@@ -601,10 +720,14 @@ const assertPasskey = async (profile) => {
   }));
   const challenge = randomBytes(32);
 
-  // Always request PRF if we have a vault — harmless if unsupported,
-  // gives us the master-key derivation material when supported. The
-  // input here MUST match what hey-vault.js used at enrollment.
-  const prfInput = new TextEncoder().encode("hey-home-vault-v1").buffer;
+  // PRF input MUST be the unified identity seed — same as enrollment
+  // in hey-vault.js (and the same one Hey Social uses). The vault key
+  // is HKDF-derived from this output below, so a stale "hey-home-
+  // vault-v1" input would compute a wrap key that can't decrypt what
+  // enrollment wrote. The same identityPrf is also what the server-
+  // side passkey unlock needs to verify possession of the Ed25519
+  // private key.
+  const prfInput = new TextEncoder().encode("elastos-identity-v1").buffer;
 
   const assertion = await navigator.credentials.get({
     publicKey: {
@@ -628,12 +751,14 @@ const assertPasskey = async (profile) => {
   const verified = await verifyAssertionSignature(used, assertion, challenge);
   if (!verified) throw new Error("Passkey assertion failed signature verification");
 
-  // Extract PRF output if the authenticator produced one.
+  // Raw identityPrf (32 bytes hmac-secret output). The legacy
+  // `prfOutput` name kept for callers; new callers should treat it
+  // as the IDENTITY PRF and HKDF-derive vault keys from it.
   const prfRaw =
     assertion.getClientExtensionResults?.()?.prf?.results?.first;
-  const prfOutput = prfRaw ? new Uint8Array(prfRaw) : null;
+  const identityPrf = prfRaw ? new Uint8Array(prfRaw) : null;
 
-  return { assertion, prfOutput };
+  return { assertion, prfOutput: identityPrf, identityPrf };
 };
 
 // requireAuth — prompt the user for either a passkey or PIN.
@@ -1099,6 +1224,13 @@ const buildWelcome = (profile) => {
     unlockBtn.disabled = true;
     const ok = await verifyPin(hiddenPin.value, profile);
     if (ok) {
+      // Server-side unlock (Approach A step 5c). When the auth gate
+      // is on this is what flips the session from PreAuth to
+      // Authenticated so capability auto-grant starts minting tokens
+      // for the rest of the desktop. Best-effort: gate-disabled
+      // installs still work because capability calls don't require
+      // graduation in that mode.
+      await serverUnlockWithPin(hiddenPin.value);
       // Reset attempt counters on successful unlock.
       profile.heyHome = { ...(profile.heyHome || {}), failedAttempts: 0, lockedUntil: null };
       await saveProfile(profile);
@@ -1185,20 +1317,33 @@ const buildWelcome = (profile) => {
       const wasText = passkeyBtnLabel.textContent;
       passkeyBtnLabel.textContent = "Tap your authenticator…";
       try {
-        const { prfOutput } = await assertPasskey(profile);
+        const { identityPrf } = await assertPasskey(profile);
+        // Server-side unlock (Approach A step 5c). Signs a fresh
+        // server-issued challenge with the identityPrf-derived
+        // Ed25519 key — same key whose did:key is stored in the
+        // shared identity. Server verifies the signature against
+        // that didKey to flip the session from PreAuth to
+        // Authenticated. Best-effort: gate-disabled installs work
+        // even if this is a no-op.
+        await serverUnlockWithPasskey(identityPrf);
         // If a vault is configured, unwrap the master key now. With
         // the vault gate in place below, failing this means we refuse
         // hand-off — the user can't reach the desktop without the
         // master key materialized.
         if (window.heyVault && (await window.heyVault.hasVault())) {
-          if (!prfOutput) {
+          if (!identityPrf) {
             throw new Error(
               "This passkey doesn't produce a PRF output — can't unlock vault. " +
               "Re-enroll a PRF-capable authenticator (Yubikey 5.7+, Touch ID on " +
               "macOS 14+, modern Windows Hello, Android 14+) or unlock via recovery key."
             );
           }
-          await window.heyVault.unlockVaultWithPRF(prfOutput);
+          // HKDF-derive the vault key from the identity PRF (matches
+          // what hey-vault.js's enrollPasskeyForVault wraps with).
+          // Using identityPrf directly would compute a different key
+          // and the unwrap would fail.
+          const vaultPrf = await deriveVaultPrf(identityPrf, "hey-home-vault-v1");
+          await window.heyVault.unlockVaultWithPRF(vaultPrf);
         }
         if (!(await enforceVaultGate())) {
           passkeyBtn.disabled = false;
@@ -1637,6 +1782,14 @@ const renderKeyCard = (container, profile, recoveryKey, root) => {
 
   finishBtn.addEventListener("click", async () => {
     finishBtn.disabled = true;
+    // Server-side first-run setup (Approach A step 5c). Submits the
+    // new profile via /api/auth/setup, which refuses if a shared
+    // identity already exists on the node (race-condition guard) and
+    // graduates the calling session to Authenticated on success.
+    // When the auth gate is off (today's default) the call is
+    // effectively redundant with the saveProfile below — but it's
+    // load-bearing once 5d flips the env var, and harmless before.
+    await serverSetup(profile, profile.passkeys || []);
     await saveProfile(profile);
     // At signup with PRF, vault was initialized + masterKey is already in
     // memory, so enforceVaultGate returns true. With a non-PRF passkey
