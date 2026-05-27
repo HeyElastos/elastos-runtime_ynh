@@ -968,3 +968,140 @@ input:focus-visible {
   background: rgba(212, 184, 75, 0.45);
 }
 html { scrollbar-color: rgba(255, 255, 255, 0.10) transparent; }
+
+/* ─────────────────────────────────────────────────────────────────────
+   Frosted-glass app icons + warm topbar (2026-05-27)
+
+   Inspired by the social-icons reference: each icon = a soft-blurred
+   colored halo behind a translucent frosted card. The SVG glyph sits
+   on top of the card. Tones drive the halo color via --halo-color.
+   ───────────────────────────────────────────────────────────────── */
+
+/* The card itself: frosted, translucent, with a hairline border and
+   a soft inner highlight. Overrides the gradient backgrounds from
+   style.css (later-in-load wins). */
+.app-glyph,
+.taskbar-item-icon,
+.window-head-icon {
+  position: relative;
+  background: rgba(255, 255, 255, 0.42);
+  backdrop-filter: blur(22px);
+  -webkit-backdrop-filter: blur(22px);
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.7),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.04),
+    0 10px 24px rgba(0, 0, 0, 0.14);
+  overflow: visible;
+  isolation: isolate;       /* keep ::before's negative z-index local */
+}
+
+/* The colored halo behind. Offset down-right so it peeks out like the
+   reference (Twitter bird's blue circle, FB's blue square, etc.). */
+.app-glyph::before,
+.taskbar-item-icon::before,
+.window-head-icon::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--halo-color, #5b7fdb);
+  filter: blur(14px);
+  opacity: 0.85;
+  transform: translate(5px, 6px) scale(0.95);
+  z-index: -1;
+  pointer-events: none;
+}
+
+/* SVG glyph sits on top of the frosted card. White-ish ink with a tiny
+   shadow so it stays legible on both light and dark halo colors. */
+.app-glyph svg,
+.taskbar-item-icon svg,
+.window-head-icon svg {
+  position: relative;
+  z-index: 1;
+  color: rgba(255, 255, 255, 0.96);
+  filter: drop-shadow(0 1px 1.5px rgba(0, 0, 0, 0.22));
+}
+
+/* Per-tone halo colors. Single saturated swatch — the 14px blur turns
+   it into a glow that reads through the card. */
+.app-glyph[data-tone="default"],
+.taskbar-item-icon[data-tone="default"],
+.window-head-icon[data-tone="default"] {
+  --halo-color: #5b7fdb;
+}
+.app-glyph[data-tone="system"],
+.taskbar-item-icon[data-tone="system"],
+.window-head-icon[data-tone="system"] {
+  background: rgba(255, 255, 255, 0.42);
+  --halo-color: #f08a2b;
+}
+.app-glyph[data-tone="room"],
+.taskbar-item-icon[data-tone="room"],
+.window-head-icon[data-tone="room"] {
+  background: rgba(255, 255, 255, 0.42);
+  --halo-color: #4469cb;
+}
+.app-glyph[data-tone="docs"],
+.taskbar-item-icon[data-tone="docs"],
+.window-head-icon[data-tone="docs"] {
+  background: rgba(255, 255, 255, 0.42);
+  --halo-color: #1d8be0;
+}
+.app-glyph[data-tone="games"],
+.taskbar-item-icon[data-tone="games"],
+.window-head-icon[data-tone="games"] {
+  background: rgba(255, 255, 255, 0.42);
+  --halo-color: #8b5cf6;
+}
+
+/* Dark-mode tweak: lower base opacity so the frosted card reads against
+   dark windows / dark wallpaper. Halos already work against either. */
+@media (prefers-color-scheme: dark) {
+  .app-glyph,
+  .taskbar-item-icon,
+  .window-head-icon {
+    background: rgba(255, 255, 255, 0.16);
+    border-color: rgba(255, 255, 255, 0.22);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.28),
+      0 10px 24px rgba(0, 0, 0, 0.35);
+  }
+  .app-glyph[data-tone="system"],
+  .app-glyph[data-tone="room"],
+  .app-glyph[data-tone="docs"],
+  .app-glyph[data-tone="games"],
+  .taskbar-item-icon[data-tone="system"],
+  .taskbar-item-icon[data-tone="room"],
+  .taskbar-item-icon[data-tone="docs"],
+  .taskbar-item-icon[data-tone="games"],
+  .window-head-icon[data-tone="system"],
+  .window-head-icon[data-tone="room"],
+  .window-head-icon[data-tone="docs"],
+  .window-head-icon[data-tone="games"] {
+    background: rgba(255, 255, 255, 0.16);
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────────────
+   Topbar — warm cream frosted in light mode, deep-navy in dark mode.
+   Picks up the wallpaper's golden-hour / late-blue palette so the bar
+   reads as part of the scene rather than a separate UI surface.
+   ───────────────────────────────────────────────────────────────── */
+.toolbar {
+  background: rgba(255, 245, 230, 0.55);
+  border-bottom: 1px solid rgba(180, 200, 255, 0.28);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.6),
+    0 6px 20px rgba(10, 20, 40, 0.12);
+}
+@media (prefers-color-scheme: dark) {
+  .toolbar {
+    background: rgba(15, 22, 38, 0.55);
+    border-bottom: 1px solid rgba(120, 160, 220, 0.30);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.08),
+      0 6px 20px rgba(0, 0, 0, 0.45);
+  }
+}
