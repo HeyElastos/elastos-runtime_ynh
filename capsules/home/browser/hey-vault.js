@@ -112,10 +112,22 @@
   // is the HKDF-derived vault key (kept for API symmetry with callers).
   // Throws Error.name === "PRFNotSupported" if the authenticator can't
   // do PRF at all.
-  const enrollPasskeyForVault = async ({ name }) => {
+  //
+  // `onStatus` is an optional progress callback. It fires with one of:
+  //   "creating"     — about to prompt for the create() ceremony (first PIN)
+  //   "deriving"     — about to prompt for the assertion-only PRF round
+  //                    (second PIN — only happens on hardware keys like
+  //                    Nitrokey 3 whose firmware doesn't deliver
+  //                    hmac-secret on create. Touch ID / modern Windows
+  //                    Hello return PRF on create and skip this.)
+  // Callers should update their UI based on the phase so the second
+  // prompt doesn't look like a glitch.
+  const enrollPasskeyForVault = async ({ name, onStatus }) => {
     if (!prfPlausible()) throw new Error("WebAuthn not available");
     const challenge = crypto.getRandomValues(new Uint8Array(32));
     const userHandle = crypto.getRandomValues(new Uint8Array(32));
+
+    if (typeof onStatus === "function") onStatus("creating");
 
     const cred = await navigator.credentials.create({
       publicKey: {
@@ -165,6 +177,10 @@
 
     if (!prfFirst) {
       // PRF enabled but no result on create — fetch via assertion.
+      // This is the "second PIN" path for Nitrokey-class authenticators
+      // whose firmware delivers hmac-secret only on subsequent
+      // assertions, not on the create() response.
+      if (typeof onStatus === "function") onStatus("deriving");
       const assertion = await navigator.credentials.get({
         publicKey: {
           challenge: crypto.getRandomValues(new Uint8Array(32)),

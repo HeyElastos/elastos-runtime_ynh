@@ -1244,12 +1244,29 @@ const buildSetup = () => {
         // unlock AND derive the vault master key. If the authenticator
         // can't do PRF, fall back to the plain enrollment — the vault
         // simply won't be set up, and the lock screen stays UX-level.
+        //
+        // Some hardware keys (Nitrokey 3, some older Yubikeys) deliver
+        // the hmac-secret PRF output only on a follow-up assertion, not
+        // on create() — meaning the OS prompts for PIN twice. The
+        // onStatus callback below updates the button label so the user
+        // knows the second prompt is intentional, not a glitch.
         let credential = null;
         let prfOutput = null;
         let identityPrf = null;
         if (window.heyVault?.enrollPasskeyForVault) {
           try {
-            const vaultEnroll = await window.heyVault.enrollPasskeyForVault({ name });
+            const vaultEnroll = await window.heyVault.enrollPasskeyForVault({
+              name,
+              onStatus: (phase) => {
+                if (phase === "creating") {
+                  passkeyBtn.textContent = "Tap your authenticator…";
+                } else if (phase === "deriving") {
+                  passkeyBtn.textContent =
+                    "Tap again to finalize encryption key…";
+                  flareGlows(root, 700);
+                }
+              },
+            });
             credential = vaultEnroll.credential;
             prfOutput = vaultEnroll.prfOutput;
             identityPrf = vaultEnroll.identityPrf || null;
