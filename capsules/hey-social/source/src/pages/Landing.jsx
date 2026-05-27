@@ -52,6 +52,25 @@ const b64uDecode = (b64u) => {
   return out;
 };
 
+/** Trim whitespace + check shape: 64 lowercase-hex chars. */
+const recoveryKeyHexValid = (raw) =>
+  /^[0-9a-f]{64}$/.test((raw || "").replace(/\s+/g, "").toLowerCase());
+
+/** Compact inline spinner — used in busy-state buttons. */
+const Spinner = () => (
+  <svg
+    className="h-4 w-4 animate-spin"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2.5"
+    strokeLinecap="round"
+    aria-hidden="true"
+  >
+    <path d="M12 3a9 9 0 1 1-9 9" />
+  </svg>
+);
+
 // Core adoption helper. Given a 32-byte signing seed (hex) that
 // derives the SAME did:key as the shared identity, prove possession
 // to the server via /api/auth/unlock + set up Hey's local session
@@ -420,6 +439,11 @@ const Landing = () => {
   const [sharedIdentity, setSharedIdentity] = useState(null);
   const [adoptBusy, setAdoptBusy] = useState(false);
   const [recoveryKeyInput, setRecoveryKeyInput] = useState("");
+  // Toggled by the "Use a different account" link inside the welcome-
+  // back card. When true, the signup form below the card un-hides so
+  // an operator who wants to register a SEPARATE identity on the same
+  // node can. Default false → focus stays on adoption.
+  const [showAlternateAuth, setShowAlternateAuth] = useState(false);
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -559,8 +583,11 @@ const Landing = () => {
           className="mx-auto mt-4 max-w-lg text-base leading-7 text-muted animate-fade-up"
           style={{ animationDelay: "1.3s" }}
         >
-          Share images, react with any emoji, repost in a tap. No email, no password.
-          Just pick a nickname and we'll generate your secret key.
+          {sharedIdentity ? (
+            "Sign in to keep using your Elastos identity in Hey Social."
+          ) : (
+            "Share images, react with any emoji, repost in a tap. No email, no password. Just pick a nickname and we'll generate your secret key."
+          )}
         </p>
 
         {sharedIdentity && (
@@ -568,73 +595,116 @@ const Landing = () => {
             className="relative mx-auto mt-12 max-w-md animate-fade-up"
             style={{ animationDelay: "1.5s" }}
           >
-            <div className="frosted-card flex flex-col gap-3 p-5 text-left">
-              <p className="text-xs uppercase tracking-[0.3em] text-muted">
-                Welcome back
-              </p>
-              <p className="text-lg font-semibold text-primary">
-                {sharedIdentity.name || "Your Elastos identity is on this node"}
-              </p>
+            <div className="frosted-card flex flex-col gap-4 p-6 text-left">
+              {/* Identity header: avatar bubble + name + did snippet */}
+              <div className="flex items-center gap-3">
+                <div className="grid h-10 w-10 flex-none place-items-center rounded-full bg-accent/15 text-base font-bold uppercase text-accent ring-1 ring-accent/30">
+                  {(sharedIdentity.name || "?").trim().slice(0, 1)}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-[10px] uppercase tracking-[0.3em] text-muted">
+                    Welcome back
+                  </p>
+                  <p className="truncate text-lg font-semibold text-primary">
+                    {sharedIdentity.name || "Hey user"}
+                  </p>
+                </div>
+              </div>
+
               {sharedHasPasskey ? (
                 <>
-                  <p className="text-xs text-muted leading-5">
-                    You signed up with a passkey. Tap to sign in here too —
-                    no second account needed.
+                  <p className="text-xs leading-5 text-muted">
+                    You signed up with a passkey on this node. Tap to sign
+                    in here too — no second account needed.
                   </p>
                   <button
                     type="button"
                     onClick={handleAdoptWithPasskey}
                     disabled={adoptBusy}
-                    className="unfrost mt-1 inline-flex items-center justify-center gap-2 rounded-full bg-accent px-5 py-3 text-sm font-semibold text-accent-text shadow-lg transition hover:bg-amber-300 disabled:opacity-50"
+                    className="unfrost group inline-flex items-center justify-center gap-2 rounded-full bg-accent px-5 py-3 text-sm font-semibold text-accent-text shadow-lg transition hover:bg-amber-300 disabled:opacity-50"
                   >
-                    <svg viewBox="0 0 24 24" className="h-4 w-4 fill-current">
-                      <path d="M12 2a5 5 0 0 0-5 5v3H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8a2 2 0 0 0-2-2h-1V7a5 5 0 0 0-5-5Zm-3 8V7a3 3 0 0 1 6 0v3H9Z" />
-                    </svg>
+                    {adoptBusy ? (
+                      <Spinner />
+                    ) : (
+                      <svg viewBox="0 0 24 24" className="h-4 w-4 fill-current">
+                        <path d="M12 2a5 5 0 0 0-5 5v3H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8a2 2 0 0 0-2-2h-1V7a5 5 0 0 0-5-5Zm-3 8V7a3 3 0 0 1 6 0v3H9Z" />
+                      </svg>
+                    )}
                     {adoptBusy ? "Tap your passkey…" : "Sign in with my passkey"}
                   </button>
                 </>
               ) : (
                 <>
-                  <p className="text-xs text-muted leading-5">
-                    Paste the recovery key you saved at signup (the long hex
-                    string). Hey Social needs it to sign your posts &mdash;
-                    the welcome screen's PIN unlocks the node but doesn't
-                    give Hey the signing key.
+                  <p className="text-xs leading-5 text-muted">
+                    Paste your <strong className="text-primary/90">64-character recovery key</strong>{" "}
+                    (the long hex string shown once at welcome signup).
+                    Hey needs it to sign your posts — the PIN unlocks the
+                    node but doesn't give Hey the signing key.
                   </p>
                   <form
                     onSubmit={handleAdoptWithRecoveryKey}
                     className="flex flex-col gap-2"
                   >
-                    <input
-                      type="password"
-                      autoComplete="off"
-                      spellCheck="false"
-                      value={recoveryKeyInput}
-                      onChange={(e) => setRecoveryKeyInput(e.target.value)}
-                      disabled={adoptBusy}
-                      placeholder="64-character recovery key"
-                      className="unfrost rounded-2xl bg-black/20 px-4 py-3 font-mono text-xs text-primary outline-none placeholder:text-muted/60 ring-1 ring-white/10 focus:ring-accent"
-                    />
+                    <div className="relative">
+                      <input
+                        type="password"
+                        autoComplete="off"
+                        spellCheck="false"
+                        value={recoveryKeyInput}
+                        onChange={(e) => setRecoveryKeyInput(e.target.value)}
+                        disabled={adoptBusy}
+                        placeholder="64-character recovery key"
+                        className={`unfrost w-full rounded-2xl bg-black/20 px-4 py-3 pr-12 font-mono text-xs text-primary outline-none placeholder:text-muted/60 ring-1 transition focus:ring-accent ${
+                          recoveryKeyHexValid(recoveryKeyInput)
+                            ? "ring-emerald-500/60"
+                            : "ring-white/10"
+                        }`}
+                      />
+                      {/* Char-count indicator + green check when valid */}
+                      <span
+                        className={`absolute right-3 top-1/2 -translate-y-1/2 font-mono text-[10px] tabular-nums ${
+                          recoveryKeyHexValid(recoveryKeyInput)
+                            ? "text-emerald-400"
+                            : "text-muted"
+                        }`}
+                      >
+                        {recoveryKeyHexValid(recoveryKeyInput)
+                          ? "✓"
+                          : `${recoveryKeyInput.replace(/\s+/g, "").length}/64`}
+                      </span>
+                    </div>
                     <button
                       type="submit"
-                      disabled={adoptBusy || !recoveryKeyInput.trim()}
+                      disabled={
+                        adoptBusy || !recoveryKeyHexValid(recoveryKeyInput)
+                      }
                       className="unfrost inline-flex items-center justify-center gap-2 rounded-full bg-accent px-5 py-3 text-sm font-semibold text-accent-text shadow-lg transition hover:bg-amber-300 disabled:opacity-50"
                     >
+                      {adoptBusy && <Spinner />}
                       {adoptBusy ? "Verifying…" : "Sign in"}
                     </button>
                   </form>
                 </>
               )}
               {error && (
-                <p className="text-xs text-red-400">{error}</p>
+                <p className="text-xs leading-5 text-red-400">{error}</p>
               )}
+              <button
+                type="button"
+                onClick={() => setShowAlternateAuth((v) => !v)}
+                className="unfrost self-start text-[11px] text-muted underline-offset-2 hover:text-primary hover:underline"
+              >
+                {showAlternateAuth
+                  ? "Hide other options"
+                  : "Use a different account on this node"}
+              </button>
             </div>
           </div>
         )}
 
         <div
-          className={`relative mx-auto mt-16 max-w-md animate-fade-up ${
-            sharedIdentity ? "opacity-60" : ""
+          className={`relative mx-auto mt-12 max-w-md animate-fade-up ${
+            sharedIdentity && !showAlternateAuth ? "hidden" : ""
           }`}
           style={{ animationDelay: "1.6s" }}
         >
@@ -660,7 +730,10 @@ const Landing = () => {
               className="unfrost group inline-flex items-center justify-center gap-2 rounded-full bg-accent px-6 py-3 text-sm font-semibold text-accent-text shadow-lg shadow-slate-900/20 transition hover:bg-amber-300 disabled:cursor-not-allowed disabled:opacity-50 sm:py-2.5"
             >
               {loading ? (
-                "Generating..."
+                <>
+                  <Spinner />
+                  Generating…
+                </>
               ) : (
                 <>
                   Generate key
@@ -689,10 +762,14 @@ const Landing = () => {
               className="unfrost mt-4 inline-flex items-center justify-center gap-2 rounded-full border border-white/20 bg-white/5 px-5 py-2 text-xs font-medium text-primary transition hover:bg-white/10 disabled:opacity-50 animate-fade-in"
               style={{ animationDelay: "1.9s" }}
             >
-              <svg viewBox="0 0 24 24" className="h-3.5 w-3.5 fill-current">
-                <path d="M12 2a5 5 0 0 0-5 5v3H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8a2 2 0 0 0-2-2h-1V7a5 5 0 0 0-5-5Zm-3 8V7a3 3 0 0 1 6 0v3H9Z" />
-              </svg>
-              {passkeyBusy ? "Waiting for passkey..." : "Sign up with a passkey instead"}
+              {passkeyBusy ? (
+                <Spinner />
+              ) : (
+                <svg viewBox="0 0 24 24" className="h-3.5 w-3.5 fill-current">
+                  <path d="M12 2a5 5 0 0 0-5 5v3H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8a2 2 0 0 0-2-2h-1V7a5 5 0 0 0-5-5Zm-3 8V7a3 3 0 0 1 6 0v3H9Z" />
+                </svg>
+              )}
+              {passkeyBusy ? "Waiting for passkey…" : "Sign up with a passkey instead"}
             </button>
           )}
 
