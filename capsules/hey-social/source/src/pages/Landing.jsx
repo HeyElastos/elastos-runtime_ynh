@@ -428,7 +428,7 @@ export const FloatingScene = () => (
         width: "520px",
         height: "520px",
         background:
-          "radial-gradient(circle closest-side at center, rgba(96,165,250,0.60) 0%, rgba(96,165,250,0.22) 40%, transparent 75%)",
+          "radial-gradient(circle closest-side at center, rgba(190,168,140,0.52) 0%, rgba(190,168,140,0.18) 40%, transparent 75%)",
         filter: "blur(90px)",
         animationDelay: "1.5s",
       }}
@@ -441,7 +441,7 @@ export const FloatingScene = () => (
         width: "320px",
         height: "320px",
         background:
-          "radial-gradient(circle closest-side at center, rgba(244,114,182,0.50) 0%, rgba(244,114,182,0.18) 40%, transparent 75%)",
+          "radial-gradient(circle closest-side at center, rgba(220,178,192,0.42) 0%, rgba(220,178,192,0.16) 40%, transparent 75%)",
         filter: "blur(70px)",
         animationDelay: "3s",
       }}
@@ -461,7 +461,7 @@ export const FloatingScene = () => (
 
     {/* Triangle */}
     <svg
-      className="float-shape shape-b text-sky-700/45 dark:text-sky-300/70"
+      className="float-shape shape-b text-stone-600/50 dark:text-stone-300/60"
       style={{ top: "22%", left: "18%", width: 70, height: 70 }}
       viewBox="0 0 24 24"
       fill="none"
@@ -474,7 +474,7 @@ export const FloatingScene = () => (
 
     {/* Plus */}
     <svg
-      className="float-shape shape-c text-pink-600/50 dark:text-pink-300/70"
+      className="float-shape shape-c text-rose-700/40 dark:text-rose-200/55"
       style={{ bottom: "26%", left: "12%", width: 56, height: 56 }}
       viewBox="0 0 24 24"
       fill="none"
@@ -517,7 +517,7 @@ export const FloatingScene = () => (
 
     {/* Wavy line */}
     <svg
-      className="float-shape shape-d text-pink-500/45 dark:text-pink-200/60"
+      className="float-shape shape-d text-rose-600/40 dark:text-rose-200/55"
       style={{ top: "70%", left: "22%", width: 100, height: 30, animationDelay: "2.5s" }}
       viewBox="0 0 100 30"
       fill="none"
@@ -787,7 +787,7 @@ const Landing = () => {
   };
 
   return (
-    <div className="relative -mt-10 flex min-h-[80vh] flex-col items-center justify-center px-4 py-10">
+    <div className="hey-landing-stage relative -mt-10 flex min-h-[80vh] flex-col items-center justify-center px-4 py-10">
       <FloatingScene />
 
       <div className="relative z-10 mx-auto max-w-2xl text-center">

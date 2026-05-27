@@ -97,7 +97,7 @@ const Onboarding = () => {
   };
 
   return (
-    <div className="relative -mt-10 flex min-h-screen flex-col items-center justify-start px-4 pt-12 pb-10 sm:pt-16">
+    <div className="hey-landing-stage relative -mt-10 flex min-h-screen flex-col items-center justify-start px-4 pt-12 pb-10 sm:pt-16">
       <FloatingScene />
 
       <div className="relative z-10 mx-auto w-full max-w-xl">
