@@ -222,11 +222,40 @@ pub async fn start_server_with_sessions(config: ServerConfig) -> anyhow::Result<
         )),
     };
 
+    // Read the auth-gate feature flag once. When enabled (env
+    // ELASTOS_AUTH_GATE=1), browser sessions start in PreAuth and
+    // must complete /api/auth/unlock (PIN or passkey) before the
+    // capability handler will mint tokens. Default off so the
+    // change is backwards-compatible on existing installs.
+    let auth_gate_enabled = matches!(
+        std::env::var("ELASTOS_AUTH_GATE")
+            .unwrap_or_default()
+            .as_str(),
+        "1" | "true" | "on" | "yes"
+    );
+    if auth_gate_enabled {
+        tracing::info!(
+            "ELASTOS_AUTH_GATE=1 — sessions start PreAuth; capability auto-grant requires unlock"
+        );
+    }
+
+    // Shared unlock-window handle: the auth handler owns the writer
+    // (opens it on successful unlock/setup), the capability handler
+    // owns a read-only reference for cross-capsule propagation.
+    let unlock_window = data_dir.as_ref().map(|_| {
+        Arc::new(tokio::sync::RwLock::new(
+            handlers::auth::UnlockWindow::new(std::time::Duration::from_secs(12 * 60 * 60)),
+        ))
+    });
+
     let capability_state = CapabilityState {
         pending_store: pending_store.clone(),
         capability_manager: capability_manager.clone(),
         policy_evaluator,
         data_dir: data_dir.clone(),
+        auth_gate_enabled,
+        unlock_window: unlock_window.clone(),
+        session_registry: Some(session_registry.clone()),
     };
     let capsule_audit_log = audit_log
         .clone()
@@ -266,11 +295,16 @@ pub async fn start_server_with_sessions(config: ServerConfig) -> anyhow::Result<
     // server-side session graduation. The challenge endpoint is
     // public (mints a random number); unlock and state require a
     // valid session token (auth_middleware), which the home capsule
-    // session cookie already provides.
+    // session cookie already provides. Shares the same unlock_window
+    // handle as the capability handler so cross-capsule propagation
+    // works (one unlock graduates all PreAuth sessions for the TTL).
     let (auth_gate_public, auth_gate_authed) = if let Some(ref dir) = data_dir {
-        let auth_state = handlers::auth::AuthGateState::new(
+        let auth_state = handlers::auth::AuthGateState::with_unlock_window(
             dir.clone(),
             session_registry.clone(),
+            unlock_window
+                .clone()
+                .expect("unlock_window exists when data_dir is set"),
         );
         let public = Router::new()
             .route(

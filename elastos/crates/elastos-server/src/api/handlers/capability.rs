@@ -28,6 +28,54 @@ pub struct CapabilityState {
     /// capability handler can auto-grant resources in the capsule's
     /// declared permissions without an out-of-band approval flow.
     pub data_dir: Option<std::path::PathBuf>,
+    /// When true, sessions in AuthState::PreAuth are refused capability
+    /// auto-grant unless the server-wide unlock window is open. When
+    /// false, all sessions pass the gate (legacy / backward-compat).
+    /// Controlled by the ELASTOS_AUTH_GATE env var at server boot.
+    pub auth_gate_enabled: bool,
+    /// Read-only handle to the unlock window owned by the auth handler.
+    /// Capability auto-grant checks this when gating a PreAuth session:
+    /// if the window is open, the session graduates inline (cross-
+    /// capsule propagation) and proceeds.
+    pub unlock_window:
+        Option<Arc<tokio::sync::RwLock<super::auth::UnlockWindow>>>,
+    /// Needed to mutate a session's auth_state when the unlock window
+    /// is open. Cross-capsule propagation requires graduating the
+    /// CALLING session, not the original unlocking session.
+    pub session_registry: Option<Arc<elastos_runtime::session::SessionRegistry>>,
+}
+
+/// Pure helper extracted for unit-testing the gate.
+///
+/// Returns the action to take given the current state. Splits the
+/// HTTP-handler-vs-logic boundary cleanly.
+#[derive(Debug, PartialEq, Eq)]
+pub enum AuthGateOutcome {
+    /// Session can proceed — either gate disabled, or session is
+    /// already authenticated.
+    Proceed,
+    /// Session was PreAuth but the unlock window is open — graduate
+    /// it inline and then proceed.
+    GraduateAndProceed,
+    /// Session is PreAuth and the unlock window is closed. Refuse.
+    Refuse,
+}
+
+pub fn evaluate_auth_gate(
+    gate_enabled: bool,
+    session: &Session,
+    window_open: bool,
+) -> AuthGateOutcome {
+    if !gate_enabled {
+        return AuthGateOutcome::Proceed;
+    }
+    if session.can_access_resources() {
+        return AuthGateOutcome::Proceed;
+    }
+    if window_open {
+        return AuthGateOutcome::GraduateAndProceed;
+    }
+    AuthGateOutcome::Refuse
 }
 
 // === Request Capability ===
@@ -92,6 +140,34 @@ pub async fn request_capability(
             StatusCode::BAD_REQUEST,
             "Unsupported resource scheme. Allowed: elastos://, localhost://".to_string(),
         ));
+    }
+
+    // Auth-state gate (Approach A). When ELASTOS_AUTH_GATE is on, a
+    // session must have proven identity (passkey / PIN via
+    // /api/auth/unlock or /api/auth/setup) before capability auto-
+    // grant will mint tokens. Shell sessions are exempt — they're the
+    // always-trusted orchestrator. Cross-capsule propagation: if any
+    // session on this node has unlocked recently, the unlock window
+    // is open and other PreAuth sessions graduate transparently on
+    // their first capability request.
+    let window_open = match state.unlock_window.as_ref() {
+        Some(win) => win.read().await.is_open(),
+        None => false,
+    };
+    match evaluate_auth_gate(state.auth_gate_enabled, &session, window_open) {
+        AuthGateOutcome::Proceed => { /* fall through to existing logic */ }
+        AuthGateOutcome::GraduateAndProceed => {
+            if let Some(ref reg) = state.session_registry {
+                reg.get_session_mut(&session.token, |s| s.set_authenticated())
+                    .await;
+            }
+        }
+        AuthGateOutcome::Refuse => {
+            return Err((
+                StatusCode::UNAUTHORIZED,
+                "Session not authenticated. POST /api/auth/unlock first.".to_string(),
+            ));
+        }
     }
 
     let resource = ResourceId::new(&input.resource);
@@ -765,5 +841,58 @@ mod tests {
         assert!(!is_supported_resource_scheme("localhost:/broken"));
         assert!(!is_supported_resource_scheme("resource-without-scheme"));
         assert!(!is_supported_resource_scheme(""));
+    }
+
+    use elastos_runtime::session::{AuthState, Session, SessionType};
+
+    fn pre_auth_capsule() -> Session {
+        Session::new(SessionType::Capsule, None).with_auth_state(AuthState::PreAuth)
+    }
+
+    fn authed_capsule() -> Session {
+        Session::new(SessionType::Capsule, None)
+    }
+
+    #[test]
+    fn auth_gate_disabled_lets_everything_through() {
+        // Backward-compat: when the env flag is off, gate behaves
+        // exactly like the legacy "everyone gets auto-grant" path.
+        let s = pre_auth_capsule();
+        assert_eq!(evaluate_auth_gate(false, &s, false), AuthGateOutcome::Proceed);
+        assert_eq!(evaluate_auth_gate(false, &s, true), AuthGateOutcome::Proceed);
+    }
+
+    #[test]
+    fn auth_gate_enabled_blocks_pre_auth_when_window_closed() {
+        let s = pre_auth_capsule();
+        assert_eq!(evaluate_auth_gate(true, &s, false), AuthGateOutcome::Refuse);
+    }
+
+    #[test]
+    fn auth_gate_enabled_promotes_pre_auth_when_window_open() {
+        // Cross-capsule propagation: a hey-social session that's
+        // PreAuth gets graduated transparently if hey-home already
+        // unlocked the user.
+        let s = pre_auth_capsule();
+        assert_eq!(
+            evaluate_auth_gate(true, &s, true),
+            AuthGateOutcome::GraduateAndProceed
+        );
+    }
+
+    #[test]
+    fn auth_gate_lets_authenticated_proceed_regardless_of_window() {
+        let s = authed_capsule();
+        assert_eq!(evaluate_auth_gate(true, &s, false), AuthGateOutcome::Proceed);
+        assert_eq!(evaluate_auth_gate(true, &s, true), AuthGateOutcome::Proceed);
+    }
+
+    #[test]
+    fn auth_gate_exempts_shell_sessions_always() {
+        // Shell = always-trusted orchestrator. Must pass regardless
+        // of the env flag or window state, or the runtime can't
+        // bootstrap itself.
+        let s = Session::new(SessionType::Shell, None).with_auth_state(AuthState::PreAuth);
+        assert_eq!(evaluate_auth_gate(true, &s, false), AuthGateOutcome::Proceed);
     }
 }

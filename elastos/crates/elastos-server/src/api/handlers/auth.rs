@@ -135,12 +135,28 @@ pub struct AuthGateState {
 
 impl AuthGateState {
     pub fn new(data_dir: PathBuf, session_registry: Arc<SessionRegistry>) -> Self {
+        Self::with_unlock_window(
+            data_dir,
+            session_registry,
+            Arc::new(tokio::sync::RwLock::new(UnlockWindow::new(
+                DEFAULT_UNLOCK_TTL,
+            ))),
+        )
+    }
+
+    /// Construct an AuthGateState sharing an unlock-window handle with
+    /// other parts of the server (capability handler, etc.). Used in
+    /// production so cross-capsule propagation has a single window of
+    /// truth.
+    pub fn with_unlock_window(
+        data_dir: PathBuf,
+        session_registry: Arc<SessionRegistry>,
+        unlock_window: Arc<tokio::sync::RwLock<UnlockWindow>>,
+    ) -> Self {
         Self {
             data_dir,
             session_registry,
-            unlock_window: Arc::new(tokio::sync::RwLock::new(UnlockWindow::new(
-                DEFAULT_UNLOCK_TTL,
-            ))),
+            unlock_window,
             challenges: Arc::new(Mutex::new(HashMap::new())),
             failures: Arc::new(Mutex::new(HashMap::new())),
         }
