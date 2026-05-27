@@ -35,7 +35,11 @@ ram.runtime = "512M"
 
     [install.path]
     type = "path"
-    default = "/elastos"
+    # Mount at root so the canonical URL is
+    # https://<your-domain>/apps/home/ (matching upstream Elacity's
+    # path layout). Operators who run multiple YunoHost apps on the
+    # same domain can pick a subpath at install time.
+    default = "/"
 
     [install.init_main_permission]
     help.en = "Who can reach the runtime through the browser. 'visitors' = anyone on your LAN, no login."
@@ -74,7 +78,8 @@ ram.runtime = "512M"
     main.default = 8090
     # Expose the room gateway port on the firewall so LAN devices can hit
     # http://<mini-pc-ip>:8090/apps/home/ directly, in addition to nginx-
-    # proxied https://<yunohost-domain>/elastos/apps/home/.
+    # proxied https://<yunohost-domain>/apps/home/ (or whatever subpath
+    # the operator picked at install).
     main.exposed = "TCP"
 
     [resources.apt]

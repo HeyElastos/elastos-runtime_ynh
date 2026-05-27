@@ -35,10 +35,12 @@ End state: you depend on no upstream infrastructure. Updates come from `git pull
 After install, from any device on your LAN:
 
 ```
-https://<your-yunohost-domain>/elastos/apps/chat-room/
+https://<your-yunohost-domain>/apps/home/
 ```
 
 That hits the room gateway through nginx — no SSH, no SSO if you picked `visitors` permission.
+
+Reference deployment: <https://elastos.elacitylabs.com/apps/home/>
 
 ### What's browser-accessible
 
