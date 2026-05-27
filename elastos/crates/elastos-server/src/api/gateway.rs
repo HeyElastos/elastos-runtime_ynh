@@ -103,6 +103,7 @@ pub fn gateway_router(state: GatewayState) -> Router {
             get(home_background_image),
         )
         .route("/api/apps/home/runtime/ensure", post(home_runtime_ensure))
+        .route("/api/apps/home/runtime-token", post(home_runtime_token))
         .route("/api/apps/home/launch", post(home_launch))
         .route("/api/apps/inbox/summary", get(inbox_summary))
         .route("/api/apps/inbox/actions", post(inbox_action))
@@ -1309,6 +1310,49 @@ fn dispatch_inbox_action(data_dir: &std::path::Path, action_id: &str) -> anyhow:
         return Ok(message);
     }
     anyhow::bail!("unknown inbox action");
+}
+
+/// POST /api/apps/home/runtime-token
+///
+/// Cookie-to-Bearer handshake for the home shell. The browser
+/// arrives at /apps/home/ with the home-session cookie (signed
+/// launch-token envelope set by serve_browser_app_index). That
+/// cookie proves the visitor came in through the front door but
+/// is NOT a runtime session token — `auth_middleware` only
+/// accepts Authorization: Bearer for /api/localhost, /api/provider,
+/// /api/capability, /api/auth/{unlock,setup,state}.
+///
+/// This endpoint trades the cookie for a real Bearer token by
+/// calling the local runtime's /api/auth/attach with the gateway's
+/// attach_secret (same path home_launch uses for other capsules).
+/// Bound to capsule_id="home" so capability auto-grant matches the
+/// home manifest's permissions.
+///
+/// When ELASTOS_AUTH_GATE=1, the minted session starts in PreAuth —
+/// the home shell's JS must then call /api/auth/unlock or
+/// /api/auth/setup before any storage / provider call works.
+#[derive(serde::Serialize)]
+struct HomeRuntimeTokenResponse {
+    token: String,
+}
+
+async fn home_runtime_token(
+    State(state): State<GatewayState>,
+    headers: HeaderMap,
+) -> Result<Json<HomeRuntimeTokenResponse>, (StatusCode, Json<serde_json::Value>)> {
+    if let Err(err) = require_home_token(&state.data_dir, &headers) {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({ "error": err.to_string() })),
+        ));
+    }
+    match mint_capsule_runtime_token(&state.data_dir, HOME_CAPSULE_ID).await {
+        Ok(token) => Ok(Json(HomeRuntimeTokenResponse { token })),
+        Err(err) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": err.to_string() })),
+        )),
+    }
 }
 
 async fn home_launch(

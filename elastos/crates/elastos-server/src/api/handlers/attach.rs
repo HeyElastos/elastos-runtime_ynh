@@ -7,7 +7,22 @@
 use std::sync::Arc;
 
 use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
-use elastos_runtime::session::{SessionRegistry, SessionType};
+use elastos_runtime::session::{AuthState, SessionRegistry, SessionType};
+
+/// Read the auth-gate feature flag from the environment. Browser-
+/// session-derived sessions (capsule scope) start in PreAuth when
+/// this is on, forcing the JS to complete /api/auth/unlock before
+/// capability auto-grant will mint tokens. Shell sessions are
+/// always Authenticated regardless — they're the runtime's own
+/// orchestrator and need to bootstrap themselves.
+fn auth_gate_enabled() -> bool {
+    matches!(
+        std::env::var("ELASTOS_AUTH_GATE")
+            .unwrap_or_default()
+            .as_str(),
+        "1" | "true" | "on" | "yes"
+    )
+}
 
 /// Shared state for the attach endpoint.
 #[derive(Clone)]
@@ -77,6 +92,23 @@ pub async fn attach(
                 .await
         }
     };
+
+    // Auth gate flip (Approach A step 5). When ELASTOS_AUTH_GATE is on,
+    // sessions minted for browser capsules start in PreAuth — capability
+    // auto-grant in handlers/capability.rs will refuse them until they
+    // graduate via /api/auth/unlock or /api/auth/setup. Shell sessions
+    // are exempt because they're the orchestrator: nobody can unlock
+    // them. The mutation must happen AFTER create_*_session because the
+    // registry already stored the session as Authenticated by default;
+    // get_session_mut updates the stored copy in place.
+    if auth_gate_enabled() && session.session_type == SessionType::Capsule {
+        state
+            .session_registry
+            .get_session_mut(&session.token, |s| {
+                s.auth_state = AuthState::PreAuth;
+            })
+            .await;
+    }
 
     (
         StatusCode::OK,
