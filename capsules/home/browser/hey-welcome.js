@@ -899,18 +899,20 @@ const buildWelcome = (profile) => {
 
   const hasPasskey = (profile.passkeys || []).length > 0 && passkeySupported();
   const hasPin = !!readPinFields(profile).pinHash;
-  // Passkey-only mode: profile has a passkey and no PIN. Don't render
-  // the PIN UI at all — passkey is the only (and strongest) unlock
-  // method, no need to also expose a 6-digit weaker fallback.
-  const passkeyOnly = hasPasskey && !hasPin;
+  // Strict rule (per user request): the lock screen shows ONE unlock
+  // method, never two. If a passkey is enrolled, that's the only
+  // option — the PIN field disappears even if a stored PIN is present
+  // (e.g. from a legacy profile or an old "added passkey later" path).
+  // Eliminates the confusing "tap passkey OR type PIN" dual-prompt
+  // and matches the signup contract: passkey-signups never set a PIN,
+  // PIN-only signups never get a passkey button.
+  const passkeyOnly = hasPasskey;
 
   // PIN dots
   const pins = el("div", { class: "hw-pins" });
   for (let i = 0; i < 6; i++) pins.appendChild(el("div", { class: "hw-pin" }));
   const hint = el("div", { class: "hw-hint" }, [
-    passkeyOnly
-      ? "Tap your passkey to unlock"
-      : hasPasskey ? "Tap your passkey or enter recovery PIN" : "Enter recovery PIN",
+    passkeyOnly ? "Tap your passkey to unlock" : "Enter recovery PIN",
   ]);
 
   const passkeyBtnLabel = el("span", {}, [
@@ -931,13 +933,13 @@ const buildWelcome = (profile) => {
       style: "width:14px;height:14px;" },
       '<path d="M5 12h14M13 5l7 7-7 7"/>'),
   ]);
-  // Hide PIN-related UI in passkey-only mode.
+  // Hide PIN-related UI when passkey is the active method.
   if (passkeyOnly) {
     pins.style.display = "none";
     unlockBtn.style.display = "none";
   }
   const buttons = el("div", { class: "hw-buttons" },
-    passkeyOnly ? [passkeyBtn] : [passkeyBtn, unlockBtn]
+    passkeyOnly ? [passkeyBtn] : [unlockBtn]
   );
   const passkeyError = el("div", {
     class: "hw-passkey-error",
