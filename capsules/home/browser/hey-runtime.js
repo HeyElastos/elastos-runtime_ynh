@@ -31,6 +31,66 @@
   const STORAGE_BASE = API_BASE + "/api/localhost";
   const PROVIDER_BASE = API_BASE + "/api/provider";
   const TOKEN_STORE_KEY = "hey-home-capability-tokens";
+  const BEARER_STORE_KEY = "hey-home-runtime-bearer";
+
+  // ── Runtime Bearer token handshake (Approach A step 5b) ──────────
+  // The home shell loads with the home-session cookie (signed launch
+  // token envelope), but the runtime's auth_middleware only honors
+  // Authorization: Bearer. Without it, every /api/localhost,
+  // /api/provider, /api/capability, /api/auth call 401s and the home
+  // shell falls back to browser-side IDB. The handshake exchanges
+  // the cookie for a real session token via the gateway endpoint
+  // /api/apps/home/runtime-token (added in step 5a). Token cached in
+  // sessionStorage so within-tab navigation doesn't re-handshake.
+  // Idempotent on the server side — running it twice mints a second
+  // session, harmless until cleanup runs.
+  let bearerToken = (() => {
+    try { return sessionStorage.getItem(BEARER_STORE_KEY) || null; } catch { return null; }
+  })();
+  const persistBearer = (t) => {
+    try { sessionStorage.setItem(BEARER_STORE_KEY, t); } catch { /* private mode */ }
+  };
+  const bearerReady = (async () => {
+    if (bearerToken) return bearerToken;
+    try {
+      const resp = await fetch(API_BASE + "/api/apps/home/runtime-token", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+      });
+      if (!resp.ok) {
+        console.warn("[hey-home] runtime-token handshake failed:", resp.status);
+        return null;
+      }
+      const data = await resp.json();
+      if (data && typeof data.token === "string" && data.token) {
+        bearerToken = data.token;
+        persistBearer(bearerToken);
+        return bearerToken;
+      }
+      return null;
+    } catch (err) {
+      console.warn("[hey-home] runtime-token handshake error:", err);
+      return null;
+    }
+  })();
+
+  // Wrapped fetch that injects Authorization: Bearer once the
+  // handshake completes. Existing call sites still pass their own
+  // headers / credentials; we merge.
+  const apiFetch = async (url, init = {}) => {
+    await bearerReady;
+    const baseHeaders = init.headers || {};
+    const authedHeaders = bearerToken
+      ? { ...baseHeaders, Authorization: `Bearer ${bearerToken}` }
+      : { ...baseHeaders };
+    return fetch(url, {
+      credentials: "include",
+      ...init,
+      headers: authedHeaders,
+    });
+  };
 
   // ── Capability tokens ────────────────────────────────────────────
   const loadTokenStore = () => {
@@ -55,7 +115,7 @@
   };
 
   const requestCapabilityToken = async (resource, action = "write") => {
-    const post = await fetch(API_BASE + "/api/capability/request", {
+    const post = await apiFetch(API_BASE + "/api/capability/request", {
       method: "POST",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
@@ -74,7 +134,7 @@
     while (Date.now() < deadline) {
       await new Promise((r) => setTimeout(r, delays[Math.min(i, delays.length - 1)]));
       i++;
-      const r = await fetch(
+      const r = await apiFetch(
         `${API_BASE}/api/capability/request/${encodeURIComponent(initial.request_id)}`,
         { credentials: "include" }
       );
@@ -121,7 +181,7 @@
 
   const storage = {
     readJson: async (path) => {
-      const resp = await fetch(storagePath(path), {
+      const resp = await apiFetch(storagePath(path), {
         credentials: "include",
         headers: authHeaders(LOCALHOST_RESOURCE),
       });
@@ -130,7 +190,7 @@
       return resp.json();
     },
     writeJson: async (path, value) => {
-      const resp = await fetch(storagePath(path), {
+      const resp = await apiFetch(storagePath(path), {
         method: "PUT",
         credentials: "include",
         headers: {
@@ -146,7 +206,7 @@
       return true;
     },
     remove: async (path) => {
-      const resp = await fetch(storagePath(path), {
+      const resp = await apiFetch(storagePath(path), {
         method: "DELETE",
         credentials: "include",
         headers: authHeaders(LOCALHOST_RESOURCE),
@@ -161,7 +221,7 @@
   const schemeToResource = (scheme) => `elastos://${scheme}/*`;
 
   const providerCall = async (scheme, op, body = {}) => {
-    const resp = await fetch(
+    const resp = await apiFetch(
       `${PROVIDER_BASE}/${encodeURIComponent(scheme)}/${encodeURIComponent(op)}`,
       {
         method: "POST",
@@ -196,14 +256,14 @@
   // ── Capability flow ──────────────────────────────────────────────
   const capability = {
     request: ({ resource, action }) =>
-      fetch(API_BASE + "/api/capability/request", {
+      apiFetch(API_BASE + "/api/capability/request", {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ resource, action }),
       }).then((r) => r.json()),
     status: (id) =>
-      fetch(`${API_BASE}/api/capability/request/${encodeURIComponent(id)}`, {
+      apiFetch(`${API_BASE}/api/capability/request/${encodeURIComponent(id)}`, {
         credentials: "include",
       }).then((r) => r.json()),
     acquire: getCapabilityToken,
@@ -216,5 +276,11 @@
     capability,
     providerCall,
     acquireBootCapabilities,
+    // Awaitable handshake promise. Resolves to the bearer token (or
+    // null on failure). Other scripts (hey-welcome.js) await this
+    // before calling /api/auth/* so the Authorization header is set.
+    bearerReady,
+    // Live getter — handy for debugging via DevTools.
+    getBearer: () => bearerToken,
   };
 })();
