@@ -1795,6 +1795,7 @@ dependencies = [
 name = "elastos-server"
 version = "0.2.0"
 dependencies = [
+ "aes-gcm",
  "anyhow",
  "async-trait",
  "axum",

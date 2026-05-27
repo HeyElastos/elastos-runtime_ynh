@@ -64,6 +64,15 @@ rand = "0.8"
 # identity file.
 hmac = "0.12"
 pbkdf2 = { version = "0.12", default-features = false }
+# AES-256-GCM for reading/writing the shared identity file at rest.
+# The localhost-provider stores most paths under encryption-at-rest
+# with a key from ELASTOS_LOCALHOST_ENCRYPTION_KEY; the auth
+# handlers in api/handlers/auth.rs bypass the provider (they run
+# during PreAuth when capability auto-grant is refused) and so
+# need to encrypt/decrypt manually to stay byte-compatible with
+# what the provider wrote. Same envelope format
+# (`{version, nonce, ciphertext}` as JSON).
+aes-gcm = "0.10"
 
 # URL parsing (used by identity HTTP handlers)
 url = "2.5"

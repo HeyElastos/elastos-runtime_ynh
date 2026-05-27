@@ -111,21 +111,27 @@ const serverAuthStateIdentity = async () => {
     if (!data?.identity_present || !data.identity_preview) return null;
     const preview = data.identity_preview;
     if (!preview.didKey) return null;
-    // Synthesize the minimal profile shape loadProfile's callers
-    // expect. Passkeys array is left empty here — the lock screen
-    // re-reads creds from storage AFTER unlock, so the empty array
-    // just means "no passkey button" UNTIL the user authenticates,
-    // which is the correct behavior for PIN-only profiles. For
-    // passkey users we override below.
+    // Synthesize a profile that the lock screen renderers + unlock
+    // handlers can use directly. `passkeys` carries the REAL
+    // credential records from the preview (id / publicKey /
+    // publicKeyAlgorithm / transports) so:
+    //   - `(profile.passkeys || []).length > 0` reads as "has
+    //     passkey", which drives the passkey button UI
+    //   - assertPasskey's allowCredentials list has actual ids
+    //   - verifyAssertionSignature has the publicKey it needs
+    // For PIN-only profiles, passkeys is [] and heyHome carries a
+    // null pinHash sentinel. tryUnlock detects previewOnly:true and
+    // skips its local PBKDF2 check, submitting the typed PIN
+    // straight to /api/auth/unlock for server-side verification.
+    // (Local verifyPin against a placeholder would never match and
+    // would lock the user out of their own node.)
     return {
       schema: "elastos.identity/v1",
       name: preview.name || "Hey user",
       didKey: preview.didKey,
-      passkeys: preview.has_passkey
-        ? [{ id: "preview", placeholder: true }]
-        : [],
+      passkeys: Array.isArray(preview.passkeys) ? preview.passkeys : [],
       heyHome: preview.has_pin
-        ? { pinSalt: "preview", pinHash: "preview" }
+        ? { pinSalt: null, pinHash: null, fromPreview: true }
         : null,
       previewOnly: true,
     };
@@ -1073,7 +1079,13 @@ const buildWelcome = (profile) => {
   });
 
   const hasPasskey = (profile.passkeys || []).length > 0 && passkeySupported();
-  const hasPin = !!readPinFields(profile).pinHash;
+  // pinHash is null on preview-only profiles (loaded via /api/auth/
+  // state without capability tokens), but heyHome.fromPreview signals
+  // "the server says a PIN exists". Treat both as "has PIN" so the
+  // lock screen renders the PIN field — actual verification still
+  // happens server-side via /api/auth/unlock.
+  const hasPin =
+    !!readPinFields(profile).pinHash || !!profile?.heyHome?.fromPreview;
   // Strict rule (per user request): the lock screen shows ONE unlock
   // method, never two. If a passkey is enrolled, that's the only
   // option — the PIN field disappears even if a stored PIN is present
@@ -1272,18 +1284,23 @@ const buildWelcome = (profile) => {
       return;
     }
     unlockBtn.disabled = true;
-    const ok = await verifyPin(hiddenPin.value, profile);
+    // Server is the single source of truth for PIN verification. It
+    // holds the canonical pinHash + pinSalt, runs the same PBKDF2 the
+    // client used to do locally, and graduates the session on match.
+    // For preview-only profiles (loaded via /api/auth/state without
+    // capability tokens) we don't HAVE the local hash anyway, so the
+    // server check is the only option. For full profiles the local
+    // check would have given the same answer — no functional change.
+    const ok = await serverUnlockWithPin(hiddenPin.value);
     if (ok) {
-      // Server-side unlock (Approach A step 5c). When the auth gate
-      // is on this is what flips the session from PreAuth to
-      // Authenticated so capability auto-grant starts minting tokens
-      // for the rest of the desktop. Best-effort: gate-disabled
-      // installs still work because capability calls don't require
-      // graduation in that mode.
-      await serverUnlockWithPin(hiddenPin.value);
       // Reset attempt counters on successful unlock.
       profile.heyHome = { ...(profile.heyHome || {}), failedAttempts: 0, lockedUntil: null };
-      await saveProfile(profile);
+      // Don't write the preview-only profile back to storage — it has
+      // null pinHash and would clobber the real one. saveProfile only
+      // runs when we have a real profile in hand.
+      if (!profile.previewOnly) {
+        await saveProfile(profile);
+      }
       // PIN passed — but if a vault is configured, the master key
       // isn't derived from PIN. Refuse hand-off so vault-sealed data
       // stays inaccessible. User has to tap passkey or use recovery.
@@ -1302,7 +1319,13 @@ const buildWelcome = (profile) => {
         failedAttempts: attempts,
         lockedUntil: lockoutMs > 0 ? Date.now() + lockoutMs : null,
       };
-      await saveProfile(profile);
+      // Don't save the preview profile back — it has null pinHash
+      // and would corrupt the real identity on disk. The server-side
+      // rate limiter (5/60s cooldown per session) is the actual
+      // brute-force defense; the local lockout below is UX-only.
+      if (!profile.previewOnly) {
+        await saveProfile(profile);
+      }
       if (lockoutMs > 0) {
         hint.textContent = `Locked. Try again in ${Math.ceil(lockoutMs / 1000)}s`;
       } else {

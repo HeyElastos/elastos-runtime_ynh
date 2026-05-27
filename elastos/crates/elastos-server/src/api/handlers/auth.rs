@@ -51,6 +51,9 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tokio::sync::Mutex;
 
+use aes_gcm::aead::{Aead, KeyInit};
+use aes_gcm::{Aes256Gcm, Nonce};
+
 /// Cookie name for the unlock-claim. Set by the unlock / setup
 /// endpoints on success; read by capability auto-grant to decide
 /// whether a PreAuth session can be graduated inline (cross-capsule
@@ -372,6 +375,25 @@ pub struct IdentityPreview {
     /// True iff the shared identity carries a PIN hash. Drives
     /// whether the lock screen shows the 6-digit PIN field.
     pub has_pin: bool,
+    /// Public passkey credential records — id, publicKey,
+    /// publicKeyAlgorithm, transports. These are what
+    /// navigator.credentials.get + the client-side assertion
+    /// signature verification need. WebAuthn IDs and pubkeys are
+    /// public by spec, so surfacing them pre-unlock is safe. Secret
+    /// fields (userHandle, counter, anything starting with _) are
+    /// dropped via explicit field picking below.
+    pub passkeys: Vec<PasskeyPreview>,
+}
+
+#[derive(Serialize)]
+pub struct PasskeyPreview {
+    pub id: String,
+    #[serde(rename = "publicKey", skip_serializing_if = "Option::is_none")]
+    pub public_key: Option<String>,
+    #[serde(rename = "publicKeyAlgorithm", skip_serializing_if = "Option::is_none")]
+    pub public_key_algorithm: Option<i64>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub transports: Vec<String>,
 }
 
 // ── Routes ───────────────────────────────────────────────────────────
@@ -583,7 +605,12 @@ pub async fn setup(
                 .into_response();
         }
     }
-    if let Err(err) = std::fs::write(&target, &serialized) {
+    // write_at_rest matches the localhost-provider's on-disk format:
+    // AES-256-GCM envelope when ELASTOS_LOCALHOST_ENCRYPTION_KEY is
+    // set, plaintext otherwise. Without this the provider would treat
+    // a plaintext file we wrote here as a malformed envelope on the
+    // next read attempt and silently 404 the identity.
+    if let Err(err) = write_at_rest(&target, &serialized) {
         return (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(SetupResponse {
@@ -606,7 +633,7 @@ pub async fn setup(
             let _ = std::fs::create_dir_all(parent);
         }
         if let Ok(creds_bytes) = serde_json::to_vec_pretty(&body.passkey_creds) {
-            let _ = std::fs::write(&creds_target, creds_bytes);
+            let _ = write_at_rest(&creds_target, &creds_bytes);
         }
     }
 
@@ -694,9 +721,9 @@ fn build_identity_preview(
     data_dir: &std::path::Path,
 ) -> (bool, Option<IdentityPreview>) {
     let path = data_dir.join("Users/self/.AppData/Identity/profile.json");
-    let bytes = match std::fs::read(&path) {
-        Ok(b) => b,
-        Err(_) => return (false, None),
+    let bytes = match read_at_rest(&path) {
+        Some(b) => b,
+        None => return (false, None),
     };
     // Parse into a loose Value so we can extract just the public
     // fields without dragging in all the optional shape variants
@@ -718,11 +745,43 @@ fn build_identity_preview(
         .or_else(|| obj.get("did_key"))
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
-    let has_passkey = obj
-        .get("passkeys")
-        .and_then(|v| v.as_array())
-        .map(|arr| !arr.is_empty())
-        .unwrap_or(false);
+    let raw_passkeys = obj.get("passkeys").and_then(|v| v.as_array());
+    let has_passkey = raw_passkeys.map(|arr| !arr.is_empty()).unwrap_or(false);
+    // Explicit field-picking so we never accidentally leak userHandle
+    // / counter / out-of-band fields (e.g. _identityPrf) that some
+    // legacy welcome paths stored on the passkey record.
+    let passkeys: Vec<PasskeyPreview> = raw_passkeys
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|p| {
+                    let p = p.as_object()?;
+                    let id = p.get("id").and_then(|v| v.as_str())?.to_string();
+                    let public_key = p
+                        .get("publicKey")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string());
+                    let public_key_algorithm = p
+                        .get("publicKeyAlgorithm")
+                        .and_then(|v| v.as_i64());
+                    let transports = p
+                        .get("transports")
+                        .and_then(|v| v.as_array())
+                        .map(|arr| {
+                            arr.iter()
+                                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    Some(PasskeyPreview {
+                        id,
+                        public_key,
+                        public_key_algorithm,
+                        transports,
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
     let has_pin = {
         // Either legacy top-level pinHash, or new heyHome.pinHash.
         let legacy = obj
@@ -746,6 +805,7 @@ fn build_identity_preview(
             did_key,
             has_passkey,
             has_pin,
+            passkeys,
         }),
     )
 }
@@ -800,6 +860,79 @@ impl SharedIdentity {
     }
 }
 
+// At-rest encryption envelope — same JSON shape the localhost-provider
+// writes. `version: 1`, hex-encoded 12-byte nonce + AES-256-GCM
+// ciphertext (also hex). When the user has provisioned an encryption
+// key (typical YunoHost install — wrapper exports
+// ELASTOS_LOCALHOST_ENCRYPTION_KEY), the provider stores Users/* paths
+// under this envelope and these auth handlers must read/write the
+// same shape or they'll fight with what the provider does.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct EncryptedEnvelope {
+    version: u8,
+    nonce: String,
+    ciphertext: String,
+}
+
+fn load_localhost_key() -> Option<[u8; 32]> {
+    let key_hex = std::env::var("ELASTOS_LOCALHOST_ENCRYPTION_KEY").ok()?;
+    let key_hex = key_hex.trim();
+    if key_hex.is_empty() {
+        return None;
+    }
+    let bytes = hex::decode(key_hex).ok()?;
+    bytes.try_into().ok()
+}
+
+/// Read bytes from disk, transparently decrypting if the file is in
+/// EncryptedEnvelope form and we have the localhost key in env.
+/// Falls through plaintext when the envelope parse fails (legacy /
+/// not-encrypted file) so we keep working across configurations.
+fn read_at_rest(path: &std::path::Path) -> Option<Vec<u8>> {
+    let bytes = std::fs::read(path).ok()?;
+    if let Ok(env) = serde_json::from_slice::<EncryptedEnvelope>(&bytes) {
+        if env.version != 1 {
+            return None;
+        }
+        let key = load_localhost_key()?;
+        let nonce_bytes = hex::decode(&env.nonce).ok()?;
+        if nonce_bytes.len() != 12 {
+            return None;
+        }
+        let ct = hex::decode(&env.ciphertext).ok()?;
+        let cipher = Aes256Gcm::new_from_slice(&key).ok()?;
+        let nonce = Nonce::from_slice(&nonce_bytes);
+        return cipher.decrypt(nonce, ct.as_ref()).ok();
+    }
+    Some(bytes)
+}
+
+/// Write bytes to disk, transparently encrypting when the env key is
+/// present so the file format matches what the localhost-provider
+/// would have written. Falls through plaintext when no key is set
+/// (dev / non-YunoHost installs).
+fn write_at_rest(path: &std::path::Path, plaintext: &[u8]) -> std::io::Result<()> {
+    if let Some(key) = load_localhost_key() {
+        let cipher = Aes256Gcm::new_from_slice(&key)
+            .map_err(|e| std::io::Error::other(format!("aes key init: {}", e)))?;
+        let mut nonce_bytes = [0u8; 12];
+        OsRng.fill_bytes(&mut nonce_bytes);
+        let nonce = Nonce::from_slice(&nonce_bytes);
+        let ct = cipher
+            .encrypt(nonce, plaintext)
+            .map_err(|e| std::io::Error::other(format!("aes encrypt: {}", e)))?;
+        let envelope = EncryptedEnvelope {
+            version: 1,
+            nonce: hex::encode(nonce_bytes),
+            ciphertext: hex::encode(ct),
+        };
+        let bytes = serde_json::to_vec(&envelope)
+            .map_err(|e| std::io::Error::other(format!("envelope serialize: {}", e)))?;
+        return std::fs::write(path, bytes);
+    }
+    std::fs::write(path, plaintext)
+}
+
 /// Read `Users/self/.AppData/Identity/profile.json` from the
 /// localhost-provider's base path. Returns None if missing or
 /// malformed. Goes through the file system directly (the auth
@@ -807,12 +940,7 @@ impl SharedIdentity {
 /// use the storage HTTP layer).
 pub fn read_shared_identity(data_dir: &std::path::Path) -> Option<SharedIdentity> {
     let path = data_dir.join("Users/self/.AppData/Identity/profile.json");
-    let bytes = std::fs::read(&path).ok()?;
-    // The file may be encrypted at rest by localhost-provider. The
-    // server-side localhost crate handles encrypt/decrypt — we delegate
-    // through it rather than re-implement here. If the read returns
-    // valid JSON directly, the file was stored as plaintext (legacy
-    // path) or already decrypted; either way, try parse first.
+    let bytes = read_at_rest(&path)?;
     serde_json::from_slice::<SharedIdentity>(&bytes).ok()
 }
 
@@ -1073,6 +1201,40 @@ mod tests {
         assert!(!constant_time_eq(b"abc", b"abd"));
         assert!(!constant_time_eq(b"abc", b"abcd"));
         assert!(constant_time_eq(b"", b""));
+    }
+
+    #[test]
+    fn at_rest_round_trip_plaintext_when_no_key() {
+        // No env key set → write_at_rest writes plaintext, read_at_rest
+        // returns it unchanged.
+        std::env::remove_var("ELASTOS_LOCALHOST_ENCRYPTION_KEY");
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("test.bin");
+        let payload = b"hello world";
+        write_at_rest(&path, payload).unwrap();
+        let round = read_at_rest(&path).unwrap();
+        assert_eq!(round.as_slice(), payload);
+    }
+
+    #[test]
+    fn at_rest_round_trip_encrypted_when_key_set() {
+        // With a key, write produces an envelope and read decrypts it.
+        let key = [42u8; 32];
+        std::env::set_var("ELASTOS_LOCALHOST_ENCRYPTION_KEY", hex::encode(key));
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("test.bin");
+        let payload = b"the quick brown fox";
+        write_at_rest(&path, payload).unwrap();
+        // Raw bytes on disk should look like a JSON envelope, NOT
+        // the plaintext.
+        let raw = std::fs::read(&path).unwrap();
+        assert_ne!(raw.as_slice(), payload);
+        let env: EncryptedEnvelope = serde_json::from_slice(&raw).unwrap();
+        assert_eq!(env.version, 1);
+        // Round-trip read should give back the original plaintext.
+        let round = read_at_rest(&path).unwrap();
+        assert_eq!(round.as_slice(), payload);
+        std::env::remove_var("ELASTOS_LOCALHOST_ENCRYPTION_KEY");
     }
 
     #[test]
