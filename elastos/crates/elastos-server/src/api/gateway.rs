@@ -1336,11 +1336,21 @@ async fn home_launch(
 
     let launch =
         launch_runtime_backed_home_target(&state.data_dir, target_summary.target.as_str()).await;
+
+    // Mint a runtime API session token for the capsule so its in-iframe
+    // /api/capability /api/localhost /api/provider calls can pass the
+    // Authorization: Bearer gate. Capsule JS reads ?runtime_token=… on
+    // boot. Best-effort — if the local runtime isn't reachable, fall
+    // through and the capsule will surface its own 401 to the user
+    // instead of the dock silently swallowing the launch.
+    let runtime_token = mint_capsule_runtime_token(&state.data_dir).await.ok();
+
     let route = append_home_launch_token(
         &state.data_dir,
         &target_summary.route,
         target_summary.target.as_str(),
         &req.query,
+        runtime_token.as_deref(),
     )
     .map_err(gateway_internal_error)?;
 
@@ -1362,10 +1372,14 @@ fn append_home_launch_token(
     route: &str,
     target: &str,
     query: &BTreeMap<String, String>,
+    runtime_token: Option<&str>,
 ) -> anyhow::Result<String> {
     let token = issue_home_launch_token(data_dir, target)?;
     let mut serializer = form_urlencoded::Serializer::new(String::new());
     serializer.append_pair("home_token", &token);
+    if let Some(rt) = runtime_token {
+        serializer.append_pair("runtime_token", rt);
+    }
     for (key, value) in query {
         if key.trim().is_empty() {
             continue;
@@ -1375,6 +1389,20 @@ fn append_home_launch_token(
     let encoded = serializer.finish();
     let separator = if route.contains('?') { '&' } else { '?' };
     Ok(format!("{route}{separator}{encoded}"))
+}
+
+/// Mint a runtime API session token (Capsule scope) using the gateway's
+/// attach secret. Used to embed an Authorization: Bearer-eligible token in
+/// each launched capsule's iframe URL so it can call /api/capability,
+/// /api/localhost, /api/provider without a separate sign-in.
+async fn mint_capsule_runtime_token(data_dir: &std::path::Path) -> anyhow::Result<String> {
+    let coords = load_live_runtime_coords(data_dir)
+        .await
+        .ok_or_else(|| anyhow::anyhow!("local runtime is not running"))?;
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(5))
+        .build()?;
+    gateway_attach_runtime_token(&client, &coords.api_url, &coords.attach_secret, "capsule").await
 }
 
 fn home_targets(data_dir: &std::path::Path) -> Vec<HomeTargetSummary> {
