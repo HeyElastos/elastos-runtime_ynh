@@ -18,9 +18,14 @@ set -euo pipefail
 
 export HOME="__DATA_DIR__/home"
 export XDG_DATA_HOME="$HOME/xdg-data"
+export IPFS_PATH="$XDG_DATA_HOME/ipfs"
 
 ELASTOS_BIN="$HOME/.local/bin/elastos"
+KUBO_BIN="$XDG_DATA_HOME/elastos/bin/kubo"
+IPFS_PROVIDER_BIN="$XDG_DATA_HOME/elastos/bin/ipfs-provider"
 COORDS_FILE="$XDG_DATA_HOME/elastos/runtime-coords.json"
+LOG_DIR="$HOME/logs"
+mkdir -p "$LOG_DIR"
 
 # At-rest encryption for localhost-provider. The key file is generated
 # (or carried over) by the install/upgrade scripts. The localhost-
@@ -32,12 +37,47 @@ if [ -s "$LOCALHOST_KEY_FILE" ]; then
     export ELASTOS_LOCALHOST_ENCRYPTION_KEY="$(cat "$LOCALHOST_KEY_FILE")"
 fi
 
+# ── IPFS backend (Kubo + ipfs-provider) ─────────────────────────────
+# Hey Social and the IPFS provider capsule both need a running Kubo
+# daemon. Without these subprocesses, /api/provider/ipfs/* returns
+# errors and posting media fails. Started here so the systemd unit
+# supervises them alongside `elastos serve` — they die when the unit
+# stops and restart with it.
+KUBO_PID=""
+IPFS_PROVIDER_PID=""
+
+if [ -x "$KUBO_BIN" ]; then
+    # First-run repo init (idempotent — only writes config if missing).
+    if [ ! -d "$IPFS_PATH" ]; then
+        echo "Initializing Kubo repo at $IPFS_PATH..."
+        "$KUBO_BIN" init >> "$LOG_DIR/kubo.log" 2>&1 || true
+    fi
+    # Disable telemetry — local-first capsule, no phone-home.
+    "$KUBO_BIN" config Plugins.Plugins.telemetry.Config.Mode off >/dev/null 2>&1 || true
+    "$KUBO_BIN" daemon >> "$LOG_DIR/kubo.log" 2>&1 < /dev/null &
+    KUBO_PID=$!
+    echo "Started kubo daemon PID $KUBO_PID (log: $LOG_DIR/kubo.log)"
+    # Wait up to 30s for the RPC API to bind so ipfs-provider can connect.
+    for _ in $(seq 1 30); do
+        curl -fsS --max-time 1 http://127.0.0.1:5001/api/v0/version >/dev/null 2>&1 && break
+        sleep 1
+    done
+fi
+
+if [ -x "$IPFS_PROVIDER_BIN" ]; then
+    "$IPFS_PROVIDER_BIN" >> "$LOG_DIR/ipfs-provider.log" 2>&1 < /dev/null &
+    IPFS_PROVIDER_PID=$!
+    echo "Started ipfs-provider PID $IPFS_PROVIDER_PID (log: $LOG_DIR/ipfs-provider.log)"
+fi
+
 "$ELASTOS_BIN" serve &
 SERVE_PID=$!
 
 trap '
-    kill -TERM "$SERVE_PID" 2>/dev/null
-    wait "$SERVE_PID" 2>/dev/null
+    [ -n "$IPFS_PROVIDER_PID" ] && kill -TERM "$IPFS_PROVIDER_PID" 2>/dev/null || true
+    [ -n "$KUBO_PID" ] && kill -TERM "$KUBO_PID" 2>/dev/null || true
+    kill -TERM "$SERVE_PID" 2>/dev/null || true
+    wait "$SERVE_PID" 2>/dev/null || true
     exit 0
 ' TERM INT
 
