@@ -70,14 +70,69 @@ const localDelete = () => {
   try { localStorage.removeItem(LOCAL_CACHE_KEY); } catch (_) {}
 };
 
+// IndexedDB-backed identity cache. Survives cookie clears (only "Clear
+// all site data" wipes it), which is what makes Hey Social's signin
+// feel persistent — mirror the same pattern here so the home shell
+// shows the LOCK SCREEN (not signup) after the user clears cookies.
+// Only the public profile lives here — no private keys; passkey-PRF
+// derives the vault key on every unlock, and that credential is in the
+// platform authenticator.
+const IDB_NAME = "elastos-home-identity";
+const IDB_STORE = "profile";
+const idbOpen = () => new Promise((resolve, reject) => {
+  const req = indexedDB.open(IDB_NAME, 1);
+  req.onupgradeneeded = () => req.result.createObjectStore(IDB_STORE);
+  req.onsuccess = () => resolve(req.result);
+  req.onerror = () => reject(req.error);
+});
+const idbGet = async () => {
+  if (typeof indexedDB === "undefined") return null;
+  try {
+    const db = await idbOpen();
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction(IDB_STORE, "readonly");
+      const req = tx.objectStore(IDB_STORE).get("self");
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => reject(req.error);
+    });
+  } catch (_) { return null; }
+};
+const idbPut = async (v) => {
+  if (typeof indexedDB === "undefined") return;
+  try {
+    const db = await idbOpen();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(IDB_STORE, "readwrite");
+      tx.objectStore(IDB_STORE).put(v, "self");
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  } catch (_) { /* private mode etc. */ }
+};
+const idbDelete = async () => {
+  if (typeof indexedDB === "undefined") return;
+  try {
+    const db = await idbOpen();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(IDB_STORE, "readwrite");
+      tx.objectStore(IDB_STORE).delete("self");
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  } catch (_) {}
+};
+
 // loadProfile precedence:
 //   1. shared Identity path (canonical, what Hey Social writes)
 //   2. legacy HeyHome path  (migrate up + delete the legacy file)
-//   3. localStorage cache   (only when runtime is unreachable)
+//   3. IndexedDB cache      (survives cookie clears — the persistence
+//                            that makes Hey Social feel sticky)
+//   4. localStorage cache   (legacy fallback, wiped on cookie clear)
 const loadProfile = async () => {
   const shared = await runtimeGet(SHARED_IDENTITY_PATH);
   if (shared.ok && shared.value) {
     localPut(shared.value);
+    await idbPut(shared.value);
     return shared.value;
   }
   if (shared.ok) {
@@ -90,22 +145,37 @@ const loadProfile = async () => {
       if (saved.ok) {
         await runtimeDelete(LEGACY_PROFILE_PATH);
         localPut(migrated);
+        await idbPut(migrated);
         return migrated;
       }
     }
-    // No legacy either — fall through to localStorage as last resort.
+    // Maybe IDB has a cached identity from a prior session (cookie
+    // was cleared but IDB persisted). Migrate it back to the runtime
+    // and use it.
+    const idbCached = await idbGet();
+    if (idbCached) {
+      console.info("[hey-home] restoring identity from IndexedDB → shared Identity");
+      await runtimePut(SHARED_IDENTITY_PATH, idbCached);
+      localPut(idbCached);
+      return idbCached;
+    }
+    // Last resort: localStorage cache (typically wiped when cookies
+    // are cleared, but keep as a fallback for very old installs).
     const cached = localGet();
     if (cached) {
       console.info("[hey-home] migrating localStorage profile → shared Identity");
       const migrated = legacyToShared(cached);
       await runtimePut(SHARED_IDENTITY_PATH, migrated);
+      await idbPut(migrated);
       return migrated;
     }
     return null;
   }
-  // Runtime unreachable — design-preview mode. Use localStorage so the
-  // welcome screen still works when index.html is opened directly.
-  console.warn("[hey-home] runtime localhost-provider unreachable; using localStorage", shared);
+  // Runtime unreachable — design-preview mode. Try IDB first, then
+  // localStorage so the welcome screen still works.
+  console.warn("[hey-home] runtime localhost-provider unreachable; trying IDB / localStorage", shared);
+  const idbCached = await idbGet();
+  if (idbCached) return idbCached;
   return localGet();
 };
 
@@ -137,14 +207,16 @@ const legacyToShared = (p) => {
 
 const saveProfile = async (profile) => {
   localPut(profile);
+  await idbPut(profile);
   const r = await runtimePut(SHARED_IDENTITY_PATH, profile);
   if (!r.ok) {
-    console.warn("[hey-home] runtime profile save failed; localStorage only", r);
+    console.warn("[hey-home] runtime profile save failed; localStorage+IDB only", r);
   }
 };
 
 const clearProfile = async () => {
   localDelete();
+  await idbDelete();
   await runtimeDelete(SHARED_IDENTITY_PATH);
   // Also clear the legacy path in case both still exist.
   await runtimeDelete(LEGACY_PROFILE_PATH);
