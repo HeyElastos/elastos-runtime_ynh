@@ -54,6 +54,35 @@ sudo -u "$app" \
     "$install_dir/elastos/target/debug/elastos" setup --with inbox,library,documents,hey-social \
     || ynh_print_warn --message="elastos setup --with inbox,library,documents,hey-social failed (continuing — they may already be present)."
 
+# Refresh every static-asset capsule's data_dir copy from the freshly
+# unpacked install_dir/capsules/ tree. The runtime serves capsules
+# from $data_dir (xdg-data/elastos/capsules/...), so a `yunohost app
+# upgrade` that updates install_dir/ alone has no effect on what users
+# actually see — every release would need a manual `cp -rf ... + chown
+# + systemctl restart` dance to land bundle changes. This loop kills
+# that dance.
+#
+# Why we touch every capsule, not just hey-social: each capsule's
+# capsule.json + JS/CSS/HTML may have evolved since the last install.
+# Refreshing static files is always safe; user-generated state under
+# `xdg-data/elastos/capsules/<name>/state/` (or wherever a capsule
+# writes runtime data) lives in the user namespace via the
+# localhost-provider's per-user directory tree, not inside the
+# capsule's own directory.
+ynh_script_progression --message="Refreshing data_dir capsule files from install_dir..." --weight=2
+CAPSULES_DATA_DIR="$(elastos_home)/xdg-data/elastos/capsules"
+if [ -d "$install_dir/capsules" ] && [ -d "$CAPSULES_DATA_DIR" ]; then
+    for capsule_src in "$install_dir/capsules"/*/; do
+        [ -d "$capsule_src" ] || continue
+        capsule_name="$(basename "$capsule_src")"
+        capsule_dst="$CAPSULES_DATA_DIR/$capsule_name"
+        if [ -d "$capsule_dst" ]; then
+            cp -rf "$capsule_src". "$capsule_dst/"
+        fi
+    done
+    chown -R "$app:$app" "$CAPSULES_DATA_DIR"
+fi
+
 ynh_script_progression --message="Starting Elastos Runtime..." --weight=3
 ynh_systemd_action --service_name="$app" --action="start" \
     --log_path="/var/log/$app/$app.log" \
