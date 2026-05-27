@@ -153,12 +153,17 @@ html::after {
 }
 
 /* Make sure desktop content sits ABOVE the blobs.
-   Note: we intentionally exclude .taskbar and .hey-fed-footer here —
-   they already have `position: fixed` + their own z-index, and
-   forcing them to `position: relative` would pull them out of the
-   floating-dock layout (taskbar disappeared off-screen). */
-.toolbar, .desktop-shortcuts, .desktop-workspace,
-.window, .launcher {
+   Only the in-flow workspace + the absolute shortcut layer need a
+   stacking-context bump. .toolbar / .launcher / .window are excluded:
+   they all rely on `position: fixed` (toolbar, launcher, maximized
+   window) or `position: absolute` (normal window) upstream, and
+   forcing them to `position: relative` re-injects them into normal
+   flow — which broke the launcher (page scrolled when its search
+   input focused, dragging every window upward) and the windows
+   (relative `top`/`left` from JS stacked them vertically). The blobs
+   sit at z-index: 0, so positioned elements already paint above them
+   without us touching their position. */
+.desktop-shortcuts, .desktop-workspace {
   position: relative;
   z-index: 2;
 }
