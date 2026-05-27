@@ -1920,6 +1920,7 @@ fn app_shell_title(name: &str) -> String {
         INBOX_CAPSULE_ID => "Inbox".to_string(),
         SYSTEM_CAPSULE_ID => "System".to_string(),
         "gba-emulator" => "GBA Emulator".to_string(),
+        "hey-messenger" => "Hey Chat".to_string(),
         _ => title_case_capsule_name(name),
     }
 }

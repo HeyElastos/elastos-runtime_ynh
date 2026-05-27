@@ -578,6 +578,20 @@
           "install_path": "capsules/hey-social"
         }
       }
+    },
+    "hey-messenger": {
+      "install_path": "capsules/hey-messenger",
+      "description": "Hey Chat \u2014 P2P messenger with hybrid post-quantum E2E for DMs, iroh-blobs file share, Carrier transport",
+      "platforms": {
+        "*": {
+          "cid": "",
+          "checksum": "",
+          "size": 0,
+          "release_path": "hey-messenger.tar.gz",
+          "extract_path": "hey-messenger",
+          "install_path": "capsules/hey-messenger"
+        }
+      }
     }
   },
   "profiles": {
