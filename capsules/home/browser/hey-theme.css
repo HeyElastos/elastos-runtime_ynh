@@ -1150,3 +1150,18 @@ html { scrollbar-color: rgba(255, 255, 255, 0.10) transparent; }
     color: rgba(30, 40, 60, 0.72);
   }
 }
+
+/* ─────────────────────────────────────────────────────────────────────
+   Launcher overlay fixes (Bug B): when the dock launcher opens it must
+   NOT obscure the topbar, and its full-viewport blur must NOT compose
+   over the topbar's own backdrop-filter (which makes the topbar render
+   invisible). Two parts:
+     1) Topbar z-index above launcher (200000 > launcher 100010)
+     2) Launcher overlay starts BELOW the topbar so blur doesn't stack
+   ───────────────────────────────────────────────────────────────── */
+.toolbar {
+  z-index: 200000 !important;
+}
+.launcher {
+  top: var(--toolbar-h, 32px) !important;
+}
