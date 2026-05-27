@@ -26,7 +26,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Dancing+Script:wght@500;600;700&family=Inter:wght@200;400;500;600;700;800&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="./style.css?v=hey-home-20260526n" />
-    <link rel="stylesheet" href="./hey-theme.css?v=hey-home-20260527k" />
+    <link rel="stylesheet" href="./hey-theme.css?v=hey-home-20260527r" />
     <link rel="stylesheet" href="./hey-welcome.css?v=hey-home-20260527q" />
   </head>
   <body data-home-status="booting" data-locked="loading">
@@ -36,7 +36,15 @@
       <header class="toolbar" aria-label="Home toolbar">
         <button id="toolbar-home" class="toolbar-btn toolbar-brand" type="button" aria-label="Go Home" title="Hey-Home">
           <img src="./elastos-logo.svg" class="toolbar-elastos-logo" alt="Elastos" draggable="false" />
-          <span class="hey-brand-surface">Hey-Home</span>
+          <!-- Handwritten "Hey" wordmark — same Dancing Script + gold-stroke
+               treatment as the welcome screen's hw-heymark-svg, scaled down
+               for the topbar. Three <text> children so per-letter styling
+               (size, kerning) stays trivially tweakable. -->
+          <svg class="toolbar-hey-mark" viewBox="0 0 120 56" aria-hidden="true">
+            <text x="6"  y="44">H</text>
+            <text x="46" y="44">e</text>
+            <text x="80" y="44">y</text>
+          </svg>
         </button>
         <div class="toolbar-spacer"></div>
         <span class="hey-mesh-pill">iroh · checking…</span>
