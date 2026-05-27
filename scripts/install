@@ -114,7 +114,7 @@ def stamp(info, data: bytes) -> None:
     info["size"] = len(data)
 
 # ── 1) NATIVE BINARIES ──
-for name in ("shell", "localhost-provider", "did-provider", "webspace-provider", "ipfs-provider", "notepad"):
+for name in ("shell", "localhost-provider", "did-provider", "webspace-provider", "ipfs-provider", "blobs-provider", "notepad"):
     src = native_bin / name
     if not src.is_file():
         raise SystemExit(f"missing built artifact for {name}: {src}")
@@ -277,7 +277,7 @@ cp "$SOURCE_RUNTIME_DATA_DIR/components.json" "$CLIENT_HOME/xdg-data/elastos/com
 # SETUP --profile home (fetches via local-Carrier loop)
 #=================================================
 
-ynh_script_progression --message="Running elastos setup --profile home --with chat-room,ipfs-provider,kubo,inbox,library,documents,hey-social..." --weight=5
+ynh_script_progression --message="Running elastos setup --profile home --with chat-room,ipfs-provider,blobs-provider,kubo,inbox,library,documents,hey-social..." --weight=5
 # Home profile (the home capsule ships the Hey-themed browser shell in
 # this fork) + chat-room. chat-room is the minimum addition needed for
 # `elastos room open` to start the /apps/<X>/ browser gateway.
@@ -287,6 +287,7 @@ ynh_script_progression --message="Running elastos setup --profile home --with ch
 #   inbox       → cross-app notifications (data capsule with index.html)
 #   library     → media library (data capsule with index.html)
 #   documents   → document viewer (data capsule with index.html)
+# blobs-provider: iroh-blobs direct P2P file transfer; backs hey-messenger.
 # Notepad is NOT in this list — its capsule.json declares it as a
 # microvm with rootfs.ext4 entrypoint, but the install pipeline only
 # builds native + WASM + data capsules. Re-add when a microvm build
@@ -294,8 +295,8 @@ ynh_script_progression --message="Running elastos setup --profile home --with ch
 ynh_exec_as "$app" \
     env HOME="$CLIENT_HOME" \
         XDG_DATA_HOME="$CLIENT_HOME/xdg-data" \
-    "$install_dir/elastos/target/debug/elastos" setup --profile home --with chat-room,ipfs-provider,kubo,inbox,library,documents,hey-social \
-    || ynh_die --message="elastos setup --profile home --with chat-room,ipfs-provider,kubo,inbox,library,documents,hey-social failed. Check $SOURCE_RUNTIME_LOG."
+    "$install_dir/elastos/target/debug/elastos" setup --profile home --with chat-room,ipfs-provider,blobs-provider,kubo,inbox,library,documents,hey-social \
+    || ynh_die --message="elastos setup --profile home --with chat-room,ipfs-provider,blobs-provider,kubo,inbox,library,documents,hey-social failed. Check $SOURCE_RUNTIME_LOG."
 
 ynh_script_progression --message="Running elastos setup --profile operator (registers operator lane)..." --weight=2
 # operator profile = {shell, localhost-provider, did-provider}, all

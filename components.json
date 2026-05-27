@@ -64,6 +64,15 @@
         "aarch64-linux"
       ]
     },
+    "blobs-provider": {
+      "cid": "",
+      "sha256": "",
+      "size": 0,
+      "platforms": [
+        "x86_64-linux",
+        "aarch64-linux"
+      ]
+    },
     "ai-provider": {
       "cid": "",
       "sha256": "",
@@ -277,6 +286,26 @@
           "size": 0,
           "release_path": "ipfs-provider-linux-arm64",
           "install_path": "bin/ipfs-provider"
+        }
+      }
+    },
+    "blobs-provider": {
+      "install_path": "bin/blobs-provider",
+      "description": "iroh-blobs direct P2P file transfer (unlimited size, bounded by disk + receiver online). Backs hey-messenger's file share.",
+      "platforms": {
+        "linux-amd64": {
+          "cid": "",
+          "checksum": "",
+          "size": 0,
+          "release_path": "blobs-provider-linux-amd64",
+          "install_path": "bin/blobs-provider"
+        },
+        "linux-arm64": {
+          "cid": "",
+          "checksum": "",
+          "size": 0,
+          "release_path": "blobs-provider-linux-arm64",
+          "install_path": "bin/blobs-provider"
         }
       }
     },

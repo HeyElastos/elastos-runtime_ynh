@@ -1,0 +1,16 @@
+{
+  "schema": "elastos.capsule/v1",
+  "name": "blobs-provider",
+  "version": "0.0.1",
+  "description": "iroh-blobs direct P2P file transfer (unlimited size, bounded by disk + receiver online)",
+  "author": "HeyElastos",
+  "role": "provider",
+  "type": "microvm",
+  "entrypoint": "rootfs.ext4",
+  "provides": "elastos://blobs/*",
+  "capabilities": ["localhost://ElastOS/SystemServices/Blobs/*"],
+  "resources": {
+    "memory_mb": 256,
+    "gpu": false
+  }
+}

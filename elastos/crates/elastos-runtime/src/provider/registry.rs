@@ -166,6 +166,7 @@ const RESERVED_SUB_NAMES: &[&str] = &[
     "ai",
     "llama",
     "ipfs",
+    "blobs",
     "tunnel",
     "storage",
     "namespace",

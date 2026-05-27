@@ -110,6 +110,21 @@ build_runtime_and_capsules() {
         cargo_as_app build --release --manifest-path "$install_dir/capsules/$crate/Cargo.toml"
     done
 
+    # blobs-provider: iroh-blobs direct P2P file transfer for hey-messenger.
+    # Pinned to its own [workspace] + rust-toolchain.toml (rustc 1.91) because
+    # iroh 1.0.0-rc.1 / iroh-blobs 0.102 need a newer toolchain than the rest
+    # of the runtime. rustup discovers rust-toolchain.toml by walking up from
+    # cargo's CWD, NOT from --manifest-path — so we must `cd` into the crate
+    # dir for the toolchain pin to take effect. CARGO_TARGET_DIR is exported
+    # by cargo_as_app, so the output still lands in the shared target/release
+    # tree alongside the other capsule binaries.
+    ynh_exec_as "$app" \
+        env RUSTUP_HOME="$(rustup_root)/rustup" \
+            CARGO_HOME="$(rustup_root)/cargo" \
+            PATH="$(rustup_root)/cargo/bin:/usr/local/bin:/usr/bin:/bin" \
+            CARGO_TARGET_DIR="$install_dir/elastos/target" \
+        sh -c "cd '$install_dir/capsules/blobs-provider' && cargo build --release"
+
     # ── WASM capsules ──
     # home-cli: copy WASM next to capsule.json so home_cli_dir can tar both.
     cargo_as_app build --release --target wasm32-wasip1 \

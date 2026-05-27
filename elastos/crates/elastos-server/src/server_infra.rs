@@ -303,6 +303,36 @@ async fn setup_server_infrastructure_impl(
                 }
             }
         }
+
+        // blobs-provider — iroh-blobs direct peer-to-peer file transfer. Backs
+        // hey-messenger's unlimited-bounded-by-disk file share. Same line-delimited
+        // JSON wire protocol as ipfs-provider; the runtime treats it as another
+        // ProviderBridge subprocess.
+        if let Some(path) = crate::find_installed_provider_binary("blobs-provider") {
+            if let Err(e) = verify_provider_binary("blobs-provider", &path) {
+                tracing::warn!("Skipping blobs-provider due to verification failure: {}", e);
+            } else {
+                match provider::ProviderBridge::spawn(&path, Default::default()).await {
+                    Ok(bridge) => {
+                        let bridge = Arc::new(bridge);
+                        let blobs_provider: Arc<dyn provider::Provider> = Arc::new(
+                            provider::CapsuleProvider::with_scheme(Arc::clone(&bridge), "blobs"),
+                        );
+                        if let Err(e) = provider_registry
+                            .register_sub_provider("blobs", blobs_provider)
+                            .await
+                        {
+                            tracing::warn!(
+                                "Failed to register elastos://blobs sub-provider: {}",
+                                e
+                            );
+                        }
+                        tracing::info!("blobs-provider capsule from {}", path.display());
+                    }
+                    Err(e) => tracing::debug!("blobs-provider unavailable: {}", e),
+                }
+            }
+        }
     }
 
     // Built-in Carrier node — ALWAYS starts, not conditional on spawn_host_providers.
