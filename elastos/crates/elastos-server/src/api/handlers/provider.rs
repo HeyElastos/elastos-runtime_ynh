@@ -97,6 +97,28 @@ fn build_capability_resource(scheme: &str, op: &str, request: &Value) -> Result<
                 None => Ok(format!("elastos://ai/meta/{}", op)),
             }
         }
+        // Carrier/iroh gossip. The capsule manifests scope peer ops to a
+        // sub-namespace under the topic root (e.g. Hey Social declares
+        // `elastos://peer/hey-v0/*`), so we have to surface the request's
+        // topic in the resource string or the auto-grant token is issued
+        // for a pattern narrower than the catch-all the validator checks.
+        // Topic-bearing ops (gossip_*, list_topic_peers) → resource includes
+        // the topic. Topicless ops (list_peers, get_ticket) → meta bucket.
+        "peer" => {
+            let topic = request.get("topic").and_then(|v| v.as_str());
+            match topic {
+                Some(t) => {
+                    if !t
+                        .chars()
+                        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '/' | '.' | ':' | '#' | '@'))
+                    {
+                        return Err(format!("Invalid peer topic: {}", t));
+                    }
+                    Ok(format!("elastos://peer/{}", t))
+                }
+                None => Ok(format!("elastos://peer/meta/{}", op)),
+            }
+        }
         // Every provider scheme is namespaced under elastos:// in capsule
         // manifests (permissions.messaging entries like 'elastos://ipfs/*',
         // 'elastos://hey-transcoder/*', etc.). Match the same form here so
@@ -213,10 +235,32 @@ mod tests {
             build_capability_resource("did", "get_did", &request).unwrap(),
             "elastos://did/*"
         );
+        // Topicless peer op → meta bucket so manifest narrow patterns
+        // (e.g. `elastos://peer/hey-v0/*`) don't accidentally swallow it.
         assert_eq!(
-            build_capability_resource("peer", "connect", &request).unwrap(),
-            "elastos://peer/*"
+            build_capability_resource("peer", "list_peers", &request).unwrap(),
+            "elastos://peer/meta/list_peers"
         );
+    }
+
+    #[test]
+    fn test_peer_resource_with_topic() {
+        // Gossip ops carry a topic; the resource includes it so the
+        // capability token issued for the manifest's narrow pattern
+        // (e.g. `elastos://peer/hey-v0/*`) covers the validated resource.
+        let request = serde_json::json!({"topic": "hey-v0/user/did:key:z6MkABC/posts"});
+        assert_eq!(
+            build_capability_resource("peer", "gossip_send", &request).unwrap(),
+            "elastos://peer/hey-v0/user/did:key:z6MkABC/posts"
+        );
+    }
+
+    #[test]
+    fn test_peer_resource_rejects_bad_topic() {
+        let request = serde_json::json!({"topic": "has spaces"});
+        let result = build_capability_resource("peer", "gossip_send", &request);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Invalid peer topic"));
     }
 
     #[test]
