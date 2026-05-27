@@ -123,19 +123,23 @@ const App = () => {
       {user && (
         <header className="sticky top-0 z-30 bg-surface-soft/95 backdrop-blur-xl shadow-[0_16px_40px_-18px_rgba(0,0,0,0.15)]">
           <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3 sm:px-6">
-            {shell.hostedByHeyHome ? (
-              // Hey-home already shows the Hey wordmark in the desktop
-              // chrome; suppress the in-app duplicate. Keep the Link
-              // as an invisible home target for keyboard users.
-              <Link to="/" className="sr-only">Hey</Link>
-            ) : (
-              <Link
-                to="/"
-                className="text-3xl font-semibold text-primary logo-handwritten sm:text-5xl"
+            {/* Handwritten "Hey" wordmark. Same Dancing Script + gold
+                stroke treatment the lock screen + hey-home topbar use,
+                so the brand reads consistently across the whole desktop
+                experience. Visible in every host (hey-home, stock home,
+                standalone) — the topbar shows "Hey" for hey-home, this
+                shows "Hey" for the Hey Social app, distinct surfaces. */}
+            <Link to="/" aria-label="Hey home" className="block">
+              <svg
+                viewBox="0 0 120 56"
+                className="hey-header-mark h-9 w-auto sm:h-12"
+                aria-hidden="true"
               >
-                Hey
-              </Link>
-            )}
+                <text x="6" y="44">H</text>
+                <text x="46" y="44">e</text>
+                <text x="80" y="44">y</text>
+              </svg>
+            </Link>
 
             <nav className="flex flex-1 items-center justify-center gap-8 text-sm sm:gap-12">
               <Link

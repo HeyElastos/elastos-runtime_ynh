@@ -466,6 +466,28 @@ textarea {
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
 }
 
+/* Handwritten "Hey" wordmark used in the Hey Social app header.
+   Matches hey-home's topbar .toolbar-hey-mark + the lock screen's
+   .hw-heymark-svg — Dancing Script face with a gold paint-order
+   stroke. Light + dark mode both work because the fill is
+   currentColor; the stroke stays a constant warm gold. */
+.hey-header-mark {
+  display: block;
+  pointer-events: none;
+  user-select: none;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.25));
+  color: var(--text);
+}
+.hey-header-mark text {
+  font-family: 'Dancing Script', cursive;
+  font-weight: 600;
+  font-size: 56px;
+  fill: currentColor;
+  paint-order: stroke;
+  stroke: rgba(212, 184, 75, 0.6);
+  stroke-width: 0.6;
+}
+
 .hey-wordmark {
   font-family: 'Dancing Script', cursive;
   font-weight: 600;
