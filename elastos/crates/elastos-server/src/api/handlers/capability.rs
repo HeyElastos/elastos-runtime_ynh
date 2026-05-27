@@ -24,6 +24,10 @@ pub struct CapabilityState {
     pub pending_store: Arc<PendingRequestStore>,
     pub capability_manager: Arc<CapabilityManager>,
     pub policy_evaluator: Arc<PolicyEvaluator>,
+    /// Runtime data dir. Used to load a capsule's manifest so the
+    /// capability handler can auto-grant resources in the capsule's
+    /// declared permissions without an out-of-band approval flow.
+    pub data_dir: Option<std::path::PathBuf>,
 }
 
 // === Request Capability ===
@@ -92,8 +96,66 @@ pub async fn request_capability(
 
     let resource = ResourceId::new(&input.resource);
 
-    // For now, all requests go to pending (no auto-grant policy yet)
-    // Future: check if session already has this capability, or if policy allows auto-grant
+    // Manifest-based auto-grant. When the session is bound to a launched
+    // browser capsule (set by the home gateway via /api/auth/attach with
+    // ?capsule=…), load the capsule's manifest and check if the requested
+    // resource matches any pattern in permissions.storage (for localhost://)
+    // or permissions.messaging (for elastos://). If yes, mint a token
+    // immediately — no out-of-band approval needed because the capsule
+    // already declared this requirement at install time.
+    if let (Some(capsule_id), Some(data_dir)) = (session.capsule_id.as_deref(), state.data_dir.as_ref()) {
+        if let Some(manifest) = load_manifest_for_capsule(data_dir, capsule_id) {
+            let patterns: &[String] = if input.resource.starts_with("localhost://") {
+                &manifest.permissions.storage
+            } else {
+                &manifest.permissions.messaging
+            };
+            // Find the most restrictive manifest pattern that overlaps with
+            // the request. Two cases:
+            //   - request ⊆ manifest pattern (request narrower or equal):
+            //     grant a token for the request itself (narrowest allowed).
+            //   - request ⊇ manifest pattern (request broader):
+            //     grant a token for the manifest pattern (manifest is the
+            //     upper bound the capsule declared).
+            // No overlap → no auto-grant; fall through to pending approval.
+            let mut grant_resource: Option<ResourceId> = None;
+            for p in patterns {
+                let pat = ResourceId::new(p);
+                if resource.matches(&pat) {
+                    // Request is bounded by this manifest pattern. Token
+                    // for the request narrows things further; fine.
+                    grant_resource = Some(resource.clone());
+                    break;
+                } else if pat.matches(&resource) {
+                    // Manifest pattern bounds the (broader) request.
+                    // Token for the manifest pattern caps the capsule
+                    // to what it declared at install time.
+                    grant_resource = Some(pat);
+                    // Keep looking — a more-restrictive match may exist,
+                    // but for simplicity we accept the first overlap.
+                    break;
+                }
+            }
+            if let Some(grant_resource) = grant_resource {
+                let token = state.capability_manager.grant(
+                    capsule_id,
+                    grant_resource,
+                    action,
+                    TokenConstraints::default(),
+                    None,
+                );
+                return Ok(Json(RequestCapabilityOutput {
+                    status: "granted".to_string(),
+                    request_id: None,
+                    token: Some(token.to_base64().unwrap_or_default()),
+                    reason: None,
+                }));
+            }
+        }
+    }
+
+    // Resource not in the capsule's declared manifest — fall through to
+    // the pending/approval path (or for non-capsule sessions: shell etc.).
 
     let request = state
         .pending_store
@@ -116,6 +178,33 @@ pub async fn request_capability(
         token: None,
         reason: None,
     }))
+}
+
+/// Load a capsule's manifest from data_dir or the dev tree, falling back
+/// gracefully if neither path resolves. Mirrors browser_capsules.rs's
+/// resolution order (installed first, dev tree second) without exposing
+/// its private internals.
+fn load_manifest_for_capsule(
+    data_dir: &std::path::Path,
+    capsule_id: &str,
+) -> Option<elastos_common::CapsuleManifest> {
+    let candidates = [
+        data_dir.join("capsules").join(capsule_id).join("capsule.json"),
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../capsules")
+            .join(capsule_id)
+            .join("capsule.json"),
+    ];
+    for path in candidates.iter() {
+        if let Ok(bytes) = std::fs::read(path) {
+            if let Ok(manifest) = serde_json::from_slice::<elastos_common::CapsuleManifest>(&bytes) {
+                if manifest.name == capsule_id && manifest.validate().is_ok() {
+                    return Some(manifest);
+                }
+            }
+        }
+    }
+    None
 }
 
 // === Request Status ===

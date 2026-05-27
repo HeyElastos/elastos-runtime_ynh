@@ -24,6 +24,11 @@ pub struct AttachRequest {
     /// Requested scope: "shell" or "client" (default: "client").
     #[serde(default = "default_scope")]
     pub scope: String,
+    /// Optional capsule name. When set with scope=capsule, the minted
+    /// session is tagged with capsule_id so the capability handler can
+    /// auto-grant permissions declared in the capsule's manifest.
+    #[serde(default)]
+    pub capsule: Option<String>,
 }
 
 fn default_scope() -> String {
@@ -58,10 +63,20 @@ pub async fn attach(
         _ => SessionType::Capsule,
     };
 
-    let session = state
-        .session_registry
-        .create_session(session_type, None)
-        .await;
+    let session = match (session_type, body.capsule.as_ref()) {
+        (SessionType::Capsule, Some(capsule)) if !capsule.trim().is_empty() => {
+            state
+                .session_registry
+                .create_capsule_session(capsule.trim().to_string())
+                .await
+        }
+        _ => {
+            state
+                .session_registry
+                .create_session(session_type, None)
+                .await
+        }
+    };
 
     (
         StatusCode::OK,

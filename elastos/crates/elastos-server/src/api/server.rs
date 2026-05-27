@@ -226,6 +226,7 @@ pub async fn start_server_with_sessions(config: ServerConfig) -> anyhow::Result<
         pending_store: pending_store.clone(),
         capability_manager: capability_manager.clone(),
         policy_evaluator,
+        data_dir: data_dir.clone(),
     };
     let capsule_audit_log = audit_log
         .clone()

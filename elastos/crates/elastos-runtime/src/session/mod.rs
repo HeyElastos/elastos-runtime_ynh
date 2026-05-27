@@ -82,6 +82,14 @@ pub struct Session {
     /// Associated VM ID (if this session belongs to a VM)
     pub vm_id: Option<String>,
 
+    /// Browser capsule this session belongs to (when session_type is Capsule
+    /// and the session was minted on behalf of a launched browser capsule by
+    /// the home gateway). Drives manifest-based auto-grant for capability
+    /// requests so a capsule can read/write within its declared permissions
+    /// without an out-of-band approval flow.
+    #[serde(default)]
+    pub capsule_id: Option<String>,
+
     /// Type of session (determines permissions)
     pub session_type: SessionType,
 
@@ -104,6 +112,7 @@ impl Session {
             id: SessionId::new(),
             token: uuid::Uuid::new_v4().to_string(),
             vm_id,
+            capsule_id: None,
             session_type,
             owner: None,
             created_at: now,
@@ -118,11 +127,18 @@ impl Session {
             id: SessionId::new(),
             token: uuid::Uuid::new_v4().to_string(),
             vm_id,
+            capsule_id: None,
             session_type,
             owner: Some(owner),
             created_at: now,
             last_active: now,
         }
+    }
+
+    /// Set the capsule this session was minted on behalf of.
+    pub fn with_capsule_id(mut self, capsule_id: String) -> Self {
+        self.capsule_id = Some(capsule_id);
+        self
     }
 
     /// Set the owner for this session

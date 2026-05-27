@@ -1343,7 +1343,9 @@ async fn home_launch(
     // boot. Best-effort — if the local runtime isn't reachable, fall
     // through and the capsule will surface its own 401 to the user
     // instead of the dock silently swallowing the launch.
-    let runtime_token = mint_capsule_runtime_token(&state.data_dir).await.ok();
+    let runtime_token = mint_capsule_runtime_token(&state.data_dir, target_summary.target.as_str())
+        .await
+        .ok();
 
     let route = append_home_launch_token(
         &state.data_dir,
@@ -1391,18 +1393,30 @@ fn append_home_launch_token(
     Ok(format!("{route}{separator}{encoded}"))
 }
 
-/// Mint a runtime API session token (Capsule scope) using the gateway's
-/// attach secret. Used to embed an Authorization: Bearer-eligible token in
-/// each launched capsule's iframe URL so it can call /api/capability,
-/// /api/localhost, /api/provider without a separate sign-in.
-async fn mint_capsule_runtime_token(data_dir: &std::path::Path) -> anyhow::Result<String> {
+/// Mint a runtime API session token (Capsule scope, bound to the given
+/// capsule's manifest) using the gateway's attach secret. Used to embed
+/// an Authorization: Bearer-eligible token in each launched capsule's
+/// iframe URL so it can call /api/capability, /api/localhost, /api/provider
+/// without a separate sign-in. The capsule_id binding lets the capability
+/// handler auto-grant resources in the capsule's manifest permissions.
+async fn mint_capsule_runtime_token(
+    data_dir: &std::path::Path,
+    capsule: &str,
+) -> anyhow::Result<String> {
     let coords = load_live_runtime_coords(data_dir)
         .await
         .ok_or_else(|| anyhow::anyhow!("local runtime is not running"))?;
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(5))
         .build()?;
-    gateway_attach_runtime_token(&client, &coords.api_url, &coords.attach_secret, "capsule").await
+    gateway_attach_runtime_token_for_capsule(
+        &client,
+        &coords.api_url,
+        &coords.attach_secret,
+        "capsule",
+        Some(capsule),
+    )
+    .await
 }
 
 fn home_targets(data_dir: &std::path::Path) -> Vec<HomeTargetSummary> {
@@ -2124,12 +2138,28 @@ async fn gateway_attach_runtime_token(
     attach_secret: &str,
     scope: &str,
 ) -> anyhow::Result<String> {
+    gateway_attach_runtime_token_for_capsule(client, api_url, attach_secret, scope, None).await
+}
+
+async fn gateway_attach_runtime_token_for_capsule(
+    client: &reqwest::Client,
+    api_url: &str,
+    attach_secret: &str,
+    scope: &str,
+    capsule: Option<&str>,
+) -> anyhow::Result<String> {
+    let mut body = serde_json::json!({
+        "secret": attach_secret,
+        "scope": scope,
+    });
+    if let Some(name) = capsule {
+        if let Some(obj) = body.as_object_mut() {
+            obj.insert("capsule".to_string(), serde_json::Value::String(name.to_string()));
+        }
+    }
     Ok(client
         .post(format!("{}/api/auth/attach", api_url))
-        .json(&serde_json::json!({
-            "secret": attach_secret,
-            "scope": scope,
-        }))
+        .json(&body)
         .send()
         .await?
         .error_for_status()?
