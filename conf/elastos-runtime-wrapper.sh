@@ -37,6 +37,19 @@ if [ -s "$LOCALHOST_KEY_FILE" ]; then
     export ELASTOS_LOCALHOST_ENCRYPTION_KEY="$(cat "$LOCALHOST_KEY_FILE")"
 fi
 
+# Approach A step 5d: server-enforced lock screen. With this on,
+# browser sessions start in PreAuth (no capability tokens) and must
+# complete /api/auth/unlock or /api/auth/setup before storage /
+# provider calls succeed. The lock screen UI in hey-welcome.js
+# becomes a real gate instead of CSS. Set to 0 (or unset + restart)
+# to roll back to the legacy "auto-grant on visit" behavior — useful
+# if anything goes wrong with the cookie→Bearer handshake or the
+# unlock endpoint verification.
+#
+# To disable: comment the next line out, run
+#   sudo systemctl restart elastos_runtime
+export ELASTOS_AUTH_GATE=1
+
 # ── IPFS backend (Kubo + ipfs-provider) ─────────────────────────────
 # Hey Social and the IPFS provider capsule both need a running Kubo
 # daemon. Without these subprocesses, /api/provider/ipfs/* returns
