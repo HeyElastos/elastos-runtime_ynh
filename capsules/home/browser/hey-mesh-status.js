@@ -16,12 +16,19 @@
 (() => {
   const POLL_MS = 30_000;
 
-  // Try the gateway's loopback first; fall back to whatever the page
-  // was served from. Either way the response is the runtime's stamped
-  // {status,version}.
+  // YunoHost (and any future subpath mount) serves this capsule at
+  // ${prefix}/apps/home/. A root-relative "/api/health" then misses the
+  // app's nginx config entirely — same fix hey-runtime.js already uses.
+  const API_BASE = (() => {
+    const m = window.location.pathname.match(/^(.*?)\/apps\/[^/]+\//);
+    return m ? m[1] : "";
+  })();
+
+  // Try the page-origin path first (works at root AND under a YunoHost
+  // subpath); fall back to direct loopback for dev / native shells.
   const HEALTH_URLS = [
-    "/api/health",                 // same-origin via the gateway
-    "http://127.0.0.1:3000/api/health", // dev / direct
+    `${API_BASE}/api/health`,
+    "http://127.0.0.1:3000/api/health",
   ];
 
   const setOnline = (version) => {
