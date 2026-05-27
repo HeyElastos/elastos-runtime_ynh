@@ -53,8 +53,8 @@ ram.runtime = "512M"
     # Pinned to a commit (not a moving `main` branch tarball) so the sha256
     # YunoHost 12 requires stays stable. Bump url + sha256 together on every
     # release — yunohost-bot can automate this via `autoupdate.strategy`.
-    url = "https://github.com/HeyElastos/elastos-runtime_ynh/archive/500b761a452c1345da785e043c20b56a5b813f68.tar.gz"
-    sha256 = "7a79b794897bb34c82ecd796554ca39f4b7968cf93e41f233a9bac372faf1e8d"
+    url = "https://github.com/HeyElastos/elastos-runtime_ynh/archive/1518b2066b24604f67e3ca2c8c658926dd02dd8d.tar.gz"
+    sha256 = "97532570c57acf81f220a94f44986de5d1c69538bc43e5514cf76470ec00baf3"
     autoupdate.strategy = "latest_github_commit"
 
     [resources.system_user]
