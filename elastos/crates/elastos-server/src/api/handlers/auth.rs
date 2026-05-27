@@ -39,17 +39,159 @@ use std::time::{Duration, Instant};
 
 use axum::{
     extract::State,
-    http::StatusCode,
+    http::{header::SET_COOKIE, HeaderMap, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
     Extension, Json,
 };
 use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use elastos_runtime::session::{AuthState, Session, SessionRegistry};
-use hmac::Hmac;
+use hmac::{Hmac, Mac};
 use rand::{rngs::OsRng, RngCore};
 use serde::{Deserialize, Serialize};
-use sha2::Sha256;
+use sha2::{Digest, Sha256};
 use tokio::sync::Mutex;
+
+/// Cookie name for the unlock-claim. Set by the unlock / setup
+/// endpoints on success; read by capability auto-grant to decide
+/// whether a PreAuth session can be graduated inline (cross-capsule
+/// propagation, scoped to the unlocker's browser).
+pub const UNLOCK_CLAIM_COOKIE: &str = "elastos-unlock-claim";
+/// How long the unlock claim stays valid. After this, sessions that
+/// haven't graduated need to re-unlock. 12h matches the previous
+/// server-wide window TTL.
+pub const UNLOCK_CLAIM_TTL_SECS: u64 = 12 * 60 * 60;
+
+// ── Unlock-claim cookie (replaces server-wide unlock window) ─────────
+//
+// Previously the auth handler kept a server-wide `UnlockWindow` so any
+// PreAuth session arriving within the TTL was auto-graduated. That
+// worked for cross-capsule propagation (Hey Social inheriting home's
+// unlock) but on a `visitors` YunoHost permission it ALSO graduated
+// strangers who happened to hit the URL within the window.
+//
+// Replacing with a signed-cookie scheme:
+//   - On successful unlock/setup the response includes
+//     Set-Cookie: elastos-unlock-claim=<hmac-signed token>
+//   - The cookie is HttpOnly, SameSite=Lax, scoped to `/`, signed
+//     with an HMAC key derived from the gateway's stable signing
+//     key. Stateless — server holds no per-claim state.
+//   - capability.rs's evaluate_auth_gate checks the cookie on
+//     every PreAuth request. Valid (signature + freshness) →
+//     graduate the session. Missing or stale → refuse.
+//
+// Result: cross-capsule propagation still works for any session in
+// the same browser (cookies are sent on every same-origin request)
+// but a fresh visitor from a different browser has no cookie, no
+// graduation, and stays PreAuth.
+
+/// Derive a stable HMAC key for unlock-claim signing. Reads the
+/// gateway's signing key from disk and stretches via SHA-256 with a
+/// domain separator. Returns 32 bytes. Errors when the gateway
+/// hasn't been initialized yet (data_dir doesn't contain a key).
+fn unlock_claim_hmac_key(data_dir: &std::path::Path) -> Option<[u8; 32]> {
+    let (signing_key, _did) = elastos_identity::load_or_create_did(data_dir).ok()?;
+    let mut hasher = Sha256::new();
+    hasher.update(b"elastos-unlock-claim-v1");
+    hasher.update(&signing_key.to_bytes());
+    let out: [u8; 32] = hasher.finalize().into();
+    Some(out)
+}
+
+fn now_unix_ts() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+/// Mint an unlock-claim cookie. The token shape is:
+///   `<issued_seconds>.<nonce_hex>.<hmac_sig_hex>`
+/// where the HMAC is over the literal `<issued>.<nonce>` payload.
+///
+/// `secure` should be set when the request was over TLS so the
+/// cookie is only sent on HTTPS afterwards.
+pub fn mint_unlock_claim_cookie(
+    data_dir: &std::path::Path,
+    secure: bool,
+) -> Option<HeaderValue> {
+    let key = unlock_claim_hmac_key(data_dir)?;
+    let issued = now_unix_ts();
+    let mut nonce = [0u8; 16];
+    OsRng.fill_bytes(&mut nonce);
+    let payload = format!("{}.{}", issued, hex::encode(nonce));
+    let mut mac = <Hmac<Sha256> as Mac>::new_from_slice(&key).ok()?;
+    mac.update(payload.as_bytes());
+    let sig = mac.finalize().into_bytes();
+    let token = format!("{}.{}", payload, hex::encode(sig));
+    let secure_attr = if secure { "; Secure" } else { "" };
+    let cookie = format!(
+        "{name}={token}; Max-Age={ttl}; Path=/; HttpOnly; SameSite=Lax{secure_attr}",
+        name = UNLOCK_CLAIM_COOKIE,
+        token = token,
+        ttl = UNLOCK_CLAIM_TTL_SECS,
+    );
+    HeaderValue::from_str(&cookie).ok()
+}
+
+/// Validate an unlock-claim cookie pulled out of a request. Public
+/// so the capability handler can call it without dragging the auth
+/// module into its state. Returns true when:
+///   - cookie is present in the request
+///   - shape parses (issued.nonce.sig)
+///   - sig matches HMAC of payload under the gateway-derived key
+///   - issued time is in the past and within TTL of now
+pub fn validate_unlock_claim(data_dir: &std::path::Path, headers: &HeaderMap) -> bool {
+    let raw_cookie = headers
+        .get("cookie")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    let prefix = format!("{}=", UNLOCK_CLAIM_COOKIE);
+    let token = match raw_cookie
+        .split(';')
+        .map(|p| p.trim())
+        .find_map(|p| p.strip_prefix(&prefix))
+    {
+        Some(t) => t,
+        None => return false,
+    };
+    let parts: Vec<&str> = token.split('.').collect();
+    if parts.len() != 3 {
+        return false;
+    }
+    let (issued_str, nonce_hex, sig_hex) = (parts[0], parts[1], parts[2]);
+    let key = match unlock_claim_hmac_key(data_dir) {
+        Some(k) => k,
+        None => return false,
+    };
+    let payload = format!("{}.{}", issued_str, nonce_hex);
+    let mut mac = match <Hmac<Sha256> as Mac>::new_from_slice(&key) {
+        Ok(m) => m,
+        Err(_) => return false,
+    };
+    mac.update(payload.as_bytes());
+    let expected = mac.finalize().into_bytes();
+    let supplied = match hex::decode(sig_hex) {
+        Ok(s) => s,
+        Err(_) => return false,
+    };
+    if supplied.len() != expected.len() {
+        return false;
+    }
+    // Constant-time signature compare.
+    let mut diff = 0u8;
+    for (a, b) in supplied.iter().zip(expected.iter()) {
+        diff |= a ^ b;
+    }
+    if diff != 0 {
+        return false;
+    }
+    let issued: u64 = match issued_str.parse() {
+        Ok(n) => n,
+        Err(_) => return false,
+    };
+    let now = now_unix_ts();
+    now >= issued && now < issued.saturating_add(UNLOCK_CLAIM_TTL_SECS)
+}
 
 // ── Shared state ─────────────────────────────────────────────────────
 
@@ -243,12 +385,15 @@ pub async fn issue_challenge(
 /// POST /api/auth/unlock
 ///
 /// Verifies the supplied proof against the stored credentials. On
-/// success, graduates the calling session to Authenticated AND opens
-/// the server-wide unlock window so other capsules' sessions on this
-/// node auto-graduate too.
+/// success, graduates the calling session to Authenticated AND sets
+/// the unlock-claim cookie so PreAuth sessions from the SAME browser
+/// (e.g. a Hey Social iframe minted after this point) get
+/// graduated transparently on their first capability request.
+/// Other browsers / IPs get no cookie → no propagation → stay locked.
 pub async fn unlock(
     State(state): State<AuthGateState>,
     Extension(session): Extension<Session>,
+    headers: HeaderMap,
     Json(body): Json<UnlockRequest>,
 ) -> Response {
     // Rate limit per session
@@ -302,24 +447,28 @@ pub async fn unlock(
     // Clear rate-limit counters for this session
     state.failures.lock().await.remove(&session.token);
 
-    // Graduate this session AND open the unlock window so any other
-    // PreAuth session on this node graduates on its next capability
-    // request (cross-capsule propagation).
+    // Graduate this session immediately.
     state
         .session_registry
         .get_session_mut(&session.token, |s| s.set_authenticated())
         .await;
-    let mut win = state.unlock_window.write().await;
-    win.open();
-    let remaining = win.remaining_secs();
+    // The legacy server-wide unlock window is kept open as a no-op
+    // for tests / introspection but the actual cross-capsule
+    // propagation now hangs off the unlock-claim cookie below.
+    state.unlock_window.write().await.open();
 
-    Json(UnlockResponse {
+    let secure = super::super::gateway::request_uses_tls(&headers);
+    let mut response = Json(UnlockResponse {
         status: "ok".into(),
         auth_state: AuthState::Authenticated.to_string(),
-        unlock_window_remaining_secs: remaining,
+        unlock_window_remaining_secs: UNLOCK_CLAIM_TTL_SECS,
         reason: None,
     })
-    .into_response()
+    .into_response();
+    if let Some(cookie) = mint_unlock_claim_cookie(&state.data_dir, secure) {
+        response.headers_mut().append(SET_COOKIE, cookie);
+    }
+    response
 }
 
 /// POST /api/auth/setup
@@ -335,6 +484,7 @@ pub async fn unlock(
 pub async fn setup(
     State(state): State<AuthGateState>,
     Extension(session): Extension<Session>,
+    headers: HeaderMap,
     Json(body): Json<SetupRequest>,
 ) -> Response {
     // Reject if an identity already exists. This is the load-bearing
@@ -446,14 +596,22 @@ pub async fn setup(
         .await;
     state.unlock_window.write().await.open();
 
-    (
+    // Set the same unlock-claim cookie as /api/auth/unlock so any
+    // subsequent capsule sessions minted in this browser inherit
+    // the unlock via cross-capsule propagation in capability.rs.
+    let secure = super::super::gateway::request_uses_tls(&headers);
+    let mut response = (
         StatusCode::OK,
         Json(SetupResponse {
             status: "ok".into(),
             reason: None,
         }),
     )
-        .into_response()
+        .into_response();
+    if let Some(cookie) = mint_unlock_claim_cookie(&state.data_dir, secure) {
+        response.headers_mut().append(SET_COOKIE, cookie);
+    }
+    response
 }
 
 #[derive(Deserialize)]
@@ -833,6 +991,61 @@ mod tests {
     fn read_shared_identity_handles_missing_file() {
         let tmp = tempfile::tempdir().unwrap();
         assert!(read_shared_identity(tmp.path()).is_none());
+    }
+
+    #[test]
+    fn unlock_claim_cookie_round_trip() {
+        let tmp = tempfile::tempdir().unwrap();
+        // Mint a cookie tied to this data_dir.
+        let cookie = mint_unlock_claim_cookie(tmp.path(), false).expect("mint");
+        let cookie_str = cookie.to_str().unwrap().to_string();
+        // Strip the `Set-Cookie` framing — pull out `name=value` and
+        // feed it back as a Cookie request header.
+        let value = cookie_str
+            .split(';')
+            .next()
+            .expect("first segment is name=value");
+        let mut headers = HeaderMap::new();
+        headers.insert("cookie", value.parse().unwrap());
+        assert!(
+            validate_unlock_claim(tmp.path(), &headers),
+            "freshly-minted cookie must validate"
+        );
+    }
+
+    #[test]
+    fn unlock_claim_cookie_from_different_node_rejected() {
+        // Two data_dirs → two different HMAC keys → a cookie minted
+        // by node A doesn't validate on node B.
+        let node_a = tempfile::tempdir().unwrap();
+        let node_b = tempfile::tempdir().unwrap();
+        let cookie = mint_unlock_claim_cookie(node_a.path(), false).expect("mint");
+        let value = cookie.to_str().unwrap().split(';').next().unwrap().to_string();
+        let mut headers = HeaderMap::new();
+        headers.insert("cookie", value.parse().unwrap());
+        assert!(!validate_unlock_claim(node_b.path(), &headers));
+    }
+
+    #[test]
+    fn validate_unlock_claim_rejects_missing_cookie() {
+        let tmp = tempfile::tempdir().unwrap();
+        let headers = HeaderMap::new();
+        assert!(!validate_unlock_claim(tmp.path(), &headers));
+    }
+
+    #[test]
+    fn validate_unlock_claim_rejects_malformed() {
+        let tmp = tempfile::tempdir().unwrap();
+        // Force a key file to exist so HMAC key derivation succeeds.
+        let _ = mint_unlock_claim_cookie(tmp.path(), false);
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "cookie",
+            format!("{}=garbage.no.signature", UNLOCK_CLAIM_COOKIE)
+                .parse()
+                .unwrap(),
+        );
+        assert!(!validate_unlock_claim(tmp.path(), &headers));
     }
 
     #[test]

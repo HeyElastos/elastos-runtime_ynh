@@ -64,7 +64,7 @@ pub enum AuthGateOutcome {
 pub fn evaluate_auth_gate(
     gate_enabled: bool,
     session: &Session,
-    window_open: bool,
+    unlock_claim_valid: bool,
 ) -> AuthGateOutcome {
     if !gate_enabled {
         return AuthGateOutcome::Proceed;
@@ -72,7 +72,7 @@ pub fn evaluate_auth_gate(
     if session.can_access_resources() {
         return AuthGateOutcome::Proceed;
     }
-    if window_open {
+    if unlock_claim_valid {
         return AuthGateOutcome::GraduateAndProceed;
     }
     AuthGateOutcome::Refuse
@@ -114,6 +114,7 @@ pub struct RequestCapabilityOutput {
 pub async fn request_capability(
     State(state): State<CapabilityState>,
     Extension(session): Extension<Session>,
+    headers: axum::http::HeaderMap,
     Json(input): Json<RequestCapabilityInput>,
 ) -> Result<Json<RequestCapabilityOutput>, (StatusCode, String)> {
     // Parse action
@@ -146,15 +147,22 @@ pub async fn request_capability(
     // session must have proven identity (passkey / PIN via
     // /api/auth/unlock or /api/auth/setup) before capability auto-
     // grant will mint tokens. Shell sessions are exempt — they're the
-    // always-trusted orchestrator. Cross-capsule propagation: if any
-    // session on this node has unlocked recently, the unlock window
-    // is open and other PreAuth sessions graduate transparently on
-    // their first capability request.
-    let window_open = match state.unlock_window.as_ref() {
-        Some(win) => win.read().await.is_open(),
-        None => false,
-    };
-    match evaluate_auth_gate(state.auth_gate_enabled, &session, window_open) {
+    // always-trusted orchestrator.
+    //
+    // Cross-capsule propagation (option B, replacing the legacy
+    // server-wide unlock window): the unlock handler sets a signed
+    // `elastos-unlock-claim` cookie on its response. The cookie is
+    // sent by the SAME browser on every subsequent request, so a
+    // hey-social iframe minted right after home unlocked carries the
+    // cookie too and gets auto-graduated here. A stranger from a
+    // different browser / IP has no cookie → no graduation → stays
+    // locked.
+    let unlock_claim_valid = state
+        .data_dir
+        .as_ref()
+        .map(|dir| super::auth::validate_unlock_claim(dir, &headers))
+        .unwrap_or(false);
+    match evaluate_auth_gate(state.auth_gate_enabled, &session, unlock_claim_valid) {
         AuthGateOutcome::Proceed => { /* fall through to existing logic */ }
         AuthGateOutcome::GraduateAndProceed => {
             if let Some(ref reg) = state.session_registry {
