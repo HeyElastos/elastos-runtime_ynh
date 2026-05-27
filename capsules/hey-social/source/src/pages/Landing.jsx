@@ -52,23 +52,39 @@ const b64uDecode = (b64u) => {
   return out;
 };
 
-// Adopt the home-welcome-signed-up identity into Hey Social. Returns
-// true on success; the caller navigates after.
-const adoptSharedIdentityViaPasskey = async (shared) => {
+// Core adoption helper. Given a 32-byte signing seed (hex) that
+// derives the SAME did:key as the shared identity, prove possession
+// to the server via /api/auth/unlock + set up Hey's local session
+// + write the local profile from the shared record. Returns the
+// profile shape useProfile() expects.
+//
+// Two call paths use this:
+//   - passkey path: seed = identityPrf hex (from a WebAuthn assertion)
+//   - recovery-key path: seed = the 64-char hex the user saved at
+//     welcome signup. Both must derive the same did:key as the
+//     stored shared identity, else the client-side check below
+//     refuses to even attempt the server round-trip.
+const adoptSharedIdentityWithAuthKey = async (shared, authKey) => {
   if (!shared?.didKey) throw new Error("No shared identity to adopt");
-  const allowCreds = (shared.passkeys || [])
-    .map((pk) => {
-      try {
-        return { id: b64uDecode(pk.id), type: "public-key", transports: pk.transports || [] };
-      } catch { return null; }
-    })
-    .filter(Boolean);
-  if (allowCreds.length === 0) {
-    throw new Error("Shared identity has no passkey credentials to assert");
+  if (!authKey || !/^[0-9a-f]{64}$/i.test(authKey)) {
+    throw new Error("Auth key must be a 64-character hex string");
   }
 
-  // Server-issued challenge — avoids writing Hey's own
-  // passkey-challenge.json, which would 403 in PreAuth.
+  // Client-side check: does this seed derive the same did:key the
+  // shared identity claims? If not, the user typed the wrong recovery
+  // key (or the passkey assertion came from a different credential).
+  // Catching here means no wasted server round-trip + clearer error.
+  const { seed, didKey } = expandKeypair(authKey);
+  if (didKey !== shared.didKey) {
+    throw new Error(
+      "This key doesn't match the identity on this node. Make sure you're entering the recovery key shown at signup."
+    );
+  }
+
+  // Server-issued challenge → sign with the derived key → POST to
+  // /api/auth/unlock. Server verifies the signature against the
+  // stored didKey's pubkey and graduates the session, setting the
+  // unlock-claim cookie for cross-capsule propagation.
   const challResp = await authedFetch("/api/auth/unlock/challenge", { method: "POST" });
   if (!challResp.ok) throw new Error(`unlock challenge HTTP ${challResp.status}`);
   const { challenge_id, challenge_hex } = await challResp.json();
@@ -76,33 +92,6 @@ const adoptSharedIdentityViaPasskey = async (shared) => {
   const challengeBytes = new Uint8Array(
     challenge_hex.match(/.{2}/g).map((h) => parseInt(h, 16))
   );
-
-  // WebAuthn assertion requesting the identity-PRF (matches what the
-  // welcome screen used at enrollment).
-  const assertion = await navigator.credentials.get({
-    publicKey: {
-      challenge: challengeBytes,
-      rpId: window.location.hostname,
-      timeout: 60_000,
-      userVerification: "required",
-      allowCredentials: allowCreds,
-      extensions: {
-        prf: { eval: { first: ELASTOS_IDENTITY_PRF_INPUT } },
-      },
-    },
-  });
-  if (!assertion) throw new Error("Passkey assertion cancelled");
-
-  const prfRaw = assertion.getClientExtensionResults?.()?.prf?.results?.first;
-  const identityPrf = prfRaw ? new Uint8Array(prfRaw) : null;
-  if (!identityPrf || identityPrf.length !== 32) {
-    throw new Error("Passkey didn't return PRF output — can't derive identity");
-  }
-
-  // Sign the challenge with the identityPrf-derived Ed25519 key and
-  // submit to /api/auth/unlock for server-side verification.
-  const authKey = bytesToHex(identityPrf);
-  const { seed, didKey } = expandKeypair(authKey);
   const signatureHex = sign(challengeBytes, seed);
   const unlockResp = await authedFetch("/api/auth/unlock", {
     method: "POST",
@@ -112,8 +101,8 @@ const adoptSharedIdentityViaPasskey = async (shared) => {
     throw new Error(`unlock denied (HTTP ${unlockResp.status})`);
   }
 
-  // Session is now Authenticated. Stand up Hey's session keypair +
-  // local profile so the app can sign + write as the same DID.
+  // Session is Authenticated. Stand up Hey's session keypair + local
+  // profile so the app can sign events + write storage as the same DID.
   await setSession(authKey);
   const authKeyHash = await hashAuthKey(authKey);
   const user = {
@@ -146,6 +135,51 @@ const adoptSharedIdentityViaPasskey = async (shared) => {
     refreshToken: "capsule-session",
     accessTokenUpdatedAt: new Date().toISOString(),
   };
+};
+
+// Passkey path: WebAuthn assertion → identityPrf → adopt.
+const adoptSharedIdentityViaPasskey = async (shared) => {
+  const allowCreds = (shared.passkeys || [])
+    .map((pk) => {
+      try {
+        return { id: b64uDecode(pk.id), type: "public-key", transports: pk.transports || [] };
+      } catch { return null; }
+    })
+    .filter(Boolean);
+  if (allowCreds.length === 0) {
+    throw new Error("Shared identity has no passkey credentials to assert");
+  }
+  // The assertion needs a challenge but the actual challenge bytes
+  // are discarded — we re-do the server-issued challenge dance inside
+  // adoptSharedIdentityWithAuthKey, since that's the one /api/auth/
+  // unlock verifies. This local challenge just satisfies the
+  // WebAuthn ceremony's challenge-required argument.
+  const localChallenge = new Uint8Array(32);
+  crypto.getRandomValues(localChallenge);
+  const assertion = await navigator.credentials.get({
+    publicKey: {
+      challenge: localChallenge,
+      rpId: window.location.hostname,
+      timeout: 60_000,
+      userVerification: "required",
+      allowCredentials: allowCreds,
+      extensions: { prf: { eval: { first: ELASTOS_IDENTITY_PRF_INPUT } } },
+    },
+  });
+  if (!assertion) throw new Error("Passkey assertion cancelled");
+  const prfRaw = assertion.getClientExtensionResults?.()?.prf?.results?.first;
+  const identityPrf = prfRaw ? new Uint8Array(prfRaw) : null;
+  if (!identityPrf || identityPrf.length !== 32) {
+    throw new Error("Passkey didn't return PRF output — can't derive identity");
+  }
+  return adoptSharedIdentityWithAuthKey(shared, bytesToHex(identityPrf));
+};
+
+// Recovery-key path: user types the 64-char hex shown at welcome signup.
+const adoptSharedIdentityViaRecoveryKey = async (shared, recoveryHex) => {
+  const cleaned = (recoveryHex || "").trim().toLowerCase();
+  if (!cleaned) throw new Error("Enter your recovery key first");
+  return adoptSharedIdentityWithAuthKey(shared, cleaned);
 };
 
 export const FloatingScene = () => (
@@ -380,23 +414,27 @@ const Landing = () => {
 
   // Step 5f: unified-identity adoption. If the user already signed up
   // via the home-shell welcome screen, the shared identity file on the
-  // node carries their did:key + passkey credential list. Skip Hey's
-  // signup wizard and offer one-click adoption instead.
+  // node carries their did:key. Skip Hey's signup wizard and offer
+  // one-tap adoption instead — passkey if the user enrolled one,
+  // otherwise the recovery-key path for PIN-only welcome signups.
   const [sharedIdentity, setSharedIdentity] = useState(null);
   const [adoptBusy, setAdoptBusy] = useState(false);
+  const [recoveryKeyInput, setRecoveryKeyInput] = useState("");
   useEffect(() => {
     let cancelled = false;
     (async () => {
       const shared = await readSharedIdentity().catch(() => null);
       if (cancelled) return;
-      if (shared?.didKey && (shared.passkeys || []).length > 0) {
+      if (shared?.didKey) {
         setSharedIdentity(shared);
       }
     })();
     return () => { cancelled = true; };
   }, []);
 
-  const handleAdoptSharedIdentity = async () => {
+  const sharedHasPasskey = (sharedIdentity?.passkeys || []).length > 0;
+
+  const handleAdoptWithPasskey = async () => {
     setError(null);
     setAdoptBusy(true);
     try {
@@ -409,8 +447,32 @@ const Landing = () => {
       setProfile(profile);
       navigate("/");
     } catch (err) {
-      console.error("[hey] adopt-shared failed", err);
+      console.error("[hey] adopt-passkey failed", err);
       setError(err.message || "Couldn't sign in with your existing passkey.");
+    } finally {
+      setAdoptBusy(false);
+    }
+  };
+
+  const handleAdoptWithRecoveryKey = async (event) => {
+    if (event?.preventDefault) event.preventDefault();
+    setError(null);
+    setAdoptBusy(true);
+    try {
+      const data = await adoptSharedIdentityViaRecoveryKey(
+        sharedIdentity,
+        recoveryKeyInput
+      );
+      const profile = {
+        user: data.user,
+        accessToken: data.accessToken,
+        refreshToken: data.refreshToken,
+      };
+      setProfile(profile);
+      navigate("/");
+    } catch (err) {
+      console.error("[hey] adopt-recovery failed", err);
+      setError(err.message || "Couldn't verify your recovery key.");
     } finally {
       setAdoptBusy(false);
     }
@@ -513,21 +575,56 @@ const Landing = () => {
               <p className="text-lg font-semibold text-primary">
                 {sharedIdentity.name || "Your Elastos identity is on this node"}
               </p>
-              <p className="text-xs text-muted leading-5">
-                You already signed up via the lock screen with a passkey. Tap
-                to sign in here too — no second account needed.
-              </p>
-              <button
-                type="button"
-                onClick={handleAdoptSharedIdentity}
-                disabled={adoptBusy}
-                className="unfrost mt-1 inline-flex items-center justify-center gap-2 rounded-full bg-accent px-5 py-3 text-sm font-semibold text-accent-text shadow-lg transition hover:bg-amber-300 disabled:opacity-50"
-              >
-                <svg viewBox="0 0 24 24" className="h-4 w-4 fill-current">
-                  <path d="M12 2a5 5 0 0 0-5 5v3H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8a2 2 0 0 0-2-2h-1V7a5 5 0 0 0-5-5Zm-3 8V7a3 3 0 0 1 6 0v3H9Z" />
-                </svg>
-                {adoptBusy ? "Tap your passkey…" : "Sign in with my passkey"}
-              </button>
+              {sharedHasPasskey ? (
+                <>
+                  <p className="text-xs text-muted leading-5">
+                    You signed up with a passkey. Tap to sign in here too —
+                    no second account needed.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={handleAdoptWithPasskey}
+                    disabled={adoptBusy}
+                    className="unfrost mt-1 inline-flex items-center justify-center gap-2 rounded-full bg-accent px-5 py-3 text-sm font-semibold text-accent-text shadow-lg transition hover:bg-amber-300 disabled:opacity-50"
+                  >
+                    <svg viewBox="0 0 24 24" className="h-4 w-4 fill-current">
+                      <path d="M12 2a5 5 0 0 0-5 5v3H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8a2 2 0 0 0-2-2h-1V7a5 5 0 0 0-5-5Zm-3 8V7a3 3 0 0 1 6 0v3H9Z" />
+                    </svg>
+                    {adoptBusy ? "Tap your passkey…" : "Sign in with my passkey"}
+                  </button>
+                </>
+              ) : (
+                <>
+                  <p className="text-xs text-muted leading-5">
+                    Paste the recovery key you saved at signup (the long hex
+                    string). Hey Social needs it to sign your posts &mdash;
+                    the welcome screen's PIN unlocks the node but doesn't
+                    give Hey the signing key.
+                  </p>
+                  <form
+                    onSubmit={handleAdoptWithRecoveryKey}
+                    className="flex flex-col gap-2"
+                  >
+                    <input
+                      type="password"
+                      autoComplete="off"
+                      spellCheck="false"
+                      value={recoveryKeyInput}
+                      onChange={(e) => setRecoveryKeyInput(e.target.value)}
+                      disabled={adoptBusy}
+                      placeholder="64-character recovery key"
+                      className="unfrost rounded-2xl bg-black/20 px-4 py-3 font-mono text-xs text-primary outline-none placeholder:text-muted/60 ring-1 ring-white/10 focus:ring-accent"
+                    />
+                    <button
+                      type="submit"
+                      disabled={adoptBusy || !recoveryKeyInput.trim()}
+                      className="unfrost inline-flex items-center justify-center gap-2 rounded-full bg-accent px-5 py-3 text-sm font-semibold text-accent-text shadow-lg transition hover:bg-amber-300 disabled:opacity-50"
+                    >
+                      {adoptBusy ? "Verifying…" : "Sign in"}
+                    </button>
+                  </form>
+                </>
+              )}
               {error && (
                 <p className="text-xs text-red-400">{error}</p>
               )}
