@@ -369,16 +369,17 @@ const enrollPasskey = async (name) => {
         // hole.
         userVerification: "required",
       },
-      // Two-PRF unified-identity setup. The first PRF eval derives the
-      // signing keypair seed shared with every other Elastos capsule
-      // (Hey Social etc.), so one passkey = one DID across the device.
-      // The second PRF eval gives this shell its own vault key, so the
-      // shell's encrypted blobs stay isolated from app blobs.
+      // Single PRF eval — the identity seed shared with every other
+      // Elastos capsule (so one passkey = one DID across the device).
+      // The shell's vault key is derived from this output via HKDF
+      // (see deriveVaultPrf below). We avoid a `second` eval because
+      // some authenticators (Nitrokey 3, some Yubikey/Hello firmwares)
+      // accept the create() call but then reject post-UV when two
+      // hmac-secret salts are requested.
       extensions: {
         prf: {
           eval: {
             first: new TextEncoder().encode("elastos-identity-v1").buffer,
-            second: new TextEncoder().encode("hey-home-vault-v1").buffer,
           },
         },
       },
@@ -398,11 +399,13 @@ const enrollPasskey = async (name) => {
   const transports =
     response.getTransports ? response.getTransports() : [];
 
-  // PRF outputs from registration. 'first' = shared identity seed
-  // ('elastos-identity-v1'), 'second' = this shell's vault key.
+  // PRF output from registration. 'first' = shared identity seed
+  // ('elastos-identity-v1'). The vault PRF is HKDF-derived from it.
   const prfResults = cred.getClientExtensionResults?.()?.prf?.results || {};
   const identityPrfBytes = prfResults.first ? new Uint8Array(prfResults.first) : null;
-  const vaultPrfBytes = prfResults.second ? new Uint8Array(prfResults.second) : null;
+  const vaultPrfBytes = identityPrfBytes
+    ? await deriveVaultPrf(identityPrfBytes, "hey-home-vault-v1")
+    : null;
 
   return {
     id: b64uEncode(new Uint8Array(cred.rawId)),
@@ -416,6 +419,24 @@ const enrollPasskey = async (name) => {
     _identityPrf: identityPrfBytes,
     _vaultPrf: vaultPrfBytes,
   };
+};
+
+// HKDF-SHA256 expand 32 bytes from the identity PRF with a per-app label.
+const deriveVaultPrf = async (identityPrf, label) => {
+  const km = await crypto.subtle.importKey(
+    "raw", identityPrf, "HKDF", false, ["deriveBits"]
+  );
+  const bits = await crypto.subtle.deriveBits(
+    {
+      name: "HKDF",
+      hash: "SHA-256",
+      salt: new Uint8Array(),
+      info: new TextEncoder().encode(label),
+    },
+    km,
+    256,
+  );
+  return new Uint8Array(bits);
 };
 
 // ── WebAuthn local signature verification ────────────────────────────

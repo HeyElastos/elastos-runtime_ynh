@@ -37,10 +37,6 @@
   // Path is under .AppData/ to match hey-home's existing storage permission
   // namespace (see capsule.json's `permissions.storage`).
   const WRAPS_PATH = "Users/self/.AppData/HeyVault/wraps.json";
-  // Static per-app PRF input. Different apps should use different inputs
-  // so their PRF outputs don't collide.
-  const PRF_INPUT_BYTES = new TextEncoder().encode("hey-home-vault-v1");
-
   // ── In-memory state (the secret) ─────────────────────────────────
   let masterKey = null; // CryptoKey or null
 
@@ -68,6 +64,41 @@
   const writeJson = (path, v) => window.heyRuntime?.storage?.writeJson(path, v);
 
   // ── WebAuthn PRF: enroll + assert ────────────────────────────────
+  //
+  // We request a SINGLE PRF eval (`elastos-identity-v1`) for two reasons:
+  //   1. Cross-capsule identity — every Elastos capsule asking for that
+  //      same input gets the same 32 bytes → same Ed25519 keypair → same
+  //      DID. One passkey, one identity across the device.
+  //   2. Compatibility — many authenticators (Nitrokey 3, some Yubikeys,
+  //      older Windows Hello firmwares) accept a single hmac-secret salt
+  //      reliably but reject or stall on dual-eval requests during the
+  //      post-UV phase ("OS dialog turns red after PIN entry").
+  //
+  // The app-specific vault key is then deterministically derived in JS
+  // from the identity PRF output via HKDF with a per-app `info` label.
+  // Different apps get different vault keys; identity and vault keys
+  // stay cryptographically uncorrelated.
+
+  const IDENTITY_PRF_INPUT_BYTES =
+    new TextEncoder().encode("elastos-identity-v1");
+
+  // HKDF-derive 32 bytes from the identity PRF using a per-app label.
+  const deriveVaultPrfFromIdentity = async (identityPrf, label) => {
+    const km = await crypto.subtle.importKey(
+      "raw", identityPrf, "HKDF", false, ["deriveBits"]
+    );
+    const bits = await crypto.subtle.deriveBits(
+      {
+        name: "HKDF",
+        hash: "SHA-256",
+        salt: new Uint8Array(),
+        info: new TextEncoder().encode(label),
+      },
+      km,
+      256,
+    );
+    return new Uint8Array(bits);
+  };
 
   // Returns true if PRF is plausibly supported at all.
   const prfPlausible = () =>
@@ -76,9 +107,11 @@
     typeof PublicKeyCredential !== "undefined";
 
   // Enroll a new passkey requesting PRF capability. Returns
-  //   { credential, prfOutput, transports }
-  // where prfOutput is the 32-byte hardware-derived secret, OR throws
-  // an Error.name === "PRFNotSupported" if the authenticator can't do PRF.
+  //   { credential, prfOutput, identityPrf, transports }
+  // where identityPrf is the raw 32-byte hmac-secret output and prfOutput
+  // is the HKDF-derived vault key (kept for API symmetry with callers).
+  // Throws Error.name === "PRFNotSupported" if the authenticator can't
+  // do PRF at all.
   const enrollPasskeyForVault = async ({ name }) => {
     if (!prfPlausible()) throw new Error("WebAuthn not available");
     const challenge = crypto.getRandomValues(new Uint8Array(32));
@@ -108,16 +141,7 @@
         extensions: {
           prf: {
             eval: {
-              // 'first' = shared cross-capsule identity seed. Same input
-              // every Elastos capsule asks for → same Ed25519 keypair →
-              // same DID. The user signs up here once and is recognized
-              // automatically by Hey Social etc.
-              first: new TextEncoder().encode("elastos-identity-v1").buffer,
-              // 'second' = this shell's app-specific vault key (used to
-              // wrap the master encryption key for sealed storage).
-              // Stays distinct from app vaults — Hey Social can't
-              // decrypt the shell's blobs and vice versa.
-              second: PRF_INPUT_BYTES.buffer,
+              first: IDENTITY_PRF_INPUT_BYTES.buffer,
             },
           },
         },
@@ -127,17 +151,9 @@
 
     const ext = cred.getClientExtensionResults?.() || {};
     const prfRes = ext.prf || {};
-    // Per WebAuthn spec, `prf.enabled === true` on create means the
-    // authenticator accepted PRF but the actual output is delivered on
-    // a SUBSEQUENT assertion (some authenticators), or `prf.results.first`
-    // is set already (some, like macOS Touch ID).
-    // 'first' here is now the shared identity PRF (post-refactor); the
-    // vault PRF is exposed as 'second'.
     let prfFirst = prfRes.results?.first;
-    let prfSecond = prfRes.results?.second;
 
     if (!prfFirst && prfRes.enabled !== true) {
-      // PRF was requested but the authenticator didn't accept it.
       const err = new Error(
         "Authenticator doesn't support PRF — vault encryption unavailable. " +
         "Try a different authenticator (Yubikey 5.7+, Touch ID on macOS 14+, " +
@@ -147,8 +163,8 @@
       throw err;
     }
 
-    if (!prfFirst || !prfSecond) {
-      // PRF enabled but no result yet — do an assertion to fetch both.
+    if (!prfFirst) {
+      // PRF enabled but no result on create — fetch via assertion.
       const assertion = await navigator.credentials.get({
         publicKey: {
           challenge: crypto.getRandomValues(new Uint8Array(32)),
@@ -161,39 +177,33 @@
             transports: cred.response.getTransports?.() || [],
           }],
           extensions: {
-            prf: {
-              eval: {
-                first: new TextEncoder().encode("elastos-identity-v1").buffer,
-                second: PRF_INPUT_BYTES.buffer,
-              },
-            },
+            prf: { eval: { first: IDENTITY_PRF_INPUT_BYTES.buffer } },
           },
         },
       });
-      const r = assertion?.getClientExtensionResults?.()?.prf?.results || {};
-      prfFirst = r.first;
-      prfSecond = r.second;
+      prfFirst = assertion?.getClientExtensionResults?.()?.prf?.results?.first;
     }
 
-    if (!prfFirst || !prfSecond) {
+    if (!prfFirst) {
       const err = new Error("PRF output not produced by this authenticator");
       err.name = "PRFNotSupported";
       throw err;
     }
 
+    const identityPrf = new Uint8Array(prfFirst);
+    const vaultPrf = await deriveVaultPrfFromIdentity(identityPrf, "hey-home-vault-v1");
+
     return {
       credential: cred,
-      // For backward compatibility, prfOutput is the VAULT PRF (what
-      // the caller used to receive). identityPrf is the new
-      // cross-capsule signing seed.
-      prfOutput: new Uint8Array(prfSecond),
-      identityPrf: new Uint8Array(prfFirst),
+      prfOutput: vaultPrf,
+      identityPrf,
       transports: cred.response.getTransports?.() || [],
     };
   };
 
-  // Assert an existing passkey, requesting PRF output. Returns the 32-byte
-  // PRF output, or throws.
+  // Assert an existing passkey, requesting the identity PRF. Returns
+  // the 32-byte HKDF-derived vault PRF (kept for API symmetry with
+  // existing unlockVaultWithPRF callers).
   const assertPasskeyForVault = async (allowedCredIds) => {
     if (!prfPlausible()) throw new Error("WebAuthn not available");
     const allowCredentials = (allowedCredIds || []).map((id) => ({
@@ -208,7 +218,7 @@
         timeout: 60_000,
         userVerification: "required",
         allowCredentials,
-        extensions: { prf: { eval: { first: PRF_INPUT_BYTES.buffer } } },
+        extensions: { prf: { eval: { first: IDENTITY_PRF_INPUT_BYTES.buffer } } },
       },
     });
     if (!assertion) throw new Error("Passkey authentication cancelled");
@@ -219,7 +229,8 @@
       err.name = "PRFNotSupported";
       throw err;
     }
-    return new Uint8Array(prfFirst);
+    const identityPrf = new Uint8Array(prfFirst);
+    return deriveVaultPrfFromIdentity(identityPrf, "hey-home-vault-v1");
   };
 
   // ── Key wrapping ─────────────────────────────────────────────────
