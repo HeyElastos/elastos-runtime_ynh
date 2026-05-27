@@ -7,7 +7,7 @@ import { setProfile } from "../hooks/useProfile";
 import { copyToClipboard } from "../utils/clipboard";
 import { readSharedIdentity, writeSharedIdentity } from "../lib/shell";
 import { setSession } from "../lib/session";
-import { expandKeypair, hashAuthKey, bytesToHex, sign, ELASTOS_IDENTITY_PRF_INPUT } from "../lib/identity";
+import { expandKeypair, generateAuthKey, hashAuthKey, bytesToHex, sign, ELASTOS_IDENTITY_PRF_INPUT } from "../lib/identity";
 import { storage } from "../lib/runtime";
 
 // ── Unified-identity adoption (Approach A step 5f) ──────────────────
@@ -199,6 +199,182 @@ const adoptSharedIdentityViaRecoveryKey = async (shared, recoveryHex) => {
   const cleaned = (recoveryHex || "").trim().toLowerCase();
   if (!cleaned) throw new Error("Enter your recovery key first");
   return adoptSharedIdentityWithAuthKey(shared, cleaned);
+};
+
+// ── Fresh signup via /api/auth/setup (Approach A step 5g) ────────────
+//
+// When no identity exists on the node yet, the standard signUp() and
+// passkeySignup() flows write to Hey-namespaced storage (profile.json,
+// passkey-creds.json, passkey-challenge.json) BEFORE any auth-gate
+// unlock happens — those writes get 403'd in PreAuth and the user
+// sees "Could not create account." The fix: route first-run signup
+// through /api/auth/setup. That endpoint writes the identity file
+// via std::fs (bypassing the capability layer) AND graduates the
+// calling session, so Hey-side storage writes work for the next steps.
+
+// Compute everything the server needs for /api/auth/setup, then call
+// it. After this returns, the session is Authenticated + the unlock-
+// claim cookie is set, so the caller can write Hey-namespaced storage
+// (profile.json) and use setSession() normally.
+//
+// `passkeyCred` is the WebAuthn credential record from a fresh
+// startRegistration() call — null for recovery-key-only signups.
+const completeSetupViaServer = async ({ name, authKey, passkeyCred }) => {
+  const { seed, publicKey, didKey } = expandKeypair(authKey);
+  const recoveryKeyHash = await hashAuthKey(authKey);
+  const pubKeyHex = bytesToHex(publicKey);
+  const profile = {
+    name,
+    didKey,
+    pubKeyHex,
+    recoveryKeyHash,
+    passkeys: passkeyCred ? [passkeyCred] : [],
+    createdAt: new Date().toISOString(),
+  };
+  // Server-side passkey-creds.json mirror — Hey reads this at signin.
+  const passkey_creds = passkeyCred ? [passkeyCred] : [];
+
+  const r = await authedFetch("/api/auth/setup", {
+    method: "POST",
+    body: JSON.stringify({ profile, passkey_creds }),
+  });
+  if (!r.ok) {
+    const txt = await r.text().catch(() => "");
+    throw new Error(`setup denied (HTTP ${r.status}) ${txt}`);
+  }
+
+  // Session is now Authenticated. Stand up Hey's local session.
+  await setSession(authKey);
+  // Mirror into Hey's local profile.json. Server's setup wrote
+  // shared identity + passkey-creds; Hey's own profile.json is its
+  // private metadata (avatar, bio, follow lists, role).
+  const user = {
+    id: crypto.randomUUID(),
+    name,
+    authKeyHash: recoveryKeyHash,
+    didKey,
+    role: "general",
+    avatar: "",
+    bio: "",
+    followers: [], following: [],
+    pendingFollowers: [], pendingFollowing: [],
+    createdAt: profile.createdAt,
+  };
+  await storage.writeJson("profile.json", user).catch((err) =>
+    console.warn("[hey] setup: profile write failed", err)
+  );
+  return {
+    user: {
+      id: user.id,
+      name: user.name,
+      bio: "",
+      avatar: "",
+      role: user.role,
+      didKey,
+      counts: { followers: 0, following: 0 },
+    },
+    authKey,
+    accessToken: "capsule-session",
+    refreshToken: "capsule-session",
+    accessTokenUpdatedAt: new Date().toISOString(),
+  };
+};
+
+// Fresh signup with a random recovery key (no passkey).
+const signUpViaSetup = async (name) => {
+  const authKey = generateAuthKey();
+  return completeSetupViaServer({ name, authKey, passkeyCred: null });
+};
+
+// Fresh signup with a passkey. Runs the WebAuthn create() ceremony
+// to enroll the credential, extracts identityPrf as the auth key,
+// and submits everything to /api/auth/setup.
+const passkeySignupViaSetup = async (name) => {
+  const challenge = new Uint8Array(32);
+  crypto.getRandomValues(challenge);
+  const userHandle = new Uint8Array(32);
+  crypto.getRandomValues(userHandle);
+  const cred = await navigator.credentials.create({
+    publicKey: {
+      challenge,
+      rp: { name: "Hey Social", id: window.location.hostname },
+      user: {
+        id: userHandle,
+        name: name || "hey-user",
+        displayName: name || "Hey user",
+      },
+      pubKeyCredParams: [
+        { type: "public-key", alg: -8 }, // Ed25519
+        { type: "public-key", alg: -7 }, // ES256
+        { type: "public-key", alg: -257 }, // RS256
+      ],
+      timeout: 60_000,
+      attestation: "none",
+      authenticatorSelection: {
+        residentKey: "preferred",
+        userVerification: "required",
+      },
+      extensions: {
+        prf: { eval: { first: ELASTOS_IDENTITY_PRF_INPUT } },
+      },
+    },
+  });
+  if (!cred) throw new Error("Passkey enrollment cancelled");
+
+  // Pull identityPrf out. If the authenticator delivered PRF on
+  // create() we have it directly; otherwise we'd need a follow-up
+  // assertion. Most modern authenticators deliver on create now.
+  const ext = cred.getClientExtensionResults?.() || {};
+  let prfRaw = ext.prf?.results?.first;
+  if (!prfRaw) {
+    // Follow-up assertion to fetch PRF (Nitrokey 3 etc.).
+    const assertion = await navigator.credentials.get({
+      publicKey: {
+        challenge: crypto.getRandomValues(new Uint8Array(32)),
+        rpId: window.location.hostname,
+        timeout: 60_000,
+        userVerification: "required",
+        allowCredentials: [{ id: cred.rawId, type: "public-key" }],
+        extensions: { prf: { eval: { first: ELASTOS_IDENTITY_PRF_INPUT } } },
+      },
+    });
+    prfRaw = assertion?.getClientExtensionResults?.()?.prf?.results?.first;
+  }
+  if (!prfRaw) {
+    throw new Error(
+      "This passkey doesn't support PRF — required for unified identity. " +
+      "Try a Yubikey 5.7+, Touch ID, modern Windows Hello, or Android 14+."
+    );
+  }
+  const identityPrf = new Uint8Array(prfRaw);
+  const authKey = bytesToHex(identityPrf);
+
+  // Build the credential record the server will mirror to
+  // passkey-creds.json — same shape Hey expects at sign-in.
+  const response = cred.response;
+  let publicKeyB64u = null;
+  if (response.getPublicKey) {
+    const pk = response.getPublicKey();
+    if (pk) {
+      publicKeyB64u = btoa(String.fromCharCode(...new Uint8Array(pk)))
+        .replace(/\+/g, "-")
+        .replace(/\//g, "_")
+        .replace(/=+$/, "");
+    }
+  }
+  const credId = btoa(String.fromCharCode(...new Uint8Array(cred.rawId)))
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+  const passkeyCred = {
+    id: credId,
+    publicKey: publicKeyB64u,
+    transports: response.getTransports ? response.getTransports() : [],
+    counter: 0,
+    createdAt: new Date().toISOString(),
+  };
+
+  return completeSetupViaServer({ name, authKey, passkeyCred });
 };
 
 export const FloatingScene = () => (
@@ -510,7 +686,11 @@ const Landing = () => {
     }
     setPasskeyBusy(true);
     try {
-      const data = await passkeySignup(name.trim());
+      // Route through /api/auth/setup (5g) so the runtime writes the
+      // identity file in PreAuth-allowed std::fs path and graduates
+      // the session before Hey's own storage writes start. Legacy
+      // passkeySignup() wrote passkey-challenge.json first → 403.
+      const data = await passkeySignupViaSetup(name.trim());
       const profile = {
         user: data.user,
         accessToken: data.accessToken,
@@ -535,7 +715,13 @@ const Landing = () => {
 
     setLoading(true);
     try {
-      const data = await signUp({ name: name.trim() });
+      // Route through /api/auth/setup (5g). The legacy signUp() did
+      // its own storage.writeJson(PROFILE_FILE) + writeSharedIdentity
+      // before the session was graduated → 403 under ELASTOS_AUTH_GATE.
+      // signUpViaSetup hits the server endpoint first (which writes
+      // the identity via std::fs and graduates the session) then
+      // lays down Hey's local profile after.
+      const data = await signUpViaSetup(name.trim());
       const profile = {
         user: data.user,
         accessToken: data.accessToken,
@@ -544,7 +730,7 @@ const Landing = () => {
       setPendingProfile(profile);
       setGeneratedKey(data.authKey);
     } catch (err) {
-      setError(err.response?.data?.message || "Could not create account.");
+      setError(err.response?.data?.message || err.message || "Could not create account.");
     } finally {
       setLoading(false);
     }
