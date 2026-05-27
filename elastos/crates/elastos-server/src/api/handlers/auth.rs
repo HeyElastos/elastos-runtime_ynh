@@ -350,6 +350,28 @@ pub struct AuthStateResponse {
     /// True when no shared identity exists on this node — the JS
     /// then shows the setup wizard instead of the lock screen.
     pub identity_present: bool,
+    /// Public-facing slice of the shared identity, surfaced even to
+    /// PreAuth sessions so the home shell can render the lock screen
+    /// before any capability tokens are acquired. Excludes secrets
+    /// (recoveryKeyHash, pinHash, pinSalt) — those stay behind the
+    /// gate. Null when no identity exists yet.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub identity_preview: Option<IdentityPreview>,
+}
+
+#[derive(Serialize)]
+pub struct IdentityPreview {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(rename = "didKey", skip_serializing_if = "Option::is_none")]
+    pub did_key: Option<String>,
+    /// True iff the user has at least one passkey enrolled in the
+    /// shared identity. Drives whether the lock screen shows the
+    /// "Tap your passkey" affordance.
+    pub has_passkey: bool,
+    /// True iff the shared identity carries a PIN hash. Drives
+    /// whether the lock screen shows the 6-digit PIN field.
+    pub has_pin: bool,
 }
 
 // ── Routes ───────────────────────────────────────────────────────────
@@ -654,12 +676,78 @@ pub async fn auth_state(
     Extension(session): Extension<Session>,
 ) -> Json<AuthStateResponse> {
     let win = state.unlock_window.read().await;
+    let (identity_present, identity_preview) = build_identity_preview(&state.data_dir);
     Json(AuthStateResponse {
         auth_state: session.auth_state.to_string(),
         unlock_window_open: win.is_open(),
         unlock_window_remaining_secs: win.remaining_secs(),
-        identity_present: read_shared_identity(&state.data_dir).is_some(),
+        identity_present,
+        identity_preview,
     })
+}
+
+/// Read just enough of the shared identity file to render the lock
+/// screen UI. This is the ONE place we surface user-identifying
+/// fields to a PreAuth session — every secret stays in storage,
+/// behind the capability gate, until the session graduates.
+fn build_identity_preview(
+    data_dir: &std::path::Path,
+) -> (bool, Option<IdentityPreview>) {
+    let path = data_dir.join("Users/self/.AppData/Identity/profile.json");
+    let bytes = match std::fs::read(&path) {
+        Ok(b) => b,
+        Err(_) => return (false, None),
+    };
+    // Parse into a loose Value so we can extract just the public
+    // fields without dragging in all the optional shape variants
+    // SharedIdentity tracks for parsing/migration.
+    let value: serde_json::Value = match serde_json::from_slice(&bytes) {
+        Ok(v) => v,
+        Err(_) => return (true, None), // file exists but malformed
+    };
+    let obj = match value.as_object() {
+        Some(o) => o,
+        None => return (true, None),
+    };
+    let name = obj
+        .get("name")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    let did_key = obj
+        .get("didKey")
+        .or_else(|| obj.get("did_key"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    let has_passkey = obj
+        .get("passkeys")
+        .and_then(|v| v.as_array())
+        .map(|arr| !arr.is_empty())
+        .unwrap_or(false);
+    let has_pin = {
+        // Either legacy top-level pinHash, or new heyHome.pinHash.
+        let legacy = obj
+            .get("pinHash")
+            .and_then(|v| v.as_str())
+            .map(|s| !s.is_empty())
+            .unwrap_or(false);
+        let nested = obj
+            .get("heyHome")
+            .and_then(|v| v.as_object())
+            .and_then(|h| h.get("pinHash"))
+            .and_then(|v| v.as_str())
+            .map(|s| !s.is_empty())
+            .unwrap_or(false);
+        legacy || nested
+    };
+    (
+        true,
+        Some(IdentityPreview {
+            name,
+            did_key,
+            has_passkey,
+            has_pin,
+        }),
+    )
 }
 
 // ── Verification helpers ─────────────────────────────────────────────

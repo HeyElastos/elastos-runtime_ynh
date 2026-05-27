@@ -95,6 +95,46 @@ const authFetch = async (path, init = {}) => {
   });
 };
 
+// Fetch the runtime's identity preview. Used by loadProfile when
+// runtime storage reads can't reach the shared identity yet
+// (PreAuth session without an unlock-claim cookie → capability
+// auto-grant refuses → 401 on /api/localhost/...). The /api/auth/
+// state response carries enough to render the lock screen — name,
+// did:key, has_passkey, has_pin — without leaking the PIN hash
+// or passkey-credential list. Returns null on failure (network /
+// missing identity / runtime down).
+const serverAuthStateIdentity = async () => {
+  try {
+    const r = await authFetch("/api/auth/state", { method: "GET" });
+    if (!r.ok) return null;
+    const data = await r.json();
+    if (!data?.identity_present || !data.identity_preview) return null;
+    const preview = data.identity_preview;
+    if (!preview.didKey) return null;
+    // Synthesize the minimal profile shape loadProfile's callers
+    // expect. Passkeys array is left empty here — the lock screen
+    // re-reads creds from storage AFTER unlock, so the empty array
+    // just means "no passkey button" UNTIL the user authenticates,
+    // which is the correct behavior for PIN-only profiles. For
+    // passkey users we override below.
+    return {
+      schema: "elastos.identity/v1",
+      name: preview.name || "Hey user",
+      didKey: preview.didKey,
+      passkeys: preview.has_passkey
+        ? [{ id: "preview", placeholder: true }]
+        : [],
+      heyHome: preview.has_pin
+        ? { pinSalt: "preview", pinHash: "preview" }
+        : null,
+      previewOnly: true,
+    };
+  } catch (err) {
+    console.warn("[hey-home] /api/auth/state preview failed", err);
+    return null;
+  }
+};
+
 // Submit a PIN proof. Server runs PBKDF2 against the stored salt/hash
 // and graduates the session on match. Returns true on success.
 const serverUnlockWithPin = async (pin) => {
@@ -331,8 +371,18 @@ const loadProfile = async () => {
     }
     return null;
   }
-  // Runtime unreachable — design-preview mode. Try IDB first, then
-  // localStorage so the welcome screen still works.
+  // Runtime unreachable for STORAGE reads (PreAuth + no unlock-claim
+  // cookie → capability auto-grant refused). Try /api/auth/state's
+  // identity preview before falling through to browser caches. This
+  // is what makes the lock screen render on a fresh browser visit:
+  // the cookie isn't there yet, so storage 401s, but the preview
+  // endpoint surfaces name + didKey + has_passkey + has_pin without
+  // needing capabilities.
+  const previewIdentity = await serverAuthStateIdentity();
+  if (previewIdentity) {
+    console.info("[hey-home] using /api/auth/state identity preview for lock screen");
+    return previewIdentity;
+  }
   console.warn("[hey-home] runtime localhost-provider unreachable; trying IDB / localStorage", shared);
   const idbCached = await idbGet();
   if (idbCached) return idbCached;
@@ -1811,11 +1861,19 @@ const mountWelcome = async () => {
   // which welcome to show, flip to "true" (chrome stays hidden but
   // the loading spinner is dismissed by the CSS).
 
-  // Boot tasks — all fire-and-forget so they can run in parallel with
-  // the profile load. None of them block the UI.
+  // Boot tasks. announceShell is fire-and-forget (best-effort). But
+  // acquireBootCapabilities is AWAITED — loadProfile reads runtime
+  // storage and needs the capability tokens cached first, otherwise
+  // it 401s on every read and falls through to the empty-IDB → setup
+  // wizard path. Previously this raced and bricked persistence on
+  // fresh browsers / post-runtime-restart sessions.
   if (runtimeAvailable()) {
-    announceShell();                                 // marks us as the active shell for Hey
-    window.heyRuntime.acquireBootCapabilities?.();   // grants tokens for future calls
+    announceShell();
+    try {
+      await window.heyRuntime.acquireBootCapabilities?.();
+    } catch (err) {
+      console.warn("[hey-home] acquireBootCapabilities failed", err);
+    }
   }
 
   const profile = await loadProfile();
