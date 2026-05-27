@@ -76,11 +76,14 @@ ram.runtime = "512M"
 
     [resources.ports]
     main.default = 8090
-    # Expose the room gateway port on the firewall so LAN devices can hit
-    # http://<mini-pc-ip>:8090/apps/home/ directly, in addition to nginx-
-    # proxied https://<yunohost-domain>/apps/home/ (or whatever subpath
-    # the operator picked at install).
-    main.exposed = "TCP"
+    # Port 8090 binds on localhost only — every external request must
+    # go through nginx (and therefore through whatever YunoHost SSO
+    # permission the operator set on /). Setting `main.exposed = "TCP"`
+    # would punch a hole through the firewall and let LAN/internet
+    # clients reach the runtime directly on 8090, bypassing SSO and
+    # any auth_request gate — defeats `permission update --add admins`.
+    # If you genuinely need direct LAN access, re-add `main.exposed =
+    # "TCP"` but understand it disables every nginx-side auth layer.
 
     [resources.apt]
     packages = [
