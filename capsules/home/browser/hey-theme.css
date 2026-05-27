@@ -1165,3 +1165,19 @@ html { scrollbar-color: rgba(255, 255, 255, 0.10) transparent; }
 .launcher {
   top: var(--toolbar-h, 32px) !important;
 }
+
+/* ─────────────────────────────────────────────────────────────────────
+   Window drag fix (Bug C): when dragging or resizing a window, disable
+   pointer events on all other windows' iframes. Without this, pointer
+   crossing an iframe escapes the parent's setPointerCapture (iframes
+   are separate document contexts) and the drag gets stuck — windows
+   can't be moved next to or over each other. Restored on pointerup.
+   ───────────────────────────────────────────────────────────────── */
+body.dragging-window .window iframe,
+body.dragging-window .window .window-body,
+body.dragging-window .window .window-body * {
+  pointer-events: none !important;
+}
+/* The dragged window's title bar / resize handles still need pointer
+   events (setPointerCapture target). Title and resize handles aren't
+   inside window-body so the rule above already leaves them alone. */

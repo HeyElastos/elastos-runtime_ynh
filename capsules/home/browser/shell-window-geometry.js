@@ -201,6 +201,11 @@ export function attachWindowDrag(windowNode, handle, focusWindow, onWindowGeomet
       snapTarget: null,
     };
     handle.setPointerCapture(event.pointerId);
+    // Disable pointer events on all window iframes while dragging — without
+    // this, the pointer crossing another window's iframe escapes the parent
+    // doc's pointer capture (iframes are separate document contexts) and
+    // the drag gets stuck. Restored in stopDrag.
+    document.body.classList.add("dragging-window");
   });
 
   handle.addEventListener("pointermove", (event) => {
@@ -238,6 +243,7 @@ export function attachWindowDrag(windowNode, handle, focusWindow, onWindowGeomet
     }
     const snapTarget = dragging.snapTarget;
     dragging = null;
+    document.body.classList.remove("dragging-window");
     try {
       handle.releasePointerCapture(event.pointerId);
     } catch (_error) {
@@ -288,6 +294,7 @@ export function attachWindowResize(windowNode, focusWindow, onWindowGeometryChan
         bottom: bounds.y + bounds.height,
       };
       handle.setPointerCapture(event.pointerId);
+      document.body.classList.add("dragging-window");
     });
 
     handle.addEventListener("pointermove", (event) => {
@@ -345,6 +352,7 @@ export function attachWindowResize(windowNode, focusWindow, onWindowGeometryChan
         return;
       }
       resizing = null;
+      document.body.classList.remove("dragging-window");
       try {
         handle.releasePointerCapture(event.pointerId);
       } catch (_error) {
