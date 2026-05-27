@@ -177,28 +177,29 @@ html::after {
    on the right (the toolbar-spacer's `margin-right:auto` already
    pushes the two groups apart). */
 .toolbar {
-  left: 0;
-  right: 0;
+  /* Float as a centered frosted pill, matching the dock's silhouette
+     at the bottom. Same material recipe as .taskbar-inner so the two
+     chrome strips read as twins — one anchored top, one anchored
+     bottom. Previously the topbar spanned edge-to-edge with a darker
+     tint; the pill shape feels lighter and lets the wallpaper breathe
+     around the edges. */
+  position: fixed;
+  top: 14px;
+  left: 50%;
+  right: auto;
   width: auto;
-  max-width: none;
-  transform: none;
+  max-width: calc(100vw - 28px);
+  transform: translateX(-50%);
   justify-content: flex-start;
-  /* Darker frosted tint so text (clock, brand-surface, mesh pill)
-     reads cleanly against bright / busy wallpapers. The previous
-     `--frosted-bg` (rgba(255,255,255,0.08)) bled too much light
-     through on photo backgrounds and washed out the labels. The
-     darker tint is shared with the dock below so the two chrome
-     strips stay visually unified. */
-  background: rgba(11, 17, 32, 0.72);
-  backdrop-filter: blur(40px) saturate(140%);
-  -webkit-backdrop-filter: blur(40px) saturate(140%);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.45);
+  background: var(--frosted-bg);
+  border: 1px solid var(--frosted-border);
+  border-radius: 18px;
+  border-bottom: 1px solid var(--frosted-border);
+  backdrop-filter: blur(40px);
+  -webkit-backdrop-filter: blur(40px);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
   min-height: var(--toolbar-h);
-  padding: 0 14px;
-  /* Strong text color so labels read against the frosted glass in
-     both light and dark mode — --muted was washing out at small
-     sizes especially against busy wallpapers. */
+  padding: 4px 14px;
   color: var(--text);
   font-size: 12px;
 }
