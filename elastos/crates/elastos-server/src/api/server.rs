@@ -280,6 +280,7 @@ pub async fn start_server_with_sessions(config: ServerConfig) -> anyhow::Result<
             .with_state(auth_state.clone());
         let authed = Router::new()
             .route("/api/auth/unlock", post(handlers::auth::unlock))
+            .route("/api/auth/setup", post(handlers::auth::setup))
             .route("/api/auth/state", get(handlers::auth::auth_state))
             .layer(axum_middleware::from_fn_with_state(
                 api_state.clone(),

@@ -306,6 +306,174 @@ pub async fn unlock(
     .into_response()
 }
 
+/// POST /api/auth/setup
+///
+/// First-time signup. Accepts a brand-new identity payload + (optional)
+/// a passkey credential to enroll. Refuses if a shared identity already
+/// exists on this node — closes the "any visitor can sign up if no
+/// identity yet" race we discussed in the audit.
+///
+/// On success: writes the identity file via std::fs (bypassing
+/// capability auto-grant, which the calling session can't yet acquire)
+/// and graduates the session straight to Authenticated.
+pub async fn setup(
+    State(state): State<AuthGateState>,
+    Extension(session): Extension<Session>,
+    Json(body): Json<SetupRequest>,
+) -> Response {
+    // Reject if an identity already exists. This is the load-bearing
+    // check — without it, any visitor could overwrite a real user's
+    // identity by calling /setup.
+    if read_shared_identity(&state.data_dir).is_some() {
+        return (
+            StatusCode::CONFLICT,
+            Json(SetupResponse {
+                status: "denied".into(),
+                reason: Some(
+                    "This node already has an identity. Use /api/auth/unlock instead.".into(),
+                ),
+            }),
+        )
+            .into_response();
+    }
+
+    // Minimal validation: didKey must be a well-formed did:key:z6Mk… and
+    // must decode to a valid Ed25519 pubkey.
+    if decode_did_key_ed25519(&body.profile.did_key).is_none() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(SetupResponse {
+                status: "denied".into(),
+                reason: Some("Invalid did_key — must be a valid Ed25519 did:key.".into()),
+            }),
+        )
+            .into_response();
+    }
+
+    // Build the canonical shared-identity JSON. We accept whatever
+    // shape the client sends (passkey list, recoveryKeyHash,
+    // createdAt, etc.) and pass it through; the JS lock screen reads
+    // back the same shape. Server doesn't need to mint createdAt —
+    // the client sets it via `new Date().toISOString()` in
+    // proceedToKeyCard.
+    let mut value = serde_json::to_value(&body.profile).unwrap_or_default();
+    if let serde_json::Value::Object(ref mut m) = value {
+        m.entry("createdBy".to_string())
+            .or_insert(serde_json::Value::String("api/auth/setup".to_string()));
+    }
+    let serialized = match serde_json::to_vec_pretty(&value) {
+        Ok(bytes) => bytes,
+        Err(err) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(SetupResponse {
+                    status: "error".into(),
+                    reason: Some(format!("serialize: {}", err)),
+                }),
+            )
+                .into_response();
+        }
+    };
+
+    // Write the identity file. We go directly through std::fs because
+    // the calling session hasn't been authenticated yet — capability
+    // auto-grant would refuse it. The auth handler is the only path
+    // to this file before any identity exists; once it's written, all
+    // subsequent reads/writes go through the normal capability layer.
+    let target = state
+        .data_dir
+        .join("Users/self/.AppData/Identity/profile.json");
+    if let Some(parent) = target.parent() {
+        if let Err(err) = std::fs::create_dir_all(parent) {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(SetupResponse {
+                    status: "error".into(),
+                    reason: Some(format!("create_dir_all: {}", err)),
+                }),
+            )
+                .into_response();
+        }
+    }
+    if let Err(err) = std::fs::write(&target, &serialized) {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(SetupResponse {
+                status: "error".into(),
+                reason: Some(format!("write: {}", err)),
+            }),
+        )
+            .into_response();
+    }
+
+    // Optionally write the passkey credentials list to Hey Social's
+    // canonical path so Hey can sign in this user later without
+    // re-enrollment. Only written when at least one credential was
+    // submitted — keeps the file absent for PIN-only setups.
+    if !body.passkey_creds.is_empty() {
+        let creds_target = state
+            .data_dir
+            .join("Users/self/.AppData/LocalHost/Hey/passkey-creds.json");
+        if let Some(parent) = creds_target.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        if let Ok(creds_bytes) = serde_json::to_vec_pretty(&body.passkey_creds) {
+            let _ = std::fs::write(&creds_target, creds_bytes);
+        }
+    }
+
+    // Graduate the caller's session immediately so the rest of the
+    // welcome flow (vault init, key-card render, hand-off) works.
+    state
+        .session_registry
+        .get_session_mut(&session.token, |s| s.set_authenticated())
+        .await;
+    state.unlock_window.write().await.open();
+
+    (
+        StatusCode::OK,
+        Json(SetupResponse {
+            status: "ok".into(),
+            reason: None,
+        }),
+    )
+        .into_response()
+}
+
+#[derive(Deserialize)]
+pub struct SetupRequest {
+    pub profile: SetupProfile,
+    /// Passkey credentials to seed Hey's `passkey-creds.json` with so
+    /// the user can sign back in on Hey Social without re-enrolling.
+    /// Empty for PIN-only or recovery-key-only signups.
+    #[serde(default)]
+    pub passkey_creds: Vec<serde_json::Value>,
+}
+
+/// The minimal fields we require on setup. Everything else passes
+/// through to the on-disk shared identity JSON unchanged.
+#[derive(Serialize, Deserialize)]
+pub struct SetupProfile {
+    pub name: String,
+    #[serde(rename = "didKey")]
+    pub did_key: String,
+    #[serde(default, rename = "pubKeyHex")]
+    pub pub_key_hex: Option<String>,
+    #[serde(default, rename = "recoveryKeyHash")]
+    pub recovery_key_hash: Option<String>,
+    /// Pass through any other fields (passkeys, heyHome PIN, etc.)
+    /// without enumerating them — we don't interpret them server-side.
+    #[serde(flatten)]
+    pub extra: serde_json::Map<String, serde_json::Value>,
+}
+
+#[derive(Serialize)]
+pub struct SetupResponse {
+    pub status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
 /// GET /api/auth/state
 pub async fn auth_state(
     State(state): State<AuthGateState>,
@@ -643,5 +811,30 @@ mod tests {
         assert!(!constant_time_eq(b"abc", b"abd"));
         assert!(!constant_time_eq(b"abc", b"abcd"));
         assert!(constant_time_eq(b"", b""));
+    }
+
+    #[test]
+    fn read_shared_identity_handles_missing_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        assert!(read_shared_identity(tmp.path()).is_none());
+    }
+
+    #[test]
+    fn read_shared_identity_parses_min_record() {
+        let tmp = tempfile::tempdir().unwrap();
+        let target = tmp
+            .path()
+            .join("Users/self/.AppData/Identity/profile.json");
+        std::fs::create_dir_all(target.parent().unwrap()).unwrap();
+        std::fs::write(
+            &target,
+            br#"{"name":"alice","didKey":"did:key:z6MkABC","pubKeyHex":"00"}"#,
+        )
+        .unwrap();
+
+        let id = read_shared_identity(tmp.path()).expect("parse");
+        assert_eq!(id.did_key(), Some("did:key:z6MkABC"));
+        // No PIN fields → can't unlock via PIN.
+        assert!(!verify_pin("123456", &id));
     }
 }
