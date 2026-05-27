@@ -338,17 +338,18 @@ html::after {
   padding-bottom: var(--taskbar-offset);
 }
 .taskbar-inner {
-  /* Same darker tint as the toolbar (see .toolbar comment above):
-     bright wallpapers were leaking through the 8%-white glass and
-     making the dock buttons hard to read. Sticking with saturate()
-     keeps the wallpaper colors visible without dominating. */
-  background: rgba(11, 17, 32, 0.72);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  /* Reverted to the lighter --frosted-bg per user request — the
+     darker tint that's still applied to .toolbar above looked good
+     on the topbar but felt too heavy on the dock. The dock's app
+     icons supply their own contrast against the wallpaper, so the
+     lighter material reads cleanly even at the same blur level. */
+  background: var(--frosted-bg);
+  border: 1px solid var(--frosted-border);
   border-radius: 18px;
   padding: 7px 10px;
-  backdrop-filter: blur(40px) saturate(140%);
-  -webkit-backdrop-filter: blur(40px) saturate(140%);
-  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(40px);
+  -webkit-backdrop-filter: blur(40px);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
 }
 .taskbar-item {
   border-radius: 14px;
@@ -634,11 +635,11 @@ body[data-locked="loading"]::before {
   gap: 6px !important;
   padding: 7px 10px !important;
   border-radius: 18px !important;
-  background: rgba(11, 17, 32, 0.72) !important;
-  border: 1px solid rgba(255, 255, 255, 0.08) !important;
-  backdrop-filter: blur(40px) saturate(140%) !important;
-  -webkit-backdrop-filter: blur(40px) saturate(140%);
-  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.55) !important;
+  background: var(--frosted-bg) !important;
+  border: 1px solid var(--frosted-border) !important;
+  backdrop-filter: blur(40px) !important;
+  -webkit-backdrop-filter: blur(40px);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5) !important;
 }
 .taskbar-primary {
   display: flex !important;
