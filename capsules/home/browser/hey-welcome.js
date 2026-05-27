@@ -369,6 +369,19 @@ const enrollPasskey = async (name) => {
         // hole.
         userVerification: "required",
       },
+      // Two-PRF unified-identity setup. The first PRF eval derives the
+      // signing keypair seed shared with every other Elastos capsule
+      // (Hey Social etc.), so one passkey = one DID across the device.
+      // The second PRF eval gives this shell its own vault key, so the
+      // shell's encrypted blobs stay isolated from app blobs.
+      extensions: {
+        prf: {
+          eval: {
+            first: new TextEncoder().encode("elastos-identity-v1").buffer,
+            second: new TextEncoder().encode("hey-home-vault-v1").buffer,
+          },
+        },
+      },
     },
   });
 
@@ -385,6 +398,12 @@ const enrollPasskey = async (name) => {
   const transports =
     response.getTransports ? response.getTransports() : [];
 
+  // PRF outputs from registration. 'first' = shared identity seed
+  // ('elastos-identity-v1'), 'second' = this shell's vault key.
+  const prfResults = cred.getClientExtensionResults?.()?.prf?.results || {};
+  const identityPrfBytes = prfResults.first ? new Uint8Array(prfResults.first) : null;
+  const vaultPrfBytes = prfResults.second ? new Uint8Array(prfResults.second) : null;
+
   return {
     id: b64uEncode(new Uint8Array(cred.rawId)),
     publicKey: publicKeyB64u,
@@ -392,6 +411,10 @@ const enrollPasskey = async (name) => {
     userHandle: b64uEncode(userHandle),
     transports,
     createdAt: new Date().toISOString(),
+    // Out-of-band: the PRF outputs (only used right at signup; never
+    // persisted on the credential entry itself).
+    _identityPrf: identityPrfBytes,
+    _vaultPrf: vaultPrfBytes,
   };
 };
 
@@ -1178,11 +1201,13 @@ const buildSetup = () => {
         // simply won't be set up, and the lock screen stays UX-level.
         let credential = null;
         let prfOutput = null;
+        let identityPrf = null;
         if (window.heyVault?.enrollPasskeyForVault) {
           try {
             const vaultEnroll = await window.heyVault.enrollPasskeyForVault({ name });
             credential = vaultEnroll.credential;
             prfOutput = vaultEnroll.prfOutput;
+            identityPrf = vaultEnroll.identityPrf || null;
           } catch (vaultErr) {
             if (vaultErr.name === "PRFNotSupported") {
               console.warn("[hey-home] PRF not supported by this authenticator — vault skipped");
@@ -1193,6 +1218,8 @@ const buildSetup = () => {
         }
         if (!credential) {
           credential = await enrollPasskey(name);
+          identityPrf = credential._identityPrf || null;
+          prfOutput = credential._vaultPrf || null;
         } else {
           // Repackage the credential into the same shape enrollPasskey
           // returns, so proceedToKeyCard can store it in profile.passkeys.
@@ -1215,7 +1242,7 @@ const buildSetup = () => {
             prfSupported: true,
           };
         }
-        await proceedToKeyCard({ name, passkey: credential, prfOutput });
+        await proceedToKeyCard({ name, passkey: credential, prfOutput, identityPrf });
       } catch (err) {
         console.error("[hey-home] passkey enrollment failed", err);
         passkeyBtn.disabled = false;
@@ -1266,10 +1293,23 @@ const buildSetup = () => {
   // key card, and never written to storage. Only its SHA-256 hash
   // (recoveryKeyHash) plus the derived Ed25519 public key (pubKeyHex)
   // are persisted — same shape Hey Social writes via writeSharedIdentity.
-  const proceedToKeyCard = async ({ name, passkey, prfOutput }) => {
+  const proceedToKeyCard = async ({ name, passkey, prfOutput, identityPrf }) => {
     const ident = window.heyIdentity;
     if (!ident) throw new Error("hey-identity.js not loaded");
-    const recoveryKey = ident.generateRecoveryKey();
+    // Unified cross-capsule identity. When the passkey produced an
+    // identity-PRF output ('elastos-identity-v1'), derive the recovery
+    // key from those 32 bytes — every Elastos capsule using the same
+    // passkey + same PRF input gets the SAME bytes → same Ed25519
+    // keypair → same did:key. One identity across the device.
+    //
+    // When PRF isn't available (older authenticators, no-passkey signups,
+    // PIN-only path) fall back to a random recoveryKey — same as before.
+    const bytesToHex = (b) =>
+      [...b].map((x) => x.toString(16).padStart(2, "0")).join("");
+    const recoveryKey =
+      identityPrf && identityPrf.length === 32
+        ? bytesToHex(identityPrf)
+        : ident.generateRecoveryKey();
     const { didKey, pubKeyHex } = await ident.expandKeypair(recoveryKey);
     const recoveryKeyHash = await ident.hashAuthKey(recoveryKey);
 

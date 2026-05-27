@@ -107,7 +107,18 @@
         },
         extensions: {
           prf: {
-            eval: { first: PRF_INPUT_BYTES.buffer },
+            eval: {
+              // 'first' = shared cross-capsule identity seed. Same input
+              // every Elastos capsule asks for → same Ed25519 keypair →
+              // same DID. The user signs up here once and is recognized
+              // automatically by Hey Social etc.
+              first: new TextEncoder().encode("elastos-identity-v1").buffer,
+              // 'second' = this shell's app-specific vault key (used to
+              // wrap the master encryption key for sealed storage).
+              // Stays distinct from app vaults — Hey Social can't
+              // decrypt the shell's blobs and vice versa.
+              second: PRF_INPUT_BYTES.buffer,
+            },
           },
         },
       },
@@ -120,7 +131,10 @@
     // authenticator accepted PRF but the actual output is delivered on
     // a SUBSEQUENT assertion (some authenticators), or `prf.results.first`
     // is set already (some, like macOS Touch ID).
+    // 'first' here is now the shared identity PRF (post-refactor); the
+    // vault PRF is exposed as 'second'.
     let prfFirst = prfRes.results?.first;
+    let prfSecond = prfRes.results?.second;
 
     if (!prfFirst && prfRes.enabled !== true) {
       // PRF was requested but the authenticator didn't accept it.
@@ -133,8 +147,8 @@
       throw err;
     }
 
-    if (!prfFirst) {
-      // PRF enabled but no result yet — do an assertion to fetch one.
+    if (!prfFirst || !prfSecond) {
+      // PRF enabled but no result yet — do an assertion to fetch both.
       const assertion = await navigator.credentials.get({
         publicKey: {
           challenge: crypto.getRandomValues(new Uint8Array(32)),
@@ -146,13 +160,22 @@
             type: "public-key",
             transports: cred.response.getTransports?.() || [],
           }],
-          extensions: { prf: { eval: { first: PRF_INPUT_BYTES.buffer } } },
+          extensions: {
+            prf: {
+              eval: {
+                first: new TextEncoder().encode("elastos-identity-v1").buffer,
+                second: PRF_INPUT_BYTES.buffer,
+              },
+            },
+          },
         },
       });
-      prfFirst = assertion?.getClientExtensionResults?.()?.prf?.results?.first;
+      const r = assertion?.getClientExtensionResults?.()?.prf?.results || {};
+      prfFirst = r.first;
+      prfSecond = r.second;
     }
 
-    if (!prfFirst) {
+    if (!prfFirst || !prfSecond) {
       const err = new Error("PRF output not produced by this authenticator");
       err.name = "PRFNotSupported";
       throw err;
@@ -160,7 +183,11 @@
 
     return {
       credential: cred,
-      prfOutput: new Uint8Array(prfFirst),
+      // For backward compatibility, prfOutput is the VAULT PRF (what
+      // the caller used to receive). identityPrf is the new
+      // cross-capsule signing seed.
+      prfOutput: new Uint8Array(prfSecond),
+      identityPrf: new Uint8Array(prfFirst),
       transports: cred.response.getTransports?.() || [],
     };
   };
