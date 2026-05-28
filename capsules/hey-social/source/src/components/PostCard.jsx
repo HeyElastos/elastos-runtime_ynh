@@ -8,6 +8,7 @@ import {
   addComment as apiAddComment,
   deleteComment as apiDeleteComment,
   deletePost as apiDeletePost,
+  editPost as apiEditPost,
   reactToComment as apiReactComment,
   reactToPost as apiReact,
   repostPost as apiRepost,
@@ -88,6 +89,16 @@ const PostCard = ({ post, currentUser, token, onChange, onDelete }) => {
   const emojiWrapRef = useRef(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const confirmDeleteRef = useRef(null);
+  // Three-dot menu state on the post card (owner-only). Replaces the
+  // old hover trash button with Edit + Delete options.
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef(null);
+  // Inline caption editor — visible when the user picks "Edit post"
+  // from the menu. Mirrors post.caption into a local string so cancel
+  // restores cleanly.
+  const [editingCaption, setEditingCaption] = useState(false);
+  const [captionDraft, setCaptionDraft] = useState(post.caption || "");
+  const [savingEdit, setSavingEdit] = useState(false);
 
   useEffect(() => {
     if (showCommentForm) {
@@ -96,6 +107,15 @@ const PostCard = ({ post, currentUser, token, onChange, onDelete }) => {
       setEmojiOpen(false);
     }
   }, [showCommentForm]);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const handler = (event) => {
+      if (!menuRef.current?.contains(event.target)) setMenuOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [menuOpen]);
 
   useEffect(() => {
     if (!emojiOpen) return;
@@ -276,6 +296,7 @@ const PostCard = ({ post, currentUser, token, onChange, onDelete }) => {
   const removePost = async () => {
     if (!isOwner) return;
     setConfirmDelete(false);
+    setMenuOpen(false);
     setBusy(true);
     try {
       await apiDeletePost(post.id, token);
@@ -283,6 +304,37 @@ const PostCard = ({ post, currentUser, token, onChange, onDelete }) => {
     } catch (e) {
       setError(e.response?.data?.message || e.message || "Could not delete.");
       setBusy(false);
+    }
+  };
+
+  const openEditor = () => {
+    setCaptionDraft(post.caption || "");
+    setEditingCaption(true);
+    setMenuOpen(false);
+  };
+
+  const cancelEdit = () => {
+    setEditingCaption(false);
+    setCaptionDraft(post.caption || "");
+  };
+
+  const saveEdit = async () => {
+    if (!isOwner) return;
+    const trimmed = captionDraft.trim();
+    if (trimmed === (post.caption || "").trim()) {
+      // No change → just close the editor; no need to write.
+      setEditingCaption(false);
+      return;
+    }
+    setSavingEdit(true);
+    try {
+      const updated = await apiEditPost(post.id, { caption: trimmed });
+      onChange?.(updated);
+      setEditingCaption(false);
+    } catch (e) {
+      setError(e.response?.data?.message || e.message || "Could not save edit.");
+    } finally {
+      setSavingEdit(false);
     }
   };
 
@@ -318,23 +370,121 @@ const PostCard = ({ post, currentUser, token, onChange, onDelete }) => {
               {post.userName}
             </Link>
             <span className="text-xs text-muted">·</span>
-            <span className="text-xs text-muted">{timeAgo(post.createdAt)}</span>
+            <span className="text-xs text-muted">
+              {timeAgo(post.createdAt)}
+              {post.editedAt && post.editedAt > post.createdAt && (
+                <span className="ml-1 text-muted/70" title="Edited">(edited)</span>
+              )}
+            </span>
           </div>
-          {captionWithTags && (
-            <p className="mt-1 whitespace-pre-line text-sm leading-6 text-primary">
-              {captionWithTags}
-            </p>
+          {/* Caption: render-mode shows tagged text; edit-mode swaps
+              in a textarea with Save/Cancel. Inline edit is owner-only;
+              the menu is the only way to enter this mode. */}
+          {editingCaption ? (
+            <div className="mt-2 space-y-2">
+              <textarea
+                value={captionDraft}
+                onChange={(e) => setCaptionDraft(e.target.value)}
+                disabled={savingEdit}
+                rows={3}
+                autoFocus
+                className="w-full rounded-lg bg-zinc-100/70 dark:bg-zinc-800/60 border border-zinc-200/60 dark:border-zinc-700/60 px-3 py-2 text-sm text-primary outline-none focus:border-accent focus:ring-2 focus:ring-accent/30"
+              />
+              <div className="flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={cancelEdit}
+                  disabled={savingEdit}
+                  className="rounded-full px-3 py-1 text-xs text-muted hover:text-primary"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={saveEdit}
+                  disabled={savingEdit}
+                  className="rounded-full bg-accent px-3 py-1 text-xs font-semibold text-accent-text hover:bg-amber-300 disabled:opacity-50"
+                >
+                  {savingEdit ? "Saving…" : "Save"}
+                </button>
+              </div>
+            </div>
+          ) : (
+            captionWithTags && (
+              <p className="mt-1 whitespace-pre-line text-sm leading-6 text-primary">
+                {captionWithTags}
+              </p>
+            )
           )}
         </div>
+
+        {/* Three-dot owner menu. Replaces the v0.2 hover trash button.
+            Opens a small popover with Edit + Delete; closes on
+            outside-click via the menuOpen useEffect above. */}
+        {isOwner && (
+          <div ref={menuRef} className="relative flex-none">
+            <button
+              type="button"
+              onClick={() => setMenuOpen((v) => !v)}
+              aria-label="Post actions"
+              aria-expanded={menuOpen}
+              aria-haspopup="menu"
+              className="rounded-full p-1.5 text-muted hover:bg-zinc-200/50 dark:hover:bg-zinc-800/50 hover:text-primary transition-colors"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                <circle cx="5" cy="12" r="1.6" />
+                <circle cx="12" cy="12" r="1.6" />
+                <circle cx="19" cy="12" r="1.6" />
+              </svg>
+            </button>
+            {menuOpen && (
+              <div
+                role="menu"
+                className="absolute right-0 top-full mt-1 z-20 min-w-[140px] rounded-lg border border-zinc-200/60 dark:border-zinc-700/60 bg-white/95 dark:bg-zinc-900/95 backdrop-blur-xl shadow-xl py-1"
+              >
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={openEditor}
+                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-primary hover:bg-zinc-100/60 dark:hover:bg-zinc-800/60"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                  </svg>
+                  Edit post
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    if (busy) return;
+                    if (!confirmDelete) {
+                      setConfirmDelete(true);
+                      setTimeout(() => setConfirmDelete(false), 3000);
+                      return;
+                    }
+                    removePost();
+                  }}
+                  disabled={busy}
+                  className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm transition-colors ${
+                    confirmDelete
+                      ? "bg-red-500/90 text-white font-semibold"
+                      : "text-red-600 dark:text-red-400 hover:bg-red-500/10"
+                  }`}
+                >
+                  <TrashIcon className="h-3.5 w-3.5" />
+                  {confirmDelete ? "Tap to confirm" : "Delete post"}
+                </button>
+              </div>
+            )}
+          </div>
+        )}
       </header>
 
       {post.images?.length > 0 && (
         <div className="relative px-1 pb-1">
           <ImageCarousel images={post.images} />
-          {/* Delete affordance removed per design — the api/removePost
-              path stays available in this file in case we re-expose
-              the action via the future hover/more menu, but the
-              media overlay no longer shows a trash button. */}
         </div>
       )}
 

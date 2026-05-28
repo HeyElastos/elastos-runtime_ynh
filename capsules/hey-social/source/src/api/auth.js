@@ -614,6 +614,31 @@ export const deletePost = async (postId) => {
   return { ok: true };
 };
 
+// Edit a post's caption. Images stay; the editor only changes text
+// for now (mutating images requires re-staging IPFS CIDs + updating
+// feed thumbnails, scope for later). Adds `editedAt` to the record so
+// the UI can surface an "edited" pill if it wants. Publishes a
+// signed `post.edit` event over the user's posts topic so federated
+// followers see the change.
+export const editPost = async (postId, { caption }) => {
+  const me = await ensureProfile();
+  const post = await readPost(postId);
+  if (!post) throw new Error("Post not found");
+  if (post.userDid !== me.didKey) throw new Error("Not your post");
+  const next = {
+    ...post,
+    caption: typeof caption === "string" ? caption : post.caption,
+    editedAt: now(),
+  };
+  await storage.writeJson(`posts/by-id/${postId}.json`, next);
+  await signEventAndPublish(`hey-v0/user/${me.didKey}/posts`, "post.edit", {
+    post_id: postId,
+    caption: next.caption,
+    ts: now(),
+  });
+  return next;
+};
+
 // ─── Notifications ───────────────────────────────────────────────────
 
 export const listNotifications = async () =>
