@@ -72,7 +72,6 @@ ram.runtime = "512M"
     sha256 = "65d0878f8752733f18bf5f6f4ce323dbecb8f9c3709f27f610edc8947dc0db62"
     autoupdate.strategy = "latest_github_commit"
     autoupdate.upstream = "https://github.com/HeyElastos/Hey-capsule"
-    in_subdir = false
 
     [resources.system_user]
 
