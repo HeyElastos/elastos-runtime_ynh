@@ -24,6 +24,11 @@ fetch_upstream_source "$install_dir"
 #=================================================
 fetch_hey_capsules "$install_dir"
 
+#=================================================
+# BUILD HEY APP CAPSULES (React → static bundle)
+#=================================================
+build_hey_app_capsules "$install_dir"
+
 if [ ! -x "$(rustup_root)/cargo/bin/cargo" ]; then
     ynh_script_progression --message="Reinstalling Rust toolchain..." --weight=20
     install_rust_toolchain

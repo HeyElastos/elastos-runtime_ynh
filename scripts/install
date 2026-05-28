@@ -55,6 +55,17 @@ fetch_upstream_source "$install_dir"
 fetch_hey_capsules "$install_dir"
 
 #=================================================
+# BUILD HEY APP CAPSULES (React → static bundle)
+#=================================================
+#
+# Each capsules/<name>/client/ React project gets npm install + npm
+# run build; the dist/ output is moved up to capsules/<name>/ so the
+# publisher staging step can tar a normal capsule (capsule.json +
+# index.html + assets/).
+
+build_hey_app_capsules "$install_dir"
+
+#=================================================
 # RUST TOOLCHAIN
 #=================================================
 

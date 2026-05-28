@@ -169,6 +169,71 @@ fetch_hey_capsules() {
     chown -R "$app:$app" "$target_dir/capsules"
 }
 
+# ────────────────────────────────────────────────────────────────────
+# Hey app-capsule build (React / Vite)
+# ────────────────────────────────────────────────────────────────────
+#
+# The Hey-capsule pack ships React SOURCE for app capsules (hey-social,
+# hey-messenger). The runtime install pipeline expects each app capsule
+# to expose its built static bundle at the capsule root (index.html +
+# assets/) so stage_publisher_artifacts can tar it up directly. This
+# function walks every capsule under $install_dir/capsules/ that has a
+# client/package.json, runs npm install + npm run build, then moves
+# the dist/ output up to the capsule root. Run AFTER fetch_hey_capsules
+# and BEFORE the publisher stage.
+#
+# Idempotent across upgrades: npm reuses its cache, and existing
+# index.html/assets/ at the capsule root are overwritten with the
+# freshly-built artifacts.
+
+build_hey_app_capsules() {
+    local target_dir="$1"
+    local capsule_dir
+    for capsule_dir in "$target_dir/capsules"/*/; do
+        local name
+        name="$(basename "$capsule_dir")"
+        local client_dir="$capsule_dir/client"
+        if [ ! -f "$client_dir/package.json" ]; then
+            continue   # not a React app capsule (Rust providers, etc.)
+        fi
+
+        ynh_script_progression --message="Building $name (npm install + vite build)..." --weight=10
+
+        # Run npm as $app so node_modules permissions match. ynh_exec_as
+        # inherits PATH; the apt nodejs/npm binaries land in /usr/bin
+        # which is already on the default app PATH.
+        ynh_exec_as "$app" \
+            sh -c "cd '$client_dir' && npm install --no-audit --no-fund --loglevel=error && npm run build" \
+            || ynh_die --message="Failed to build $name capsule (npm install/build). Check that nodejs + npm are installed (apt resources)."
+
+        local dist_dir="$client_dir/dist"
+        if [ ! -f "$dist_dir/index.html" ]; then
+            ynh_die --message="Build of $name finished but no $dist_dir/index.html — vite config issue?"
+        fi
+
+        # Move dist/ output up to the capsule root, replacing any
+        # previous build artifacts (an upgrade picks up the new bundle).
+        rm -rf "$capsule_dir/index.html" "$capsule_dir/assets"
+        mv "$dist_dir/index.html" "$capsule_dir/index.html"
+        if [ -d "$dist_dir/assets" ]; then
+            mv "$dist_dir/assets" "$capsule_dir/assets"
+        fi
+
+        # Brand icons live under client/public/*.svg in the pack; the
+        # publisher Python looks for *.svg at the capsule root. Copy
+        # them up if present.
+        if [ -d "$client_dir/public" ]; then
+            local svg
+            for svg in "$client_dir/public"/*.svg; do
+                [ -f "$svg" ] || continue
+                cp -f "$svg" "$capsule_dir/$(basename "$svg")"
+            done
+        fi
+    done
+
+    chown -R "$app:$app" "$target_dir/capsules"
+}
+
 # Append the YunoHost-package frosted-glass theme overlay to
 # upstream's home capsule style.css. The overlay lives at
 # conf/home-overlay.css — a YunoHost-package-level concern, NOT
