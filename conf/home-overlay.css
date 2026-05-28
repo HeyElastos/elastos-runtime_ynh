@@ -1,16 +1,23 @@
 /* ─────────────────────────────────────────────────────────────────────
-   Hey theme — frosted-glass overlay for upstream's home capsule.
+   YunoHost-package theme overlay for upstream's home capsule.
 
-   This file is APPENDED to upstream's capsules/home/browser/style.css
-   at install time by scripts/install. It must:
+   Lives in conf/ (YunoHost-package layer), NOT in capsules/. The Hey
+   capsule pack (capsules/hey-*) is 100% portable to any upstream
+   Elastos Runtime install — this overlay is THIS YunoHost package's
+   visual branding only. Fork the package, change this file, and Hey
+   capsules are unaffected.
+
+   scripts/install + scripts/upgrade APPEND this onto upstream's
+   capsules/home/browser/style.css at install time, bracketed by
+   marker comments so a re-run replaces cleanly.
+
+   Rules:
      - only override style, never structure
      - target selectors upstream already defines
-     - be safe to drop entirely if the selectors disappear in a future
+     - safe to drop entirely if those selectors disappear in a future
        upstream version (worst case: visual regression, not breakage)
 
-   If upstream changes the DOM in a future release, expect to update
-   selectors here. Keep the file small — see docs/HEY_MODULAR_
-   ARCHITECTURE.md for the discipline.
+   See docs/HEY_MODULAR_ARCHITECTURE.md.
    ────────────────────────────────────────────────────────────────────*/
 
 /* Brand: gold accent over neutral graphite. Overrides upstream's

@@ -28,16 +28,21 @@ elastos-runtime_ynh/
 │   │   library/, documents/,
 │   │   browser/, wallet/, …
 │   │
-│   ├── blobs-provider/              ← OURS. Native provider we wrote.
-│   │                                   We maintain. Talks to capsules via
-│   │                                   /api/provider/blobs/* HTTP contract.
+│   ├── blobs-provider/              ← HEY CAPSULE PACK. Native provider.
+│   │                                   Talks to capsules via /api/provider/
+│   │                                   blobs/* HTTP contract. Portable to
+│   │                                   any upstream Elastos Runtime.
 │   │
-│   ├── hey-social/                  ← OURS. Additive app capsule.
-│   ├── hey-messenger/               ← OURS. Additive app capsule.
-│   └── hey-theme/                   ← OURS. CSS-only overlay applied at install
-│                                       time to upstream's home capsule.
+│   ├── hey-social/                  ← HEY CAPSULE PACK. App capsule.
+│   └── hey-messenger/               ← HEY CAPSULE PACK. App capsule.
 │
-├── conf/                             ← OURS. YunoHost-specific plumbing.
+├── conf/                             ← YUNOHOST PACKAGE. nginx + systemd
+│   │                                   + branding (this YunoHost install
+│   │                                   only — NOT shipped with Hey pack).
+│   └── home-overlay.css             ← Frosted-glass theme. Lives here so
+│                                       Hey capsules stay portable. Fork
+│                                       this YunoHost package, change this
+│                                       one file, and you've re-branded.
 ├── scripts/                          ← OURS. YunoHost-specific install/upgrade.
 │   └── sync-upstream.sh              ← OURS. The upgrade tool.
 ├── components.json                   ← MERGED. Upstream entries verbatim +
@@ -89,33 +94,42 @@ This keeps the divergence per-provider, never blanket.
 
 ---
 
-## Theme overlay (hey-theme)
+## Theme overlay (conf/home-overlay.css)
 
-`capsules/hey-theme/` carries a single file: `home-overlay.css`.
+The frosted-glass theme is a **YunoHost-package concern, NOT part of
+the Hey capsule pack.** This separation matters: it means the Hey
+capsule pack can be lifted out of this repo and installed on any
+Elastos Runtime — bare Elacity install, a different YunoHost
+package, anywhere — without dragging the visual choices of this
+package along.
 
-The install script appends it to upstream's `capsules/home/browser/style.css`
-during install:
+The install script appends `conf/home-overlay.css` to upstream's
+`capsules/home/browser/style.css` during install:
 
 ```bash
-cat capsules/hey-theme/home-overlay.css >> $data_dir/capsules/home/browser/style.css
+cat $install_dir/conf/home-overlay.css \
+    >> $data_dir/capsules/home/browser/style.css
 ```
 
 This is a one-way write into a derivative of the upstream file. The
-*source* upstream file in install_dir/ is never touched.
+*source* upstream file in `install_dir/` is never touched.
 
-Hey-theme is allowed to:
+The overlay is allowed to:
 - Override CSS variables (colors, radii, spacing)
 - Add `backdrop-filter: blur(...)` to existing window/dock/topbar selectors
 - Override `background:` on chrome elements
 
-Hey-theme is NOT allowed to:
+The overlay is NOT allowed to:
 - Change DOM structure (we never edit upstream's index.html or shell-*.js)
 - Inject scripts
 - Override behaviour, only appearance
 
-If upstream restructures the DOM in vX, hey-theme's CSS may need to update
-its selectors — but the overlay file is short (under ~200 lines) and the
+If upstream restructures the DOM in vX, the overlay's CSS selectors
+may need updating — but the file is short (under ~200 lines) and the
 work is bounded.
+
+**To fork this YunoHost package with different branding:** copy this
+repo, replace `conf/home-overlay.css`, done. Hey capsules unchanged.
 
 ---
 

@@ -108,14 +108,17 @@ PY
     chown -R "$app:$app" "$target_dir/elastos" "$target_dir/capsules" "$target_dir/components.json"
 }
 
-# Append our frosted-glass theme overlay to upstream's home capsule's
-# style.css. The overlay is purely additive — if upstream's CSS
-# selectors drift in a future version, the worst case is a visual
-# regression (overrides become no-ops), never a runtime break.
+# Append the YunoHost-package frosted-glass theme overlay to
+# upstream's home capsule style.css. The overlay lives at
+# conf/home-overlay.css — a YunoHost-package-level concern, NOT
+# part of the Hey capsule pack. This keeps the Hey capsules 100%
+# portable: they install on any Elastos Runtime without the theme.
+# The theme is purely a visual decision of THIS YunoHost package.
+# Anyone forking the package can ship a different overlay file.
 apply_hey_theme_overlay() {
     local data_root="$1"
     local target_style="$data_root/capsules/home/browser/style.css"
-    local overlay="$install_dir/capsules/hey-theme/home-overlay.css"
+    local overlay="$install_dir/conf/home-overlay.css"
 
     if [ ! -f "$target_style" ]; then
         ynh_print_warn --message="hey-theme: $target_style missing — skipping overlay."
