@@ -127,7 +127,7 @@ def stamp(info, data: bytes) -> None:
     info["size"] = len(data)
 
 # ── 1) NATIVE BINARIES ──
-for name in ("shell", "localhost-provider", "did-provider", "webspace-provider", "ipfs-provider", "blobs-provider", "notepad"):
+for name in ("shell", "localhost-provider", "did-provider", "webspace-provider", "ipfs-provider", "blobs-provider"):
     src = native_bin / name
     if not src.is_file():
         raise SystemExit(f"missing built artifact for {name}: {src}")
