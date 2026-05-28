@@ -9,10 +9,7 @@
   <rect x="2" y="2" width="60" height="60" rx="14" ry="14" fill="url(#hey-bg)"/>
   <!-- White Dancing Script "Hey" wordmark — capital H matches the
        app header (.hey-header-mark) + Landing's <HeyMark/> SVG so
-       brand reads consistently across icon, dock, header, welcome.
-       Inside Hey Social the font is already loaded via index.css;
-       in standalone favicon contexts the cursive fallback still
-       spells "Hey" legibly. -->
+       the brand reads consistently across icon, dock, header, welcome. -->
   <text x="32" y="44"
         text-anchor="middle"
         font-family="'Dancing Script', 'Brush Script MT', cursive"

@@ -135,9 +135,14 @@ const App = () => {
                 className="hey-header-mark h-9 w-auto sm:h-12"
                 aria-hidden="true"
               >
-                <text x="6" y="44">H</text>
-                <text x="46" y="44">e</text>
-                <text x="80" y="44">y</text>
+                {/* Single text element so Dancing Script's cursive
+                    ligatures + natural kerning render correctly. The
+                    earlier split-into-three (per-letter x positions)
+                    looked disjointed at small sizes — letters lost
+                    their natural connections. Centered via
+                    text-anchor + 60% width position so the wordmark
+                    sits balanced inside the 120-wide viewBox. */}
+                <text x="60" y="44" textAnchor="middle">Hey</text>
               </svg>
             </Link>
 
