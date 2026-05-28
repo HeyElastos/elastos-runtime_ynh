@@ -32,7 +32,11 @@ const RUNTIME_TOKEN_KEY = "hey-runtime-token";
 const readBearer = () => {
   if (typeof window === "undefined") return null;
   try {
-    const fromUrl = new URLSearchParams(window.location.search).get("runtime_token");
+    // v0.3 upstream uses "home_token" as the launch-token URL
+    // parameter; v0.2 used "runtime_token". Read both for
+    // back-compat — same logic as lib/runtime.js.
+    const params = new URLSearchParams(window.location.search);
+    const fromUrl = params.get("home_token") || params.get("runtime_token");
     if (fromUrl) {
       sessionStorage.setItem(RUNTIME_TOKEN_KEY, fromUrl);
       return fromUrl;

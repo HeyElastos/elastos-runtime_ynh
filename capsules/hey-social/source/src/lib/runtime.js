@@ -66,7 +66,11 @@ const RUNTIME_TOKEN_KEY = "hey-runtime-token";
 let RUNTIME_TOKEN = (() => {
   if (typeof window === "undefined") return null;
   try {
-    const fromUrl = new URLSearchParams(window.location.search).get("runtime_token");
+    // v0.3 upstream renamed the launch-token URL parameter from
+    // "runtime_token" → "home_token". Read both for back-compat
+    // against v0.2 hosts; new ones land on home_token first.
+    const params = new URLSearchParams(window.location.search);
+    const fromUrl = params.get("home_token") || params.get("runtime_token");
     if (fromUrl) {
       const prev = sessionStorage.getItem(RUNTIME_TOKEN_KEY);
       if (prev && prev !== fromUrl) {
