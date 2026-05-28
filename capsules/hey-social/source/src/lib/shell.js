@@ -32,15 +32,13 @@ const RUNTIME_TOKEN_KEY = "hey-runtime-token";
 const readBearer = () => {
   if (typeof window === "undefined") return null;
   try {
-    // v0.3 upstream uses "home_token" as the launch-token URL
-    // parameter; v0.2 used "runtime_token". Read both for
-    // back-compat — same logic as lib/runtime.js.
-    const params = new URLSearchParams(window.location.search);
-    const fromUrl = params.get("home_token") || params.get("runtime_token");
-    if (fromUrl) {
-      sessionStorage.setItem(RUNTIME_TOKEN_KEY, fromUrl);
-      return fromUrl;
-    }
+    // The session bearer is minted by lib/runtime.js's bearerReady
+    // (exchange of the home_token launch envelope for a real session
+    // bearer at POST /api/apps/hey-social/runtime-token). It's stored
+    // under RUNTIME_TOKEN_KEY in sessionStorage. We just read it —
+    // never extract from URL, because the URL's home_token is the
+    // launch envelope (not a Bearer), and writing it here would
+    // poison the bearer cache.
     return sessionStorage.getItem(RUNTIME_TOKEN_KEY);
   } catch {
     return null;

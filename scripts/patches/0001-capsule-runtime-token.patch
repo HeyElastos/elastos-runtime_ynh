@@ -1,0 +1,113 @@
+--- a/elastos/crates/elastos-server/src/api/gateway.rs
++++ b/elastos/crates/elastos-server/src/api/gateway.rs
+@@ -518,6 +518,19 @@
+         )
+         .route("/api/apps/home/runtime/ensure", post(home_runtime_ensure))
+         .route("/api/apps/home/launch", post(home_launch))
++        // HEY-CAPSULE-PACK PATCH: bearer mint for third-party capsules.
++        // Trades a valid x-elastos-home-token header (the launch envelope
++        // home_launch puts in the iframe URL) for a real session bearer
++        // bound to the named capsule. Required because v0.3's gateway
++        // provider proxy hardcodes (scheme, op) → allowed_apps to
++        // {documents, library, system, wallet, browser}, locking out
++        // additive capsules like hey-social / hey-messenger that need
++        // to call /api/provider/{peer,ipfs,did}/* and /api/localhost/*.
++        // The endpoint mirrors what v0.2 shipped; PR upstream pending.
++        .route(
++            "/api/apps/:capsule/runtime-token",
++            post(hey_capsule_runtime_token),
++        )
+         .route("/api/apps/inbox/summary", get(inbox_summary))
+         .route("/api/apps/inbox/actions", post(inbox_action))
+         .route("/api/apps/chat-room/summary", get(chat_room_summary))
+@@ -868,6 +881,90 @@
+ }
+ 
+ // ---------------------------------------------------------------------------
++// HEY-CAPSULE-PACK PATCH — capsule_runtime_token endpoint
++// ---------------------------------------------------------------------------
++
++#[derive(serde::Serialize)]
++struct HeyCapsuleRuntimeTokenResponse {
++    token: String,
++}
++
++// POST /api/apps/:capsule/runtime-token
++//
++// Validates the x-elastos-home-token header (launch envelope) against
++// the URL-named capsule, then mints a real session bearer via the
++// runtime's /api/auth/attach internal endpoint. Returns the bearer
++// in { token } so the calling capsule can use it as Authorization:
++// Bearer for /api/localhost/*, /api/capability/*, /api/provider/*,
++// etc. on the :3000 runtime listener.
++//
++// Same endpoint shape this fork's v0.2 build had — kept here as a
++// targeted patch on top of upstream v0.3 until upstream provides
++// an equivalent.
++async fn hey_capsule_runtime_token(
++    State(state): State<crate::api::gateway::GatewayState>,
++    Path(capsule): Path<String>,
++    headers: HeaderMap,
++) -> Result<Json<HeyCapsuleRuntimeTokenResponse>, (StatusCode, Json<serde_json::Value>)> {
++    // Home + system have their own dedicated auth paths upstream-side;
++    // refuse here so the two flows don't drift.
++    if capsule == HOME_CAPSULE_ID || capsule == SYSTEM_CAPSULE_ID {
++        return Err((
++            StatusCode::NOT_FOUND,
++            Json(serde_json::json!({
++                "error": "this endpoint is for third-party additive capsules only",
++            })),
++        ));
++    }
++
++    // Validate the launch envelope binds to the URL-named capsule.
++    let capsule_ref: &str = capsule.as_str();
++    if let Err(err) = require_home_launch_token_for_any(&state.data_dir, &headers, &[capsule_ref]) {
++        return Err((
++            StatusCode::FORBIDDEN,
++            Json(serde_json::json!({ "error": err.to_string() })),
++        ));
++    }
++
++    // Mint a session bearer via the runtime's attach endpoint.
++    let Some(coords) = gateway_home_runtime::load_live_runtime_coords(&state.data_dir).await else {
++        return Err((
++            StatusCode::SERVICE_UNAVAILABLE,
++            Json(serde_json::json!({ "error": "local runtime is not running" })),
++        ));
++    };
++    let client = match reqwest::Client::builder()
++        .timeout(std::time::Duration::from_secs(5))
++        .build()
++    {
++        Ok(c) => c,
++        Err(err) => {
++            return Err((
++                StatusCode::INTERNAL_SERVER_ERROR,
++                Json(serde_json::json!({ "error": format!("http client: {err}") })),
++            ));
++        }
++    };
++    let token = match gateway_home_runtime::gateway_attach_runtime_token(
++        &client,
++        &coords.api_url,
++        &coords.attach_secret,
++        "capsule",
++    )
++    .await
++    {
++        Ok(t) => t,
++        Err(err) => {
++            return Err((
++                StatusCode::INTERNAL_SERVER_ERROR,
++                Json(serde_json::json!({ "error": format!("attach: {err}") })),
++            ));
++        }
++    };
++    Ok(Json(HeyCapsuleRuntimeTokenResponse { token }))
++}
++
++// ---------------------------------------------------------------------------
+ // Tests
+ // ---------------------------------------------------------------------------
+ 

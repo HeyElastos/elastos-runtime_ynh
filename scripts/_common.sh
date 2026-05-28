@@ -104,6 +104,22 @@ upstream["external"].update(add["external"])
 json.dump(upstream, open("$target_dir/components.json", "w"), indent=2)
 PY
 
+    # Apply targeted patches in scripts/patches/*.patch — these are
+    # surgical additions on top of upstream that aren't yet in any
+    # upstream release. Each patch should also be filed as an
+    # upstream PR; the moment upstream merges, delete the file here.
+    # Failing-to-apply is fatal — silently skipping would let a
+    # patch rot against an upstream API change without anyone noticing.
+    if [ -d "$target_dir/scripts/patches" ]; then
+        local p
+        for p in "$target_dir/scripts/patches"/*.patch; do
+            [ -f "$p" ] || continue
+            ynh_script_progression --message="Applying upstream patch $(basename "$p")..." --weight=1
+            ( cd "$target_dir" && patch -p1 --forward < "$p" ) \
+                || ynh_die --message="Upstream patch $(basename "$p") failed to apply. The upstream version pin may have moved past what the patch targets — review scripts/patches/ and either rebase the patch or drop it if upstream now ships the equivalent."
+        done
+    fi
+
     rm -rf "$tmp_dir"
     chown -R "$app:$app" "$target_dir/elastos" "$target_dir/capsules" "$target_dir/components.json"
 }

@@ -56,30 +56,54 @@ const PROVIDER_BASE = `${API_BASE}/api/provider`;
 // Detect that transition by comparing the current URL runtime_token to
 // the one we cached last; if they differ, flush the capability cache.
 const RUNTIME_TOKEN_KEY = "hey-runtime-token";
-// Read the bearer synchronously from URL or sessionStorage. May be null
-// when the user reached the capsule directly (bookmark, refresh) instead
-// of through the home dock. In that case bearerReady below performs a
-// cookie-to-Bearer handshake against /api/apps/hey-social/runtime-token,
-// using the per-capsule session cookie serve_browser_app_index set on
-// the index response. Without this fallback, every runtime call would
-// 401 because auth_middleware requires Authorization: Bearer.
-let RUNTIME_TOKEN = (() => {
+const HOME_LAUNCH_TOKEN_KEY = "hey-home-launch-token";
+
+// v0.3 auth architecture:
+//   URL  ?home_token=<launch-envelope>  (signed by gateway, scoped to "hey-social")
+//   ─→ POST /api/apps/hey-social/runtime-token
+//       Header: x-elastos-home-token: <launch-envelope>
+//   ─→ Response: { token: <session-bearer> }
+//   ─→ Use the session bearer as Authorization: Bearer for everything else
+//
+// The launch envelope is NOT a Bearer; v0.3's storage / capability /
+// provider handlers want a session token minted via /api/auth/attach.
+// Our YunoHost build patches upstream to add /api/apps/:capsule/
+// runtime-token which trades launch envelope → session bearer (see
+// scripts/patches/0001-capsule-runtime-token.patch). When upstream
+// merges the equivalent, this client code stays valid.
+
+// Pull the launch envelope from URL (fresh launch) or sessionStorage
+// (subsequent navigations within the SPA). Falls back to legacy
+// runtime_token name for v0.2 hosts.
+let HOME_LAUNCH_TOKEN = (() => {
   if (typeof window === "undefined") return null;
   try {
-    // v0.3 upstream renamed the launch-token URL parameter from
-    // "runtime_token" → "home_token". Read both for back-compat
-    // against v0.2 hosts; new ones land on home_token first.
     const params = new URLSearchParams(window.location.search);
     const fromUrl = params.get("home_token") || params.get("runtime_token");
     if (fromUrl) {
-      const prev = sessionStorage.getItem(RUNTIME_TOKEN_KEY);
+      const prev = sessionStorage.getItem(HOME_LAUNCH_TOKEN_KEY);
       if (prev && prev !== fromUrl) {
-        // Runtime session changed under us; old caps belong to a dead session.
+        // New launch envelope means upstream restarted or this is a
+        // fresh launch — drop cached capability tokens since they
+        // were bound to a previous session.
         sessionStorage.removeItem("hey-capability-tokens");
+        sessionStorage.removeItem(RUNTIME_TOKEN_KEY);
       }
-      sessionStorage.setItem(RUNTIME_TOKEN_KEY, fromUrl);
+      sessionStorage.setItem(HOME_LAUNCH_TOKEN_KEY, fromUrl);
       return fromUrl;
     }
+    return sessionStorage.getItem(HOME_LAUNCH_TOKEN_KEY);
+  } catch {
+    return null;
+  }
+})();
+
+// The actual session bearer used for /api/* calls. Starts null;
+// bearerReady populates it via the exchange endpoint. We DO NOT
+// read this from URL — only from the exchange endpoint response.
+let RUNTIME_TOKEN = (() => {
+  if (typeof window === "undefined") return null;
+  try {
     return sessionStorage.getItem(RUNTIME_TOKEN_KEY);
   } catch {
     return null;
@@ -90,23 +114,32 @@ let RUNTIME_TOKEN = (() => {
 // route name used by the gateway when serving /apps/<name>/.
 const CAPSULE_ID = "hey-social";
 
-// Boot handshake. Resolves to true once a bearer is available (either
-// the one we already had, or one freshly minted via the per-capsule
-// cookie). Resolves to false on failure so call sites can decide
-// whether to surface a 401 or silently proceed. Storage helpers below
-// await this before issuing requests.
+// Boot handshake — exchange the home_token launch envelope for a
+// real session bearer. Resolves to true once RUNTIME_TOKEN is set
+// (either freshly minted this tick, or already in sessionStorage
+// from a prior load within this session). Resolves to false on
+// failure so call sites can decide whether to surface a 401.
+//
+// Storage / capability / provider helpers below await this before
+// issuing any request.
 export const bearerReady = (async () => {
+  // Already have a session bearer from earlier in this session.
   if (RUNTIME_TOKEN) return true;
-  if (typeof window === "undefined") return false;
+  // No launch envelope → no way to authenticate. The user reached
+  // this page directly without going through the home dock.
+  if (!HOME_LAUNCH_TOKEN || typeof window === "undefined") return false;
   try {
     const resp = await fetch(apiUrl(`/api/apps/${CAPSULE_ID}/runtime-token`), {
       method: "POST",
       credentials: "include",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "x-elastos-home-token": HOME_LAUNCH_TOKEN,
+      },
       body: "{}",
     });
     if (!resp.ok) {
-      console.warn(`[hey-social] runtime-token handshake failed: ${resp.status}`);
+      console.warn(`[hey-social] runtime-token exchange failed: ${resp.status}`);
       return false;
     }
     const data = await resp.json();
@@ -117,7 +150,7 @@ export const bearerReady = (async () => {
     }
     return false;
   } catch (err) {
-    console.warn("[hey-social] runtime-token handshake error:", err);
+    console.warn("[hey-social] runtime-token exchange error:", err);
     return false;
   }
 })();
