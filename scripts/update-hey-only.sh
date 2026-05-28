@@ -55,28 +55,51 @@ echo "=== Fetching $REPO @ $COMMIT ==="
 curl -fsSL "https://github.com/$REPO/archive/$COMMIT.tar.gz" -o "$TMP/pack.tar.gz"
 tar -xzf "$TMP/pack.tar.gz" -C "$TMP" --strip-components 1
 
-for app in hey-social hey-messenger; do
+for app in hey-social hey-messenger hey-social-rust; do
     SRC="$TMP/capsules/$app"
-    if [ ! -f "$SRC/client/package.json" ]; then
-        echo "=== Skipping $app (no client/package.json) ==="
+    if [ ! -d "$SRC" ]; then
+        echo "=== Skipping $app (not in pack) ==="
+        continue
+    fi
+    if [ ! -f "$SRC/capsule.json" ]; then
+        echo "=== Skipping $app (no capsule.json) ==="
         continue
     fi
 
-    echo "=== Building $app ==="
-    (cd "$SRC/client" && npm install --no-audit --no-fund --loglevel=error && npm run build)
+    if [ -f "$SRC/client/package.json" ]; then
+        # React/Vite app — build with npm.
+        echo "=== Building $app (npm install + vite build) ==="
+        (cd "$SRC/client" && npm install --no-audit --no-fund --loglevel=error && npm run build)
 
-    if [ ! -f "$SRC/client/dist/index.html" ]; then
-        echo "ERROR: $app build produced no client/dist/index.html" >&2
-        exit 1
-    fi
+        if [ ! -f "$SRC/client/dist/index.html" ]; then
+            echo "ERROR: $app build produced no client/dist/index.html" >&2
+            exit 1
+        fi
 
-    rm -rf "$SRC/index.html" "$SRC/assets"
-    mv "$SRC/client/dist/index.html" "$SRC/"
-    [ -d "$SRC/client/dist/assets" ] && mv "$SRC/client/dist/assets" "$SRC/"
-    if [ -d "$SRC/client/public" ]; then
-        for svg in "$SRC/client/public"/*.svg; do
-            [ -f "$svg" ] && cp -f "$svg" "$SRC/"
-        done
+        rm -rf "$SRC/index.html" "$SRC/assets"
+        mv "$SRC/client/dist/index.html" "$SRC/"
+        [ -d "$SRC/client/dist/assets" ] && mv "$SRC/client/dist/assets" "$SRC/"
+        if [ -d "$SRC/client/public" ]; then
+            for svg in "$SRC/client/public"/*.svg; do
+                [ -f "$svg" ] && cp -f "$svg" "$SRC/"
+            done
+        fi
+    elif [ -f "$SRC/Trunk.toml" ]; then
+        # Rust+Leptos+WASM app — built by CI / dev-machine into dist/,
+        # shipped pre-built in the Hey-capsule tarball. capsule.json's
+        # entrypoint should already point at dist/index.html (the
+        # post-Trunk file with real <script> + WASM imports, not the
+        # source template at the capsule root). No on-server trunk
+        # build needed — keeps the fast deploy actually fast.
+        if [ ! -f "$SRC/dist/index.html" ]; then
+            echo "ERROR: $app has Trunk.toml but no dist/index.html in the tarball — did CI fail to build, or was dist/ gitignored?" >&2
+            exit 1
+        fi
+        echo "=== $app: pre-built WASM (from tarball), deploying as-is ==="
+    else
+        # Static capsule (no client/, no Trunk.toml) — just deploy whatever
+        # the tarball ships at the capsule root.
+        echo "=== $app: static capsule, deploying as-is ==="
     fi
 
     echo "=== Deploying $app to $DATA_DIR ==="
