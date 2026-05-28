@@ -329,36 +329,12 @@ const PostCard = ({ post, currentUser, token, onChange, onDelete }) => {
       </header>
 
       {post.images?.length > 0 && (
-        <div className="relative px-1 pb-1 group/media">
+        <div className="relative px-1 pb-1">
           <ImageCarousel images={post.images} />
-          {isOwner && (
-            <button
-              type="button"
-              onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                if (busy) return;
-                if (!confirmDelete) {
-                  setConfirmDelete(true);
-                  setTimeout(() => setConfirmDelete(false), 3000);
-                  return;
-                }
-                removePost();
-              }}
-              disabled={busy}
-              aria-label={confirmDelete ? "Tap again to confirm delete" : "Delete post"}
-              title={confirmDelete ? "Tap again to delete" : "Delete post"}
-              className={`absolute left-4 top-3 z-10 inline-flex items-center gap-1.5 rounded-full border backdrop-blur-2xl transition disabled:opacity-50 ${
-                confirmDelete
-                  ? "border-red-500/60 bg-red-500/85 px-3 py-1.5 text-xs font-semibold text-white"
-                  : "border-white/25 bg-black/45 p-2 text-white opacity-0 group-hover/media:opacity-100"
-              }`}
-              style={{ WebkitBackdropFilter: "blur(24px)" }}
-            >
-              <TrashIcon className="h-4 w-4" />
-              {confirmDelete && <span>Confirm</span>}
-            </button>
-          )}
+          {/* Delete affordance removed per design — the api/removePost
+              path stays available in this file in case we re-expose
+              the action via the future hover/more menu, but the
+              media overlay no longer shows a trash button. */}
         </div>
       )}
 
