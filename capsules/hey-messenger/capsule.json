@@ -9,7 +9,9 @@
   "entrypoint": "index.html",
   "permissions": {
     "storage": [
+      "localhost://Users/*/HeyMessenger/*",
       "localhost://Users/self/.AppData/LocalHost/HeyMessenger/*",
+      "localhost://Users/*/.AppData/Identity/*",
       "localhost://Users/self/.AppData/Identity/*"
     ],
     "messaging": [
