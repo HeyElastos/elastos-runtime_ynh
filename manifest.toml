@@ -68,8 +68,8 @@ ram.runtime = "512M"
     # any Elastos Runtime. Install script extracts capsules/* from
     # this tarball into $install_dir/capsules/ alongside upstream's
     # stock capsules. Bump url + sha256 on every Hey-capsule release.
-    url = "https://github.com/HeyElastos/Hey-capsule/archive/bc65ec1f6380e8b0fcaacac06bc0e91479d1e5a5.tar.gz"
-    sha256 = "5187b2046212cdcbd66c7f5e914f145886b1c5553b99637e2f4db6812bc8a1b5"
+    url = "https://github.com/HeyElastos/Hey-capsule/archive/ed01515f245c0f2dd04965a596e253e06f89f9a8.tar.gz"
+    sha256 = "478798e38d486d053d70dbeaf8552cd627ce4f019a8d0af7a7ffb9c02e3a6023"
     autoupdate.strategy = "latest_github_commit"
     autoupdate.upstream = "https://github.com/HeyElastos/Hey-capsule"
     in_subdir = false
