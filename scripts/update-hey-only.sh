@@ -55,7 +55,7 @@ echo "=== Fetching $REPO @ $COMMIT ==="
 curl -fsSL "https://github.com/$REPO/archive/$COMMIT.tar.gz" -o "$TMP/pack.tar.gz"
 tar -xzf "$TMP/pack.tar.gz" -C "$TMP" --strip-components 1
 
-for app in hey-social hey-messenger hey-social-rust; do
+for app in hey-social hey-messenger; do
     SRC="$TMP/capsules/$app"
     if [ ! -d "$SRC" ]; then
         echo "=== Skipping $app (not in pack) ==="

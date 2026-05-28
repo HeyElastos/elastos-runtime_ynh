@@ -30,20 +30,6 @@
         }
       }
     },
-    "hey-social-rust": {
-      "install_path": "capsules/hey-social-rust",
-      "description": "Hey Social \u2014 Rust + Leptos + WASM experimental port",
-      "platforms": {
-        "*": {
-          "cid": "",
-          "checksum": "",
-          "size": 0,
-          "release_path": "hey-social-rust.tar.gz",
-          "extract_path": "hey-social-rust",
-          "install_path": "capsules/hey-social-rust"
-        }
-      }
-    },
     "blobs-provider": {
       "install_path": "bin/blobs-provider",
       "description": "iroh-blobs P2P file transfer provider \u2014 backs Hey Chat",
