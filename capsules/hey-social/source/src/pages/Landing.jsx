@@ -780,7 +780,7 @@ const Landing = () => {
           {sharedIdentity ? (
             "Sign in to keep using your Elastos identity in Hey Social."
           ) : (
-            "Share images, react with any emoji, repost in a tap. No email, no password. Just pick a nickname and we'll generate your secret key."
+            "Share images, react with any emoji, repost in a tap. No email, no password — pick a nickname and sign in with your passkey."
           )}
         </p>
 
@@ -904,15 +904,29 @@ const Landing = () => {
         >
           {!sharedIdentity && <ArrowCue />}
 
+          {/* Passkey is the default — it derives Hey's signing identity
+              from the same passkey the runtime uses, so most users get
+              "one passkey, one identity" out of the box. The generated-
+              key path stays below as a quiet "advanced" link for users
+              who prefer holding their own seed (no platform lock-in).
+              Both paths are kept because some users want sovereignty
+              over the key, not just the box. */}
           <form
-            onSubmit={handleSubmit}
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (canUsePasskey) {
+                handlePasskeySignup();
+              } else {
+                handleSubmit(e);
+              }
+            }}
             className="frosted-card flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:gap-2 sm:p-2"
           >
             <input
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              disabled={loading}
+              disabled={loading || passkeyBusy}
               maxLength={30}
               placeholder="Pick a nickname"
               autoFocus
@@ -920,10 +934,24 @@ const Landing = () => {
             />
             <button
               type="submit"
-              disabled={loading || !name.trim()}
+              disabled={loading || passkeyBusy || !name.trim()}
               className="unfrost group inline-flex items-center justify-center gap-2 rounded-full bg-accent px-6 py-3 text-sm font-semibold text-accent-text shadow-lg shadow-slate-900/20 transition hover:bg-amber-300 disabled:cursor-not-allowed disabled:opacity-50 sm:py-2.5"
             >
-              {loading ? (
+              {canUsePasskey ? (
+                passkeyBusy ? (
+                  <>
+                    <Spinner />
+                    Waiting for passkey…
+                  </>
+                ) : (
+                  <>
+                    <svg viewBox="0 0 24 24" className="h-4 w-4 fill-current">
+                      <path d="M12 2a5 5 0 0 0-5 5v3H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8a2 2 0 0 0-2-2h-1V7a5 5 0 0 0-5-5Zm-3 8V7a3 3 0 0 1 6 0v3H9Z" />
+                    </svg>
+                    Sign up with passkey
+                  </>
+                )
+              ) : loading ? (
                 <>
                   <Spinner />
                   Generating…
@@ -949,22 +977,21 @@ const Landing = () => {
           )}
 
           {canUsePasskey && (
-            <button
-              type="button"
-              onClick={handlePasskeySignup}
-              disabled={passkeyBusy || loading || !name.trim()}
-              className="unfrost mt-4 inline-flex items-center justify-center gap-2 rounded-full border border-white/20 bg-white/5 px-5 py-2 text-xs font-medium text-primary transition hover:bg-white/10 disabled:opacity-50 animate-fade-in"
+            <p
+              className="mt-4 text-center text-[11px] text-muted/80 animate-fade-in"
               style={{ animationDelay: "1.9s" }}
             >
-              {passkeyBusy ? (
-                <Spinner />
-              ) : (
-                <svg viewBox="0 0 24 24" className="h-3.5 w-3.5 fill-current">
-                  <path d="M12 2a5 5 0 0 0-5 5v3H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8a2 2 0 0 0-2-2h-1V7a5 5 0 0 0-5-5Zm-3 8V7a3 3 0 0 1 6 0v3H9Z" />
-                </svg>
-              )}
-              {passkeyBusy ? "Waiting for passkey…" : "Sign up with a passkey instead"}
-            </button>
+              Prefer to hold your own seed?{" "}
+              <button
+                type="button"
+                onClick={handleSubmit}
+                disabled={loading || passkeyBusy || !name.trim()}
+                className="unfrost text-muted underline underline-offset-2 hover:text-primary disabled:opacity-50"
+              >
+                {loading ? "Generating…" : "Generate a recovery key"}
+              </button>{" "}
+              instead.
+            </p>
           )}
 
           <p
