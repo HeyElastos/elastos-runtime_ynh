@@ -207,22 +207,40 @@ for name in ("home", "system", "chat-room"):
             tar.add(browser, arcname=f"{name}/browser")
     stamp(info, archive.read_bytes())
 
-# ── 4) DATA CAPSULES (documents, library, inbox, hey-social) ──
-# hey-social ships a Vite-built React bundle: capsule.json + index.html +
-# an assets/ subtree + the brand SVG. The other three are minimal
-# (capsule.json + index.html only). Loop handles both shapes — include
-# assets/ + any *.svg sitting at the root if they exist, otherwise just
-# the two files.
-for name in ("documents", "library", "inbox", "hey-social", "hey-messenger"):
+# ── 4) DATA CAPSULES ──
+# Three shapes covered:
+#   - documents / library / inbox: minimal — capsule.json + index.html
+#   - hey-social / hey-messenger: Vite React build — capsule.json +
+#     index.html + assets/ + *.svg at root
+#   - hey-social-rust: Trunk Rust+WASM build — capsule.json + a dist/
+#     subdir containing the entrypoint index.html + the WASM/JS bundle.
+#     Source files (src/, Cargo.toml, Trunk.toml) are NOT included in
+#     the served tar — the runtime only needs what it serves, not what
+#     it can rebuild.
+for name in ("documents", "library", "inbox", "hey-social", "hey-messenger", "hey-social-rust"):
     info = platform_info(name)
     capsule_dir = capsules / name
     archive = artifacts_dir / info["release_path"]
     with tarfile.open(archive, "w:gz") as tar:
         tar.add(capsule_dir / "capsule.json", arcname=f"{name}/capsule.json")
-        tar.add(capsule_dir / "index.html", arcname=f"{name}/index.html")
+        # Index at the capsule root (React + minimal apps). For Trunk
+        # apps the runtime serves dist/index.html per capsule.json's
+        # entrypoint; the root index.html is the Trunk source template,
+        # safe to include or skip.
+        root_index = capsule_dir / "index.html"
+        if root_index.is_file():
+            tar.add(root_index, arcname=f"{name}/index.html")
+        # React bundle output.
         assets_dir = capsule_dir / "assets"
         if assets_dir.is_dir():
             tar.add(assets_dir, arcname=f"{name}/assets")
+        # Trunk bundle output — entrypoint per capsule.json is
+        # "dist/index.html"; include the whole dist/ tree so the
+        # served paths resolve.
+        dist_dir = capsule_dir / "dist"
+        if dist_dir.is_dir():
+            tar.add(dist_dir, arcname=f"{name}/dist")
+        # Brand icons / SVGs at the capsule root.
         for extra in capsule_dir.glob("*.svg"):
             tar.add(extra, arcname=f"{name}/{extra.name}")
     stamp(info, archive.read_bytes())
@@ -319,7 +337,7 @@ cp "$SOURCE_RUNTIME_DATA_DIR/components.json" "$CLIENT_HOME/xdg-data/elastos/com
 # List exactly what build_runtime_and_capsules produced + the upstream
 # capsules + Hey additives. To add wallet/browser support later, build
 # the new providers in _common.sh and add them to this list.
-ELASTOS_COMPONENTS="shell,localhost-provider,did-provider,webspace-provider,ipfs-provider,blobs-provider,kubo,home,system,chat-room,inbox,library,documents,hey-social,hey-messenger"
+ELASTOS_COMPONENTS="shell,localhost-provider,did-provider,webspace-provider,ipfs-provider,blobs-provider,kubo,home,system,chat-room,inbox,library,documents,hey-social,hey-messenger,hey-social-rust"
 ynh_script_progression --message="Running elastos setup --with $ELASTOS_COMPONENTS..." --weight=5
 ynh_exec_as "$app" \
     env HOME="$CLIENT_HOME" \
