@@ -1,5 +1,5 @@
 /* ─────────────────────────────────────────────────────────────────────
-   YunoHost-package theme overlay for upstream's home capsule.
+   YunoHost-package theme overlay — minimal window chrome only.
 
    Lives in conf/ (YunoHost-package layer), NOT in capsules/. The Hey
    capsule pack (capsules/hey-*) is 100% portable to any upstream
@@ -11,6 +11,12 @@
    capsules/home/browser/style.css at install time, bracketed by
    marker comments so a re-run replaces cleanly.
 
+   Scope: window chrome only. The topbar, dock, launcher, login
+   screen, and brand color all stay STOCK upstream. Only the window
+   titlebar and shadow get a Hey treatment — frosted material that
+   matches what most modern desktop OSes do (macOS Big Sur+, Win 11
+   Mica).
+
    Rules:
      - only override style, never structure
      - target selectors upstream already defines
@@ -20,74 +26,23 @@
    See docs/HEY_MODULAR_ARCHITECTURE.md.
    ────────────────────────────────────────────────────────────────────*/
 
-/* Brand: gold accent over neutral graphite. Overrides upstream's
-   orange-ish brand without touching its variable names so any code
-   that reads var(--brand) inherits Hey's. */
-:root {
-  --brand: #d4b84b;
-  --brand-strong: #e3cb52;
-  --brand-focus: rgba(212, 184, 75, 0.55);
-  --brand-border: rgba(212, 184, 75, 0.72);
-  --brand-ring: rgba(212, 184, 75, 0.24);
-  --brand-glow: rgba(212, 184, 75, 0.26);
-  --brand-line: rgba(212, 184, 75, 0.45);
-
-  /* Frosted material — used by topbar, dock, launcher, window head.
-     Shared so the surfaces read as one material system. */
-  --hey-frosted-bg: rgba(15, 18, 26, 0.62);
-  --hey-frosted-border: rgba(255, 255, 255, 0.10);
-  --hey-frosted-blur: blur(40px);
+/* Window titlebar — frosted graphite instead of upstream's
+   HSL-formula solid color. Pairs with the body shadow below for a
+   clear "lifted glass panel" look without changing structure. */
+.window-head {
+  background-color: rgba(15, 18, 26, 0.62);
+  backdrop-filter: blur(40px);
+  -webkit-backdrop-filter: blur(40px);
+  filter: none;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.10);
 }
 
-/* Topbar — float as a pill that visually matches the dock. */
-.toolbar {
-  background: var(--hey-frosted-bg);
-  border: 1px solid var(--hey-frosted-border);
-  border-radius: 18px;
-  backdrop-filter: var(--hey-frosted-blur);
-  -webkit-backdrop-filter: var(--hey-frosted-blur);
-  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
-}
-
-/* Dock — same material as topbar. */
-.taskbar-inner {
-  background: var(--hey-frosted-bg);
-  border: 1px solid var(--hey-frosted-border);
-  border-radius: 18px;
-  backdrop-filter: var(--hey-frosted-blur);
-  -webkit-backdrop-filter: var(--hey-frosted-blur);
-  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
-}
-
-/* Launcher popover — darker tint for legibility against busy
-   wallpapers, otherwise same material recipe. */
-.launcher-popover {
-  background: rgba(11, 17, 32, 0.82);
-  border: 1px solid var(--hey-frosted-border);
-  backdrop-filter: var(--hey-frosted-blur);
-  -webkit-backdrop-filter: var(--hey-frosted-blur);
-}
-
-/* Windows — frosted titlebar + soft shadow. Upstream uses an HSL
-   formula on .window-head; we replace the background color with our
-   frosted material while keeping the rest of upstream's layout. */
+/* Window body shadow — slightly deeper than upstream's default + a
+   1px inset highlight on the top edge so the frosted titlebar reads
+   as a separate plane lifted above the body. Pure additive — no
+   geometry changes. */
 .window {
   box-shadow:
     0 24px 60px rgba(0, 0, 0, 0.5),
     0 0 0 1px rgba(255, 255, 255, 0.04) inset;
-}
-.window-head {
-  background-color: var(--hey-frosted-bg);
-  backdrop-filter: var(--hey-frosted-blur);
-  -webkit-backdrop-filter: var(--hey-frosted-blur);
-  filter: none;
-  border-bottom: 1px solid var(--hey-frosted-border);
-}
-
-/* Active window indicator + active dock item — use Hey gold. */
-.active-taskbar-indicator,
-.window-active .window-head {
-  /* `.window-active .window-head` slightly tints the active window
-     head; if upstream removes this class the selector becomes a
-     no-op, no breakage. */
 }
