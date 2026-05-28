@@ -31,6 +31,19 @@ mkdir -p "$install_dir/bin"
 chown -R "$app:$app" "$install_dir"
 
 #=================================================
+# FETCH UPSTREAM RUNTIME
+#=================================================
+#
+# Our git holds Hey-additive capsules + theme + scripts only — no
+# upstream source vendored (see docs/HEY_MODULAR_ARCHITECTURE.md).
+# Fetch the pinned upstream Elacity/elastos-runtime tarball, lay
+# out elastos/ and the upstream capsules next to our additives, and
+# merge components.json. Subsequent upgrades only need to bump
+# UPSTREAM_VERSION via scripts/sync-upstream.sh — no merge dance.
+
+fetch_upstream_source "$install_dir"
+
+#=================================================
 # RUST TOOLCHAIN
 #=================================================
 
@@ -310,6 +323,19 @@ ynh_exec_as "$app" \
         XDG_DATA_HOME="$CLIENT_HOME/xdg-data" \
     "$install_dir/elastos/target/debug/elastos" setup --profile operator \
     || ynh_die --message="elastos setup --profile operator failed. Check $SOURCE_RUNTIME_LOG."
+
+#=================================================
+# APPLY HEY THEME OVERLAY
+#=================================================
+#
+# The home capsule lives at $CLIENT_HOME/xdg-data/elastos/capsules/home
+# now that `elastos setup` extracted it. Append our frosted-glass CSS
+# overlay onto the upstream style.css. Pure additive — if upstream
+# restructures the DOM in a future release, the overlay becomes a
+# no-op, never a build break.
+
+ynh_script_progression --message="Applying Hey theme overlay (frosted glass)..." --weight=1
+apply_hey_theme_overlay "$CLIENT_HOME/xdg-data/elastos"
 
 # Move the cargo-built elastos binary to its stable location now that setup is done.
 install -D -m 0755 -o "$app" -g "$app" \

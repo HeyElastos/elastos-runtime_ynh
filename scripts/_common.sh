@@ -33,6 +33,114 @@ elastos_home() {
     echo "$data_dir/home"
 }
 
+# ────────────────────────────────────────────────────────────────────
+# Upstream Elastos Runtime fetch
+# ────────────────────────────────────────────────────────────────────
+#
+# Per docs/HEY_MODULAR_ARCHITECTURE.md, we do NOT vendor upstream
+# source in git. The version is pinned by ./UPSTREAM_VERSION (a single
+# line — tag or sha) and the install/upgrade scripts fetch the tarball
+# fresh. Our Hey-additive capsules sit alongside.
+
+fetch_upstream_source() {
+    local target_dir="$1"
+    local version
+    version="$(cat "$target_dir/UPSTREAM_VERSION" 2>/dev/null | tr -d '[:space:]')"
+    if [ -z "$version" ]; then
+        ynh_die --message="UPSTREAM_VERSION not found in $target_dir — refusing to fetch upstream."
+    fi
+
+    local tarball_url="https://github.com/Elacity/elastos-runtime/archive/${version}.tar.gz"
+    local tmp_dir="$target_dir/.upstream-fetch"
+
+    rm -rf "$tmp_dir"
+    mkdir -p "$tmp_dir"
+
+    ynh_script_progression --message="Fetching upstream Elastos Runtime $version..." --weight=3
+    curl -fsSL "$tarball_url" -o "$tmp_dir/upstream.tar.gz" \
+        || ynh_die --message="Failed to download upstream tarball: $tarball_url"
+    tar -xzf "$tmp_dir/upstream.tar.gz" -C "$tmp_dir" \
+        || ynh_die --message="Failed to extract upstream tarball."
+
+    # The tarball extracts to elastos-runtime-<something>/ — pick that
+    # up dynamically so we work for both tag names and bare commit shas.
+    local extracted
+    extracted="$(find "$tmp_dir" -maxdepth 1 -mindepth 1 -type d -name 'elastos-runtime-*' | head -n 1)"
+    if [ -z "$extracted" ]; then
+        ynh_die --message="Upstream tarball didn't extract to elastos-runtime-* — layout changed?"
+    fi
+
+    # Move upstream's elastos/ crate workspace into place. Force-replace
+    # because re-fetches must always reflect the pinned version exactly.
+    rm -rf "$target_dir/elastos"
+    mv "$extracted/elastos" "$target_dir/elastos"
+
+    # Merge upstream capsules into $target_dir/capsules/ without
+    # clobbering our Hey-additive capsules (hey-social, hey-messenger,
+    # blobs-provider, hey-theme). Our git holds those; upstream's
+    # tarball ships theirs. Conflicts shouldn't happen because the
+    # names don't overlap, but if upstream ever ships a "hey-*"
+    # directory we want our version to win — so check before overwrite.
+    mkdir -p "$target_dir/capsules"
+    for upstream_capsule in "$extracted/capsules"/*/; do
+        local name
+        name="$(basename "$upstream_capsule")"
+        if [ -d "$target_dir/capsules/$name" ]; then
+            # Already exists in our git tree — keep ours (e.g.,
+            # hey-social, hey-messenger, blobs-provider, hey-theme).
+            continue
+        fi
+        cp -r "$upstream_capsule" "$target_dir/capsules/$name"
+    done
+
+    # Merge upstream's components.json with our additions. Upstream is
+    # the base; our entries layer on top. Result lands at the canonical
+    # path scripts/install reads from.
+    python3 - <<PY
+import json
+upstream = json.load(open("$extracted/components.json"))
+add = json.load(open("$target_dir/components.additions.json"))
+upstream["external"].update(add["external"])
+json.dump(upstream, open("$target_dir/components.json", "w"), indent=2)
+PY
+
+    rm -rf "$tmp_dir"
+    chown -R "$app:$app" "$target_dir/elastos" "$target_dir/capsules" "$target_dir/components.json"
+}
+
+# Append our frosted-glass theme overlay to upstream's home capsule's
+# style.css. The overlay is purely additive — if upstream's CSS
+# selectors drift in a future version, the worst case is a visual
+# regression (overrides become no-ops), never a runtime break.
+apply_hey_theme_overlay() {
+    local data_root="$1"
+    local target_style="$data_root/capsules/home/browser/style.css"
+    local overlay="$install_dir/capsules/hey-theme/home-overlay.css"
+
+    if [ ! -f "$target_style" ]; then
+        ynh_print_warn --message="hey-theme: $target_style missing — skipping overlay."
+        return 0
+    fi
+    if [ ! -f "$overlay" ]; then
+        ynh_print_warn --message="hey-theme: $overlay missing — skipping overlay."
+        return 0
+    fi
+
+    # Idempotent: strip any prior overlay first, then append. The
+    # marker comment makes the boundary deterministic so re-running
+    # this on an upgrade replaces the previous overlay cleanly
+    # instead of stacking copies.
+    local marker="/* === HEY_THEME_OVERLAY_BEGIN === */"
+    if grep -qF "$marker" "$target_style"; then
+        sed -i "/$(echo "$marker" | sed 's/[][\.*^$(){}?+|/]/\\&/g')/,\$d" "$target_style"
+    fi
+    {
+        printf '\n%s\n' "$marker"
+        cat "$overlay"
+        printf '%s\n' "/* === HEY_THEME_OVERLAY_END === */"
+    } >> "$target_style"
+}
+
 # Generate (idempotently) a 32-byte AES-256 key for the localhost-provider's
 # at-rest encryption. The key file lives under the elastos_runtime user's
 # XDG data home in mode 0600. The wrapper script exports its contents into

@@ -11,6 +11,14 @@ ynh_setup_source --dest_dir="$install_dir"
 mkdir -p "$install_dir/bin"
 chown -R "$app:$app" "$install_dir"
 
+#=================================================
+# FETCH UPSTREAM RUNTIME
+#=================================================
+# Same pattern as install — pull upstream Elacity tarball pinned by
+# UPSTREAM_VERSION. If the file's contents changed since the last
+# install (sync-upstream.sh was used), this re-fetches the new version.
+fetch_upstream_source "$install_dir"
+
 if [ ! -x "$(rustup_root)/cargo/bin/cargo" ]; then
     ynh_script_progression --message="Reinstalling Rust toolchain..." --weight=20
     install_rust_toolchain
@@ -82,6 +90,12 @@ if [ -d "$install_dir/capsules" ] && [ -d "$CAPSULES_DATA_DIR" ]; then
     done
     chown -R "$app:$app" "$CAPSULES_DATA_DIR"
 fi
+
+# Reapply the Hey theme overlay after the capsule refresh — the
+# previous overlay markers in style.css get stripped + re-appended,
+# so this is safe to re-run on every upgrade.
+ynh_script_progression --message="Reapplying Hey theme overlay..." --weight=1
+apply_hey_theme_overlay "$(elastos_home)/xdg-data/elastos"
 
 ynh_script_progression --message="Starting Elastos Runtime..." --weight=3
 ynh_systemd_action --service_name="$app" --action="start" \
