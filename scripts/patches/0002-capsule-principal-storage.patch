@@ -1,0 +1,264 @@
+--- a/elastos/crates/elastos-server/src/api/gateway.rs
++++ b/elastos/crates/elastos-server/src/api/gateway.rs
+@@ -57,6 +57,11 @@
+ mod gateway_site;
+ #[path = "gateway_wallet.rs"]
+ mod gateway_wallet;
++// HEY-CAPSULE-PACK PATCH 0002: third-party app capsule storage,
++// principal-scoped. Pairs with viewer_gateway::viewer_storage_* but
++// surfaces under /api/apps/:capsule/storage/*path for browser SPAs.
++#[path = "gateway_hey_capsule_storage.rs"]
++mod gateway_hey_capsule_storage;
+ #[cfg(test)]
+ use gateway_browser::browser_runtime_stream_socket_path;
+ pub(crate) use gateway_home_runtime::is_wallet_connector_capsule_id;
+@@ -603,6 +608,17 @@
+             get(super::viewer_gateway::viewer_storage_get)
+                 .put(super::viewer_gateway::viewer_storage_put),
+         )
++        // HEY-CAPSULE-PACK PATCH 0002: principal-scoped storage for
++        // third-party app capsules. Mirrors viewer_storage but with the
++        // /api/apps/:capsule/storage/*path shape browser SPAs already
++        // expect. v0.3's stock /api/localhost/Users/* rejects all
++        // third-party calls (storage::reject_principal_root_storage_path).
++        .route(
++            "/api/apps/:capsule/storage/*path",
++            axum::routing::get(gateway_hey_capsule_storage::capsule_storage_get)
++                .put(gateway_hey_capsule_storage::capsule_storage_put)
++                .delete(gateway_hey_capsule_storage::capsule_storage_delete),
++        )
+         .route(
+             "/apps/:app",
+             get(super::browser_capsules::serve_browser_app_root),
+--- /dev/null
++++ b/elastos/crates/elastos-server/src/api/gateway_hey_capsule_storage.rs
+@@ -0,0 +1,229 @@
++//! HEY-CAPSULE-PACK PATCH 0002 — third-party app capsule storage.
++//!
++//! Background: v0.3's /api/localhost/Users/* is rejected for any caller
++//! that isn't a shell session (storage::reject_principal_root_storage_path,
++//! handlers/storage.rs:504). v0.3 expects a "principal-scoped provider
++//! route" but only ships one for viewer capsules
++//! (/api/viewers/:viewer/storage/:capsule/:scope/:name). Third-party app
++//! capsules (hey-social, hey-messenger) are locked out of all per-user
++//! storage.
++//!
++//! This module fills the gap. It exposes a generic principal-scoped
++//! storage surface for additive app capsules:
++//!
++//!   GET    /api/apps/:capsule/storage/*path           → read object
++//!   GET    /api/apps/:capsule/storage/*path?list=true → list directory
++//!   PUT    /api/apps/:capsule/storage/*path           → write object
++//!   DELETE /api/apps/:capsule/storage/*path           → remove object
++//!
++//! Auth: caller MUST present an x-elastos-home-token header that binds
++//! to the URL-named :capsule. The launch envelope carries principal_id;
++//! we hash it via crate::auth::principal_localhost_root to produce
++//! localhost://Users/<sha256(principal)[:24]> and rewrite the request
++//! path under that root. Example:
++//!
++//!   PUT /api/apps/hey-social/storage/Hey/profile.json
++//!     → localhost://Users/<hash>/Hey/profile.json
++//!     → encrypted at rest via principal-root-object protection
++//!
++//! Two app capsules with the same principal_id resolve to the same
++//! filesystem root, so cross-capsule shared paths (e.g.
++//! .AppData/Identity/profile.json) work the way v0.2 did.
++//!
++//! Targeted PR-pending patch on top of upstream v0.3.
++
++use std::path::PathBuf;
++
++use axum::body::Bytes;
++use axum::extract::{Path, Query, State};
++use axum::http::{HeaderMap, StatusCode};
++use axum::response::{IntoResponse, Response};
++use elastos_common::localhost::rooted_localhost_fs_path;
++use serde::Deserialize;
++
++// gateway_hey_capsule_storage is mounted as a submodule of `gateway`,
++// not as a sibling under `api`. `super::` therefore refers to the
++// gateway module itself, where GatewayState lives and where
++// require_home_launch_token_for_any_context is re-exported from
++// gateway_home_token.
++use super::{require_home_launch_token_for_any_context, GatewayState};
++
++// Mirrors HOME_CAPSULE_ID / SYSTEM_CAPSULE_ID in gateway_home_runtime.
++// Hard-coded here so the patch stays self-contained.
++const HOME_CAPSULE_ID: &str = "home";
++const SYSTEM_CAPSULE_ID: &str = "system";
++
++#[derive(Debug, Deserialize)]
++pub struct StorageQuery {
++    pub list: Option<bool>,
++}
++
++struct Target {
++    fs_path: PathBuf,
++    localhost_root: String,
++    object_uri: String,
++    principal_id: String,
++}
++
++fn resolve_target(
++    state: &GatewayState,
++    headers: &HeaderMap,
++    capsule: &str,
++    path: &str,
++) -> Result<Target, (StatusCode, String)> {
++    if capsule == HOME_CAPSULE_ID || capsule == SYSTEM_CAPSULE_ID {
++        return Err((
++            StatusCode::NOT_FOUND,
++            "endpoint is for third-party app capsules only".to_string(),
++        ));
++    }
++
++    let context = require_home_launch_token_for_any_context(&state.data_dir, headers, &[capsule])
++        .map_err(|err| (StatusCode::UNAUTHORIZED, err.to_string()))?;
++
++    let principal_id = context.principal_id;
++    let localhost_root = crate::auth::principal_localhost_root(&principal_id);
++
++    let trimmed = path.trim_matches('/');
++    if trimmed.is_empty() {
++        return Err((StatusCode::BAD_REQUEST, "storage path must not be empty".into()));
++    }
++    for segment in trimmed.split('/') {
++        if segment.is_empty()
++            || segment == "."
++            || segment == ".."
++            || segment.contains('\\')
++        {
++            return Err((StatusCode::BAD_REQUEST, "invalid storage path segment".into()));
++        }
++    }
++
++    let object_uri = format!("{localhost_root}/{trimmed}");
++    let fs_path = rooted_localhost_fs_path(&state.data_dir, &object_uri).ok_or_else(|| {
++        (
++            StatusCode::BAD_REQUEST,
++            "storage path is not file-backed".to_string(),
++        )
++    })?;
++
++    Ok(Target {
++        fs_path,
++        localhost_root,
++        object_uri,
++        principal_id,
++    })
++}
++
++fn content_type_for(path: &str) -> &'static str {
++    let ext = path.rsplit('.').next().unwrap_or("");
++    match ext.to_ascii_lowercase().as_str() {
++        "json" => "application/json",
++        "txt" => "text/plain",
++        "html" | "htm" => "text/html",
++        "css" => "text/css",
++        "js" => "application/javascript",
++        "png" => "image/png",
++        "jpg" | "jpeg" => "image/jpeg",
++        "gif" => "image/gif",
++        "svg" => "image/svg+xml",
++        _ => "application/octet-stream",
++    }
++}
++
++pub async fn capsule_storage_get(
++    State(state): State<GatewayState>,
++    Path((capsule, path)): Path<(String, String)>,
++    Query(query): Query<StorageQuery>,
++    headers: HeaderMap,
++) -> Response {
++    let target = match resolve_target(&state, &headers, &capsule, &path) {
++        Ok(t) => t,
++        Err((s, m)) => return (s, m).into_response(),
++    };
++
++    if query.list.unwrap_or(false) {
++        let entries = match std::fs::read_dir(&target.fs_path) {
++            Ok(it) => it,
++            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
++                return axum::Json(serde_json::json!([])).into_response();
++            }
++            Err(err) => {
++                return (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response();
++            }
++        };
++        let names: Vec<String> = entries
++            .filter_map(|r| r.ok())
++            .map(|e| e.file_name().to_string_lossy().to_string())
++            .collect();
++        return axum::Json(names).into_response();
++    }
++
++    if !target.fs_path.is_file() {
++        return (StatusCode::NOT_FOUND, "object not found").into_response();
++    }
++    match crate::auth::read_principal_root_object(
++        &state.data_dir,
++        &target.principal_id,
++        &target.localhost_root,
++        &target.object_uri,
++        &target.fs_path,
++    ) {
++        Ok(bytes) => (
++            StatusCode::OK,
++            [
++                ("content-type", content_type_for(&path)),
++                ("cache-control", "no-store"),
++            ],
++            bytes,
++        )
++            .into_response(),
++        Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response(),
++    }
++}
++
++pub async fn capsule_storage_put(
++    State(state): State<GatewayState>,
++    Path((capsule, path)): Path<(String, String)>,
++    headers: HeaderMap,
++    body: Bytes,
++) -> Response {
++    let target = match resolve_target(&state, &headers, &capsule, &path) {
++        Ok(t) => t,
++        Err((s, m)) => return (s, m).into_response(),
++    };
++    if let Some(parent) = target.fs_path.parent() {
++        if let Err(err) = std::fs::create_dir_all(parent) {
++            return (StatusCode::INTERNAL_SERVER_ERROR, format!("mkdir: {err}"))
++                .into_response();
++        }
++    }
++    match crate::auth::write_principal_root_object(
++        &state.data_dir,
++        &target.principal_id,
++        &target.localhost_root,
++        &target.object_uri,
++        &target.fs_path,
++        body.as_ref(),
++    ) {
++        Ok(()) => StatusCode::NO_CONTENT.into_response(),
++        Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response(),
++    }
++}
++
++pub async fn capsule_storage_delete(
++    State(state): State<GatewayState>,
++    Path((capsule, path)): Path<(String, String)>,
++    headers: HeaderMap,
++) -> Response {
++    let target = match resolve_target(&state, &headers, &capsule, &path) {
++        Ok(t) => t,
++        Err((s, m)) => return (s, m).into_response(),
++    };
++    match std::fs::remove_file(&target.fs_path) {
++        Ok(()) => StatusCode::NO_CONTENT.into_response(),
++        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
++            StatusCode::NO_CONTENT.into_response()
++        }
++        Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response(),
++    }
++}

@@ -9,8 +9,9 @@
   "entrypoint": "index.html",
   "permissions": {
     "storage": [
-      "localhost://Users/self/.AppData/LocalHost/Hey/*",
-      "localhost://Users/self/.AppData/Identity/*"
+      "localhost://Users/*/Hey/*",
+      "localhost://Users/*/.AppData/Identity/*",
+      "localhost://Users/*/.AppData/SystemServices/Shell/*"
     ],
     "messaging": [
       "elastos://peer/hey-v0/*",

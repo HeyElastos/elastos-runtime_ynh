@@ -4,107 +4,34 @@
 // treat hey-home as the canonical host; stock `home` works but is a
 // degraded fallback. This file owns the cross-shell contract:
 //
-//   /api/localhost/Users/self/.AppData/SystemServices/Shell/active.json
+//   .AppData/SystemServices/Shell/active.json
 //     { name, version, writtenAt }   ← whichever shell is "active"
 //       writes this on boot. Hey reads it to know its host.
 //
-//   /api/localhost/Users/self/.AppData/Identity/profile.json
+//   .AppData/Identity/profile.json
 //     { name, didKey, recoveryKeyHash, passkeys, createdAt, createdBy }
 //       ← shared identity used by both hey-home and the Hey app, so
 //         the user doesn't sign up twice.
+//
+// Both paths sit OUTSIDE the Hey/ prefix so they land at the per-user
+// principal root, where other capsules under the same user can read
+// them via the same /api/apps/<their-name>/storage/.AppData/... route
+// (or, for the shell, via the privileged /api/localhost/Users/self/*
+// route — both hash to the same on-disk location).
 
-// Subpath-aware prefix — kept in sync with lib/runtime.js's API_BASE so
-// fetch calls below resolve to /elastos/api/... under YunoHost mounts.
-const API_BASE = (() => {
-  if (typeof window === "undefined") return "";
-  const m = window.location.pathname.match(/^(.*?)\/apps\/[^/]+\//);
-  return m ? m[1] : "";
-})();
+import { sharedStorage } from "./runtime";
 
-// Runtime API session token read from the launched-capsule URL. Same
-// recipe as lib/runtime.js — must be present as Authorization: Bearer or
-// the runtime's auth_middleware returns 401 before the handler runs.
-const RUNTIME_TOKEN_KEY = "hey-runtime-token";
-// Read whatever the URL/sessionStorage already has. After lib/runtime.js's
-// bearerReady completes (cookie-to-Bearer handshake on direct visits),
-// sessionStorage holds the freshly minted token; re-read at call time so
-// safeGetJson/safePutJson don't fire with a null Authorization header.
-const readBearer = () => {
-  if (typeof window === "undefined") return null;
-  try {
-    // The session bearer is minted by lib/runtime.js's bearerReady
-    // (exchange of the home_token launch envelope for a real session
-    // bearer at POST /api/apps/hey-social/runtime-token). It's stored
-    // under RUNTIME_TOKEN_KEY in sessionStorage. We just read it —
-    // never extract from URL, because the URL's home_token is the
-    // launch envelope (not a Bearer), and writing it here would
-    // poison the bearer cache.
-    return sessionStorage.getItem(RUNTIME_TOKEN_KEY);
-  } catch {
-    return null;
-  }
-};
-const bearerHeaders = () => {
-  const t = readBearer();
-  return t ? { Authorization: `Bearer ${t}` } : {};
+const SHELL_MARKER_SUFFIX = ".AppData/SystemServices/Shell/active.json";
+const SHARED_IDENTITY_SUFFIX = ".AppData/Identity/profile.json";
+
+const safeRead = async (suffix) => {
+  try { return await sharedStorage.readJson(suffix); }
+  catch { return null; }
 };
 
-const SHELL_MARKER_PATH =
-  `${API_BASE}/api/localhost/Users/self/.AppData/SystemServices/Shell/active.json`;
-const SHARED_IDENTITY_PATH =
-  `${API_BASE}/api/localhost/Users/self/.AppData/Identity/profile.json`;
-
-// Storage endpoints require an X-Capability-Token in addition to the
-// session Bearer. Acquire one for the (resource, action) pair via the
-// runtime's auto-grant flow — the manifest declares Identity/* and
-// SystemServices/Shell/* under permissions.storage so the runtime
-// auto-grants immediately. Caller path is /elastos/api/localhost/...;
-// the runtime's permission system uses localhost:// URIs.
-import { getCapabilityToken, bearerReady } from "./runtime";
-
-const pathToResource = (apiPath) =>
-  "localhost://" + apiPath.replace(/^.*?\/api\/localhost\//, "");
-
-const safeGetJson = async (path) => {
-  try {
-    // Block until lib/runtime.js's boot handshake has tried to mint a
-    // bearer (or proven there's no cookie). Otherwise direct visits to
-    // /apps/hey-social/ — where the URL has no ?runtime_token=… —
-    // would always 401 here.
-    await bearerReady;
-    const resource = pathToResource(path);
-    const cap = await getCapabilityToken(resource, "read");
-    const r = await fetch(path, {
-      credentials: "include",
-      headers: { ...bearerHeaders(), "X-Capability-Token": cap },
-    });
-    if (r.status === 404) return null;
-    if (!r.ok) return null;
-    return await r.json();
-  } catch (_) {
-    return null;
-  }
-};
-
-const safePutJson = async (path, value) => {
-  try {
-    await bearerReady;
-    const resource = pathToResource(path);
-    const cap = await getCapabilityToken(resource, "write");
-    const r = await fetch(path, {
-      method: "PUT",
-      credentials: "include",
-      headers: {
-        "Content-Type": "application/json",
-        ...bearerHeaders(),
-        "X-Capability-Token": cap,
-      },
-      body: JSON.stringify(value),
-    });
-    return r.ok;
-  } catch (_) {
-    return false;
-  }
+const safeWrite = async (suffix, value) => {
+  try { await sharedStorage.writeJson(suffix, value); return true; }
+  catch { return false; }
 };
 
 // ── Shell detection ────────────────────────────────────────────────
@@ -115,7 +42,7 @@ export const detectShell = async () => {
   if (cachedShell) return cachedShell;
 
   // Primary: marker file written by shells that opt in (hey-home does).
-  const marker = await safeGetJson(SHELL_MARKER_PATH);
+  const marker = await safeRead(SHELL_MARKER_SUFFIX);
   if (marker && marker.name) {
     cachedShell = {
       name: marker.name,
@@ -151,10 +78,13 @@ export const isHostedByStockHome = async () => {
 
 // ── Shared identity ────────────────────────────────────────────────
 
-export const readSharedIdentity = () => safeGetJson(SHARED_IDENTITY_PATH);
+export const readSharedIdentity = () => safeRead(SHARED_IDENTITY_SUFFIX);
 
 export const writeSharedIdentity = (profile) =>
-  safePutJson(SHARED_IDENTITY_PATH, profile);
+  safeWrite(SHARED_IDENTITY_SUFFIX, profile);
+
+export const deleteSharedIdentity = () =>
+  sharedStorage.remove(SHARED_IDENTITY_SUFFIX).catch(() => false);
 
 // Reset the in-memory cache (used after a "Switch identity" reset).
 export const _resetShellCache = () => {

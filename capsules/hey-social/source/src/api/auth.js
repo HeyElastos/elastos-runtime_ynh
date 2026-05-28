@@ -1,13 +1,15 @@
 // Hey Social — capsule-only API layer.
 //
 // All data flows through the Elastos Runtime:
-//   - storage:  /api/localhost/Users/self/.AppData/LocalHost/Hey/* (profile,
-//               follows, post cache, notification index)
+//   - storage:  /api/apps/hey-social/storage/Hey/* (profile, follows,
+//               post cache, notification index — per-capsule namespace
+//               under the per-user principal root)
 //   - peer:     /api/provider/peer/* (Carrier gossip — posts, follows, comments)
 //   - ipfs:     /api/provider/ipfs/* (post media + avatar storage)
 //   - did:      /api/provider/did/* (DID resolution for unknown senders)
-//   - shell.js: /api/localhost/Users/self/.AppData/Identity/profile.json
-//               (shared identity with the host shell, e.g. hey-home)
+//   - shell.js: /api/apps/hey-social/storage/.AppData/Identity/profile.json
+//               (shared identity with the host shell, e.g. hey-home —
+//               shares the principal root, sits OUTSIDE the Hey/ prefix)
 //
 // There is no Hey-owned backend. Signing happens with a non-extractable
 // Web Crypto Ed25519 key kept in IndexedDB (see lib/keystore.js).
@@ -21,7 +23,7 @@ import { storage, peer, ipfs } from "../lib/runtime";
 import { setSession, clearSession, getKeypair } from "../lib/session";
 import { deleteSigningKey } from "../lib/keystore";
 import { createSignedEvent } from "../lib/events";
-import { readSharedIdentity, writeSharedIdentity } from "../lib/shell";
+import { readSharedIdentity, writeSharedIdentity, deleteSharedIdentity } from "../lib/shell";
 import * as heyVault from "../lib/vault";
 
 const PROFILE_FILE = "profile.json";
@@ -268,8 +270,7 @@ export const deleteAccount = async () => {
   await tryDo("remove follows",       () => storage.remove(FOLLOWS_FILE));
   await tryDo("remove vault wraps",   () => storage.remove("vault-wraps.json"));
   await tryDo("remove passkey creds", () => storage.remove("passkey-creds.json"));
-  await tryDo("remove shared identity",
-    () => storage.remove("../../Identity/profile.json"));
+  await tryDo("remove shared identity", deleteSharedIdentity);
 
   // 2) Client-side: IndexedDB-stored signing key (non-extractable
   //    CryptoKey persists across cookie clears; only Clear All Site
@@ -612,31 +613,6 @@ export const deletePost = async (postId) => {
     ts: now(),
   });
   return { ok: true };
-};
-
-// Edit a post's caption. Images stay; the editor only changes text
-// for now (mutating images requires re-staging IPFS CIDs + updating
-// feed thumbnails, scope for later). Adds `editedAt` to the record so
-// the UI can surface an "edited" pill if it wants. Publishes a
-// signed `post.edit` event over the user's posts topic so federated
-// followers see the change.
-export const editPost = async (postId, { caption }) => {
-  const me = await ensureProfile();
-  const post = await readPost(postId);
-  if (!post) throw new Error("Post not found");
-  if (post.userDid !== me.didKey) throw new Error("Not your post");
-  const next = {
-    ...post,
-    caption: typeof caption === "string" ? caption : post.caption,
-    editedAt: now(),
-  };
-  await storage.writeJson(`posts/by-id/${postId}.json`, next);
-  await signEventAndPublish(`hey-v0/user/${me.didKey}/posts`, "post.edit", {
-    post_id: postId,
-    caption: next.caption,
-    ts: now(),
-  });
-  return next;
 };
 
 // ─── Notifications ───────────────────────────────────────────────────
