@@ -37,7 +37,7 @@
       ],
       "note": "WASM capsule (wasm32-wasip1) \u2014 platform-independent, runs via runtime bridge"
     },
-    "notepad": {
+    "did-provider": {
       "cid": "",
       "sha256": "",
       "size": 0,
@@ -46,7 +46,79 @@
         "aarch64-linux"
       ]
     },
-    "did-provider": {
+    "chain-provider": {
+      "cid": "",
+      "sha256": "",
+      "size": 0,
+      "platforms": [
+        "x86_64-linux",
+        "aarch64-linux"
+      ]
+    },
+    "net-provider": {
+      "cid": "",
+      "sha256": "",
+      "size": 0,
+      "platforms": [
+        "x86_64-linux",
+        "aarch64-linux"
+      ]
+    },
+    "exit-provider": {
+      "cid": "",
+      "sha256": "",
+      "size": 0,
+      "platforms": [
+        "x86_64-linux",
+        "aarch64-linux"
+      ]
+    },
+    "browser-engine-adapter": {
+      "cid": "",
+      "sha256": "",
+      "size": 0,
+      "platforms": [
+        "x86_64-linux",
+        "aarch64-linux"
+      ]
+    },
+    "wallet-provider": {
+      "cid": "",
+      "sha256": "",
+      "size": 0,
+      "platforms": [
+        "x86_64-linux",
+        "aarch64-linux"
+      ]
+    },
+    "drm-provider": {
+      "cid": "",
+      "sha256": "",
+      "size": 0,
+      "platforms": [
+        "x86_64-linux",
+        "aarch64-linux"
+      ]
+    },
+    "rights-provider": {
+      "cid": "",
+      "sha256": "",
+      "size": 0,
+      "platforms": [
+        "x86_64-linux",
+        "aarch64-linux"
+      ]
+    },
+    "key-provider": {
+      "cid": "",
+      "sha256": "",
+      "size": 0,
+      "platforms": [
+        "x86_64-linux",
+        "aarch64-linux"
+      ]
+    },
+    "decrypt-provider": {
       "cid": "",
       "sha256": "",
       "size": 0,
@@ -64,7 +136,7 @@
         "aarch64-linux"
       ]
     },
-    "blobs-provider": {
+    "availability-provider": {
       "cid": "",
       "sha256": "",
       "size": 0,
@@ -171,6 +243,266 @@
         }
       }
     },
+    "chain-provider": {
+      "install_path": "bin/chain-provider",
+      "description": "Host chain provider binary for typed production chain access",
+      "platforms": {
+        "linux-amd64": {
+          "cid": "",
+          "checksum": "",
+          "size": 0,
+          "release_path": "chain-provider-linux-amd64",
+          "install_path": "bin/chain-provider"
+        },
+        "linux-arm64": {
+          "cid": "",
+          "checksum": "",
+          "size": 0,
+          "release_path": "chain-provider-linux-arm64",
+          "install_path": "bin/chain-provider"
+        }
+      }
+    },
+    "net-provider": {
+      "install_path": "bin/net-provider",
+      "description": "Host Browser/Net provider binary for exit-mediated web connectivity",
+      "platforms": {
+        "linux-amd64": {
+          "cid": "",
+          "checksum": "",
+          "size": 0,
+          "release_path": "net-provider-linux-amd64",
+          "install_path": "bin/net-provider"
+        },
+        "linux-arm64": {
+          "cid": "",
+          "checksum": "",
+          "size": 0,
+          "release_path": "net-provider-linux-arm64",
+          "install_path": "bin/net-provider"
+        }
+      }
+    },
+    "exit-provider": {
+      "install_path": "bin/exit-provider",
+      "description": "Host Browser Exit provider contract for Runtime-mediated network egress",
+      "platforms": {
+        "linux-amd64": {
+          "cid": "",
+          "checksum": "",
+          "size": 0,
+          "release_path": "exit-provider-linux-amd64",
+          "install_path": "bin/exit-provider"
+        },
+        "linux-arm64": {
+          "cid": "",
+          "checksum": "",
+          "size": 0,
+          "release_path": "exit-provider-linux-arm64",
+          "install_path": "bin/exit-provider"
+        }
+      }
+    },
+    "browser-engine-adapter": {
+      "install_path": "bin/browser-engine-adapter",
+      "description": "Host Browser Engine Adapter contract for Runtime-mediated browser rendering",
+      "platforms": {
+        "linux-amd64": {
+          "cid": "",
+          "checksum": "sha256:015cffd1c5d7f2ea2ec1dccfb1bfd6f59bcb376989dab014210998339ebda102",
+          "size": 901184,
+          "release_path": "browser-engine-adapter-linux-amd64",
+          "install_path": "bin/browser-engine-adapter"
+        },
+        "linux-arm64": {
+          "cid": "",
+          "checksum": "",
+          "size": 0,
+          "release_path": "browser-engine-adapter-linux-arm64",
+          "install_path": "bin/browser-engine-adapter"
+        }
+      }
+    },
+    "browser-engine-supervisor": {
+      "install_path": "bin/browser-engine-supervisor",
+      "description": "Linux Browser Engine supervisor helper that launches native engines with Runtime-only network handoff",
+      "platforms": {
+        "linux-amd64": {
+          "cid": "",
+          "checksum": "",
+          "size": 0,
+          "release_path": "browser-engine-supervisor-linux-amd64",
+          "install_path": "bin/browser-engine-supervisor"
+        },
+        "linux-arm64": {
+          "cid": "",
+          "checksum": "",
+          "size": 0,
+          "release_path": "browser-engine-supervisor-linux-arm64",
+          "install_path": "bin/browser-engine-supervisor"
+        }
+      }
+    },
+    "browser-native-proxy-engine": {
+      "install_path": "bin/browser-native-proxy-engine",
+      "description": "Native Chromium/CEF browser wrapper with loopback proxy and Runtime Exit relay networking",
+      "platforms": {
+        "linux-amd64": {
+          "cid": "",
+          "checksum": "",
+          "size": 0,
+          "release_path": "browser-native-proxy-engine-linux-amd64",
+          "install_path": "bin/browser-native-proxy-engine"
+        },
+        "linux-arm64": {
+          "cid": "",
+          "checksum": "",
+          "size": 0,
+          "release_path": "browser-native-proxy-engine-linux-arm64",
+          "install_path": "bin/browser-native-proxy-engine"
+        }
+      }
+    },
+    "browser-stream-bridge": {
+      "install_path": "bin/browser-stream-bridge",
+      "description": "Linux Browser Engine Unix stream bridge for Runtime-owned byte transport",
+      "platforms": {
+        "linux-amd64": {
+          "cid": "",
+          "checksum": "",
+          "size": 0,
+          "release_path": "browser-stream-bridge-linux-amd64",
+          "install_path": "bin/browser-stream-bridge"
+        },
+        "linux-arm64": {
+          "cid": "",
+          "checksum": "",
+          "size": 0,
+          "release_path": "browser-stream-bridge-linux-arm64",
+          "install_path": "bin/browser-stream-bridge"
+        }
+      }
+    },
+    "browser-local-exit": {
+      "install_path": "bin/browser-local-exit",
+      "description": "Linux Browser local Exit relay that dials allowlisted public TCP targets behind Runtime-owned Browser streams",
+      "platforms": {
+        "linux-amd64": {
+          "cid": "",
+          "checksum": "",
+          "size": 0,
+          "release_path": "browser-local-exit-linux-amd64",
+          "install_path": "bin/browser-local-exit"
+        },
+        "linux-arm64": {
+          "cid": "",
+          "checksum": "",
+          "size": 0,
+          "release_path": "browser-local-exit-linux-arm64",
+          "install_path": "bin/browser-local-exit"
+        }
+      }
+    },
+    "wallet-provider": {
+      "install_path": "bin/wallet-provider",
+      "description": "Host wallet provider binary for proof challenges, linked-account metadata, and typed wallet authority",
+      "platforms": {
+        "linux-amd64": {
+          "cid": "",
+          "checksum": "sha256:c4171501996c2fa137b21569bdc19a85c18f72b80ddbca92d837ff5c80c9c05f",
+          "size": 2702312,
+          "release_path": "wallet-provider-linux-amd64",
+          "install_path": "bin/wallet-provider"
+        },
+        "linux-arm64": {
+          "cid": "",
+          "checksum": "",
+          "size": 0,
+          "release_path": "wallet-provider-linux-arm64",
+          "install_path": "bin/wallet-provider"
+        }
+      }
+    },
+    "drm-provider": {
+      "install_path": "bin/drm-provider",
+      "description": "Host DRM provider binary for Runtime-mediated protected content requests",
+      "platforms": {
+        "linux-amd64": {
+          "cid": "",
+          "checksum": "",
+          "size": 0,
+          "release_path": "drm-provider-linux-amd64",
+          "install_path": "bin/drm-provider"
+        },
+        "linux-arm64": {
+          "cid": "",
+          "checksum": "",
+          "size": 0,
+          "release_path": "drm-provider-linux-arm64",
+          "install_path": "bin/drm-provider"
+        }
+      }
+    },
+    "rights-provider": {
+      "install_path": "bin/rights-provider",
+      "description": "Host rights provider binary for typed protected-content access checks",
+      "platforms": {
+        "linux-amd64": {
+          "cid": "",
+          "checksum": "",
+          "size": 0,
+          "release_path": "rights-provider-linux-amd64",
+          "install_path": "bin/rights-provider"
+        },
+        "linux-arm64": {
+          "cid": "",
+          "checksum": "",
+          "size": 0,
+          "release_path": "rights-provider-linux-arm64",
+          "install_path": "bin/rights-provider"
+        }
+      }
+    },
+    "key-provider": {
+      "install_path": "bin/key-provider",
+      "description": "Host key provider binary for fail-closed protected-content key release",
+      "platforms": {
+        "linux-amd64": {
+          "cid": "",
+          "checksum": "",
+          "size": 0,
+          "release_path": "key-provider-linux-amd64",
+          "install_path": "bin/key-provider"
+        },
+        "linux-arm64": {
+          "cid": "",
+          "checksum": "",
+          "size": 0,
+          "release_path": "key-provider-linux-arm64",
+          "install_path": "bin/key-provider"
+        }
+      }
+    },
+    "decrypt-provider": {
+      "install_path": "bin/decrypt-provider",
+      "description": "Host decrypt/render provider binary for fail-closed protected-content sessions",
+      "platforms": {
+        "linux-amd64": {
+          "cid": "",
+          "checksum": "",
+          "size": 0,
+          "release_path": "decrypt-provider-linux-amd64",
+          "install_path": "bin/decrypt-provider"
+        },
+        "linux-arm64": {
+          "cid": "",
+          "checksum": "",
+          "size": 0,
+          "release_path": "decrypt-provider-linux-arm64",
+          "install_path": "bin/decrypt-provider"
+        }
+      }
+    },
     "webspace-provider": {
       "install_path": "bin/webspace-provider",
       "description": "Host WebSpace resolver binary required for localhost://WebSpaces/<moniker>/... handles",
@@ -233,6 +565,62 @@
         }
       }
     },
+    "wallet-metamask": {
+      "install_path": "capsules/wallet-metamask",
+      "description": "Optional MetaMask approval-method connector capsule",
+      "platforms": {
+        "*": {
+          "cid": "",
+          "checksum": "",
+          "size": 0,
+          "release_path": "wallet-metamask.tar.gz",
+          "extract_path": "wallet-metamask",
+          "install_path": "capsules/wallet-metamask"
+        }
+      }
+    },
+    "wallet-unisat": {
+      "install_path": "capsules/wallet-unisat",
+      "description": "Optional UniSat Bitcoin approval-method connector capsule",
+      "platforms": {
+        "*": {
+          "cid": "",
+          "checksum": "",
+          "size": 0,
+          "release_path": "wallet-unisat.tar.gz",
+          "extract_path": "wallet-unisat",
+          "install_path": "capsules/wallet-unisat"
+        }
+      }
+    },
+    "wallet": {
+      "install_path": "capsules/wallet",
+      "description": "Wallet accounts, balances, approvals, and approval methods",
+      "platforms": {
+        "*": {
+          "cid": "",
+          "checksum": "",
+          "size": 0,
+          "release_path": "wallet.tar.gz",
+          "extract_path": "wallet",
+          "install_path": "capsules/wallet"
+        }
+      }
+    },
+    "browser": {
+      "install_path": "capsules/browser",
+      "description": "General-purpose Browser capsule with Runtime wallet and network boundary",
+      "platforms": {
+        "*": {
+          "cid": "",
+          "checksum": "",
+          "size": 0,
+          "release_path": "browser.tar.gz",
+          "extract_path": "browser",
+          "install_path": "capsules/browser"
+        }
+      }
+    },
     "chat": {
       "install_path": "capsules/chat",
       "description": "Packaged microVM chat bundle for the full-screen Carrier chat path",
@@ -289,43 +677,23 @@
         }
       }
     },
-    "blobs-provider": {
-      "install_path": "bin/blobs-provider",
-      "description": "iroh-blobs direct P2P file transfer (unlimited size, bounded by disk + receiver online). Backs hey-messenger's file share.",
+    "availability-provider": {
+      "install_path": "bin/availability-provider",
+      "description": "Configured SmartWeb availability adapter for Elacity or supernode replication targets",
       "platforms": {
         "linux-amd64": {
           "cid": "",
           "checksum": "",
           "size": 0,
-          "release_path": "blobs-provider-linux-amd64",
-          "install_path": "bin/blobs-provider"
+          "release_path": "availability-provider-linux-amd64",
+          "install_path": "bin/availability-provider"
         },
         "linux-arm64": {
           "cid": "",
           "checksum": "",
           "size": 0,
-          "release_path": "blobs-provider-linux-arm64",
-          "install_path": "bin/blobs-provider"
-        }
-      }
-    },
-    "notepad": {
-      "install_path": "bin/notepad",
-      "description": "Capability-aware notes CLI; auto-granted access to Users/self/Documents/Notes/* via shell+localhost-provider",
-      "platforms": {
-        "linux-amd64": {
-          "cid": "",
-          "checksum": "",
-          "size": 0,
-          "release_path": "notepad-linux-amd64",
-          "install_path": "bin/notepad"
-        },
-        "linux-arm64": {
-          "cid": "",
-          "checksum": "",
-          "size": 0,
-          "release_path": "notepad-linux-arm64",
-          "install_path": "bin/notepad"
+          "release_path": "availability-provider-linux-arm64",
+          "install_path": "bin/availability-provider"
         }
       }
     },
@@ -581,7 +949,7 @@
     },
     "hey-messenger": {
       "install_path": "capsules/hey-messenger",
-      "description": "Hey Chat \u2014 P2P messenger with hybrid post-quantum E2E for DMs, iroh-blobs file share, Carrier transport",
+      "description": "Hey Chat \u2014 P2P messenger with PQ-hybrid E2E DMs (iroh-blobs file share)",
       "platforms": {
         "*": {
           "cid": "",
@@ -590,6 +958,26 @@
           "release_path": "hey-messenger.tar.gz",
           "extract_path": "hey-messenger",
           "install_path": "capsules/hey-messenger"
+        }
+      }
+    },
+    "blobs-provider": {
+      "install_path": "capsules/blobs-provider",
+      "description": "iroh-blobs P2P file transfer provider \u2014 backs Hey Chat",
+      "platforms": {
+        "linux-amd64": {
+          "cid": "",
+          "checksum": "",
+          "size": 0,
+          "release_path": "blobs-provider-linux-amd64",
+          "install_path": "bin/blobs-provider"
+        },
+        "linux-arm64": {
+          "cid": "",
+          "checksum": "",
+          "size": 0,
+          "release_path": "blobs-provider-linux-arm64",
+          "install_path": "bin/blobs-provider"
         }
       }
     }
@@ -608,10 +996,21 @@
         "shell",
         "localhost-provider",
         "did-provider",
+        "net-provider",
+        "exit-provider",
+        "browser-engine-adapter",
+        "browser-engine-supervisor",
+        "browser-native-proxy-engine",
+        "browser-stream-bridge",
+        "browser-local-exit",
         "webspace-provider",
         "home-cli",
         "home",
         "system",
+        "wallet-metamask",
+        "wallet-unisat",
+        "wallet",
+        "browser",
         "documents",
         "library",
         "inbox"
@@ -623,10 +1022,21 @@
         "shell",
         "localhost-provider",
         "did-provider",
+        "net-provider",
+        "exit-provider",
+        "browser-engine-adapter",
+        "browser-engine-supervisor",
+        "browser-native-proxy-engine",
+        "browser-stream-bridge",
+        "browser-local-exit",
         "webspace-provider",
         "home-cli",
         "home",
         "system",
+        "wallet-metamask",
+        "wallet-unisat",
+        "wallet",
+        "browser",
         "chat",
         "chat-wasm",
         "gba-emulator",
@@ -661,16 +1071,41 @@
         "did-provider"
       ]
     },
+    "blockchain": {
+      "description": "Runtime plus typed chain, wallet, DRM, rights, key, and decrypt providers for blockchain/auth/protected-content development",
+      "components": [
+        "shell",
+        "localhost-provider",
+        "did-provider",
+        "chain-provider",
+        "wallet-provider",
+        "drm-provider",
+        "rights-provider",
+        "key-provider",
+        "decrypt-provider"
+      ]
+    },
     "agent-local-ai": {
       "description": "Local AI agent with IPFS",
       "components": [
         "shell",
         "localhost-provider",
         "did-provider",
+        "net-provider",
+        "exit-provider",
+        "browser-engine-adapter",
+        "browser-engine-supervisor",
+        "browser-native-proxy-engine",
+        "browser-stream-bridge",
+        "browser-local-exit",
         "webspace-provider",
         "home-cli",
         "home",
         "system",
+        "wallet-metamask",
+        "wallet-unisat",
+        "wallet",
+        "browser",
         "kubo",
         "ipfs-provider",
         "documents",
@@ -687,11 +1122,25 @@
         "localhost-provider",
         "did-provider",
         "webspace-provider",
+        "chain-provider",
+        "net-provider",
+        "exit-provider",
+        "browser-engine-adapter",
+        "browser-engine-supervisor",
+        "browser-native-proxy-engine",
+        "browser-stream-bridge",
+        "browser-local-exit",
+        "wallet-provider",
         "home-cli",
         "home",
         "system",
+        "wallet-metamask",
+        "wallet-unisat",
+        "wallet",
+        "browser",
         "kubo",
         "ipfs-provider",
+        "availability-provider",
         "site-provider",
         "tunnel-provider",
         "documents",
@@ -707,15 +1156,33 @@
         "localhost-provider",
         "did-provider",
         "webspace-provider",
+        "chain-provider",
+        "net-provider",
+        "exit-provider",
+        "browser-engine-adapter",
+        "browser-engine-supervisor",
+        "browser-native-proxy-engine",
+        "browser-stream-bridge",
+        "browser-local-exit",
+        "wallet-provider",
+        "drm-provider",
+        "rights-provider",
+        "key-provider",
+        "decrypt-provider",
         "home-cli",
         "home",
         "system",
+        "wallet-metamask",
+        "wallet-unisat",
+        "wallet",
+        "browser",
         "chat",
         "chat-wasm",
         "gba-emulator",
         "gba-ucity",
         "chat-room",
         "ipfs-provider",
+        "availability-provider",
         "site-provider",
         "tunnel-provider",
         "documents",
