@@ -22,7 +22,6 @@ export IPFS_PATH="$XDG_DATA_HOME/ipfs"
 
 ELASTOS_BIN="$HOME/.local/bin/elastos"
 KUBO_BIN="$XDG_DATA_HOME/elastos/bin/kubo"
-IPFS_PROVIDER_BIN="$XDG_DATA_HOME/elastos/bin/ipfs-provider"
 COORDS_FILE="$XDG_DATA_HOME/elastos/runtime-coords.json"
 LOG_DIR="$HOME/logs"
 mkdir -p "$LOG_DIR"
@@ -50,14 +49,22 @@ fi
 #   sudo systemctl restart elastos_runtime
 export ELASTOS_AUTH_GATE=1
 
-# ── IPFS backend (Kubo + ipfs-provider) ─────────────────────────────
-# Hey Social and the IPFS provider capsule both need a running Kubo
-# daemon. Without these subprocesses, /api/provider/ipfs/* returns
-# errors and posting media fails. Started here so the systemd unit
-# supervises them alongside `elastos serve` — they die when the unit
-# stops and restart with it.
+# ── Kubo daemon (IPFS) ──────────────────────────────────────────────
+# Kubo is a long-running TCP daemon (RPC API on :5001, gateway on :8080)
+# that ipfs-provider connects to over HTTP. The runtime does NOT spawn
+# kubo itself — we manage it here so systemd supervises it alongside
+# `elastos serve`.
+#
+# IMPORTANT: ipfs-provider is NOT started here. Elastos providers are
+# JSON-RPC-over-stdio child processes that the runtime spawns on demand
+# when a `/api/provider/<scheme>/*` request first lands. Starting one
+# manually with stdin attached to /dev/null makes it read EOF and exit
+# immediately (`starting → exiting` in ipfs-provider.log). The runtime
+# already knows about $XDG_DATA_HOME/elastos/bin/ipfs-provider via
+# components.json / the install pipeline; spawning is its job. Same
+# pattern as did-provider, webspace-provider, blobs-provider — none of
+# which we explicitly start here either.
 KUBO_PID=""
-IPFS_PROVIDER_PID=""
 
 if [ -x "$KUBO_BIN" ]; then
     # First-run repo init (idempotent — only writes config if missing).
@@ -70,24 +77,18 @@ if [ -x "$KUBO_BIN" ]; then
     "$KUBO_BIN" daemon >> "$LOG_DIR/kubo.log" 2>&1 < /dev/null &
     KUBO_PID=$!
     echo "Started kubo daemon PID $KUBO_PID (log: $LOG_DIR/kubo.log)"
-    # Wait up to 30s for the RPC API to bind so ipfs-provider can connect.
+    # Wait up to 30s for the RPC API to bind so ipfs-provider (spawned
+    # on demand by the runtime) finds a healthy kubo when it first runs.
     for _ in $(seq 1 30); do
         curl -fsS --max-time 1 http://127.0.0.1:5001/api/v0/version >/dev/null 2>&1 && break
         sleep 1
     done
 fi
 
-if [ -x "$IPFS_PROVIDER_BIN" ]; then
-    "$IPFS_PROVIDER_BIN" >> "$LOG_DIR/ipfs-provider.log" 2>&1 < /dev/null &
-    IPFS_PROVIDER_PID=$!
-    echo "Started ipfs-provider PID $IPFS_PROVIDER_PID (log: $LOG_DIR/ipfs-provider.log)"
-fi
-
 "$ELASTOS_BIN" serve &
 SERVE_PID=$!
 
 trap '
-    [ -n "$IPFS_PROVIDER_PID" ] && kill -TERM "$IPFS_PROVIDER_PID" 2>/dev/null || true
     [ -n "$KUBO_PID" ] && kill -TERM "$KUBO_PID" 2>/dev/null || true
     kill -TERM "$SERVE_PID" 2>/dev/null || true
     wait "$SERVE_PID" 2>/dev/null || true
