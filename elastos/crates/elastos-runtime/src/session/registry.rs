@@ -80,37 +80,6 @@ impl SessionRegistry {
         session
     }
 
-    /// Create a Capsule session bound to a specific browser capsule.
-    ///
-    /// The home gateway uses this when minting a session for a launched
-    /// capsule iframe. Tagging the session with `capsule_id` lets the
-    /// capability handler look up the capsule's manifest and auto-grant
-    /// permissions in `permissions.storage` / `permissions.messaging`
-    /// instead of requiring an out-of-band approval flow.
-    pub async fn create_capsule_session(&self, capsule_id: String) -> Session {
-        let default_owner = self.default_owner.read().await.clone();
-        let session = match default_owner {
-            Some(owner) => Session::with_owner(SessionType::Capsule, None, owner),
-            None => Session::new(SessionType::Capsule, None),
-        }
-        .with_capsule_id(capsule_id.clone());
-
-        {
-            let mut sessions = self.sessions.write().await;
-            sessions.insert(session.token.clone(), session.clone());
-        }
-
-        self.audit_log
-            .emit(crate::primitives::audit::AuditEvent::SessionCreated {
-                timestamp: SecureTimestamp::now(),
-                session_id: session.id.to_string(),
-                session_type: session.session_type.to_string(),
-                vm_id: Some(format!("capsule:{capsule_id}")),
-            });
-
-        session
-    }
-
     /// Validate a bearer token and return the session if valid
     pub async fn validate_token(&self, token: &str) -> Option<Session> {
         let sessions = self.sessions.read().await;

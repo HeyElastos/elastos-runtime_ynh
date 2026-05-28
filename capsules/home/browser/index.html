@@ -3,51 +3,27 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="application-name" content="Hey-Home" />
-    <meta name="theme-color" content="#091427" />
+    <meta name="application-name" content="ElastOS Home" />
+    <meta name="theme-color" content="#050608" />
+    <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-title" content="Hey-Home" />
+    <meta name="apple-mobile-web-app-title" content="ElastOS Home" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <title>Hey-Home · Elastos</title>
-    <!--
-      CSP intentionally NOT set here. An earlier attempt at a strict
-      CSP broke the upstream shell's WASM / worker-via-blob script
-      loading and locked out the launcher + topbar painting. Defense-
-      in-depth XSS protection should come from the runtime gateway
-      sending a CSP header per-capsule (where the policy can be tuned
-      to whatever the shell actually needs) rather than a one-size
-      meta tag baked into the HTML. Re-add only after testing with the
-      live shell + every WASM capsule the user might launch.
-    -->
-    <link rel="manifest" href="./manifest.webmanifest?v=home-20260427b" />
+    <title>Home · ElastOS</title>
+    <link rel="manifest" href="./manifest.webmanifest?v=home-20260526d" />
     <link rel="icon" href="./elastos-home-icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="./elastos-home-icon-192.png" />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Dancing+Script:wght@500;600;700&family=Inter:wght@200;400;500;600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="./style.css?v=hey-home-20260526n" />
-    <link rel="stylesheet" href="./hey-theme.css?v=hey-home-20260527t" />
-    <link rel="stylesheet" href="./hey-welcome.css?v=hey-home-20260527q" />
+    <link rel="stylesheet" href="./style.css?v=home-20260526d" />
   </head>
-  <body data-home-status="booting" data-locked="loading">
+  <body data-home-status="booting">
     <div class="desktop-shell">
       <div class="desktop-backdrop" data-overlay="false" aria-hidden="true"></div>
 
       <header class="toolbar" aria-label="Home toolbar">
-        <button id="toolbar-home" class="toolbar-btn toolbar-brand" type="button" aria-label="Go Home" title="Hey-Home">
-          <img src="./elastos-logo.svg" class="toolbar-elastos-logo" alt="Elastos" draggable="false" />
-          <!-- Handwritten "Hey" wordmark — same Dancing Script + gold-stroke
-               treatment as the welcome screen's hw-heymark-svg, scaled down
-               for the topbar. Three <text> children so per-letter styling
-               (size, kerning) stays trivially tweakable. -->
-          <svg class="toolbar-hey-mark" viewBox="0 0 120 56" aria-hidden="true">
-            <text x="6"  y="44">H</text>
-            <text x="46" y="44">e</text>
-            <text x="80" y="44">y</text>
-          </svg>
+        <button id="toolbar-home" class="toolbar-btn toolbar-brand" type="button" aria-label="Go Home" title="ElastOS">
+          <img src="./elastos-logo.svg" alt="ElastOS" draggable="false" />
         </button>
         <div class="toolbar-spacer"></div>
-        <span class="hey-mesh-pill">iroh · checking…</span>
         <button
           id="toolbar-inbox"
           class="toolbar-btn inbox-btn"
@@ -67,6 +43,13 @@
         >
           <img src="./fullscreen.svg" alt="" draggable="false" />
         </button>
+        <button
+          id="toolbar-sign-out"
+          class="toolbar-btn sign-out-btn"
+          type="button"
+          aria-label="Sign out"
+          title="Sign out"
+        ></button>
         <div id="clock" class="toolbar-clock">--:--</div>
       </header>
 
@@ -124,6 +107,29 @@
       </aside>
 
       <div id="desktop-context-menu" class="context-menu" role="menu" aria-label="Home actions" hidden></div>
+
+      <section id="home-unlock" class="home-unlock" aria-labelledby="home-unlock-title" aria-hidden="true" hidden>
+        <div class="home-unlock-card" role="dialog" aria-modal="true">
+          <img class="home-unlock-logo" src="./elastos-logo.svg" alt="ElastOS" draggable="false" />
+          <h1 id="home-unlock-title">Sign in</h1>
+          <p id="home-unlock-copy">Use your passkey to unlock your data, apps and desktop.</p>
+          <label class="visually-hidden" for="home-unlock-name">Name this passkey</label>
+          <input
+            id="home-unlock-name"
+            class="home-unlock-input"
+            type="text"
+            maxlength="64"
+            autocomplete="name"
+            placeholder="Your name"
+            hidden
+          />
+          <div class="home-unlock-actions">
+            <button id="home-unlock-primary" class="home-unlock-button" type="button">Use passkey</button>
+            <button id="home-unlock-secondary" class="home-unlock-button home-unlock-button-secondary" type="button" hidden>Create guest account</button>
+          </div>
+          <p id="home-unlock-status" class="home-unlock-status" data-tone="muted" role="status">One moment.</p>
+        </div>
+      </section>
     </div>
 
     <template id="window-template">
@@ -200,19 +206,6 @@
       </div>
     </template>
 
-    <!-- Federation status now lives inside the taskbar; bottom-corner
-         footer kept only as a fallback hidden via CSS. -->
-    <div class="hey-fed-footer" hidden>
-      <span class="dot"></span>
-      <span>iroh · checking…</span>
-    </div>
-
-    <script src="./hey-modal.js?v=hey-home-20260526c"></script>
-    <script src="./hey-runtime.js?v=hey-home-20260527n"></script>
-    <script src="./hey-identity.js?v=hey-home-20260527n"></script>
-    <script src="./hey-vault.js?v=hey-home-20260527k"></script>
-    <script src="./hey-mesh-status.js?v=hey-home-20260526b"></script>
-    <script src="./hey-welcome.js?v=hey-home-20260527u"></script>
-    <script type="module" src="./shell.js?v=hey-home-20260527g"></script>
+    <script type="module" src="./shell.js?v=home-20260526d"></script>
   </body>
 </html>

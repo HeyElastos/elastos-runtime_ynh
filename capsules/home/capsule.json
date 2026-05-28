@@ -2,7 +2,7 @@
   "schema": "elastos.capsule/v1",
   "name": "home",
   "version": "0.1.0",
-  "description": "Hey-themed desktop shell for Elastos — frosted launcher, taskbar, and welcome flow",
+  "description": "Runtime-owned Home surface for ElastOS",
   "author": "elastos",
   "role": "shell",
   "type": "wasm",
@@ -13,17 +13,7 @@
     "gpu": false
   },
   "permissions": {
-    "storage": [
-      "localhost://Users/self/.AppData/Identity/*",
-      "localhost://Users/self/.AppData/SystemServices/Shell/*",
-      "localhost://Users/self/.AppData/LocalHost/HeyHome/*",
-      "localhost://Users/self/.AppData/HeyVault/*",
-      "localhost://Users/self/.AppData/LocalHost/Hey/profile.json",
-      "localhost://Users/self/.AppData/LocalHost/Hey/passkey-creds.json"
-    ],
-    "messaging": [
-      "elastos://peer/*",
-      "elastos://did/*"
-    ]
+    "storage": [],
+    "messaging": []
   }
 }

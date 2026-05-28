@@ -47,8 +47,14 @@ pub async fn run_serve(
 
     let capsule_dir = if let Some(ref cid_str) = cid {
         tracing::info!("Loading capsule from CID: {}", cid_str);
-        let ipfs_bridge = crate::get_ipfs_bridge().await?;
-        Some(elastos_server::ipfs::prepare_capsule_from_cid(&ipfs_bridge, cid_str).await?)
+        let content_registry = crate::get_content_registry().await?;
+        Some(
+            elastos_server::content::prepare_capsule_from_content_provider(
+                &content_registry,
+                cid_str,
+            )
+            .await?,
+        )
     } else {
         capsule.clone()
     };
@@ -184,6 +190,7 @@ pub async fn run_serve(
                 let provider_registry = infra.provider_registry;
                 let namespace_store = infra.namespace_store;
                 let identity_state = infra.identity_state;
+                let host_helpers = infra.host_helpers;
 
                 let api_handle = tokio::spawn({
                     let runtime = runtime_arc.clone();
@@ -211,12 +218,13 @@ pub async fn run_serve(
                                 }),
                                 addr: api_bind_addr,
                                 capsule_dir: None,
-                                data_dir: Some(data_dir.clone()),
+                                data_dir: None,
                                 bootstrap_state: None,
                                 tls_config,
                                 supervisor: None,
                                 ready_tx: None,
                                 attach_secret: None,
+                                host_helpers,
                             },
                         )
                         .await
@@ -244,6 +252,7 @@ pub async fn run_serve(
                         infra.provider_registry.clone(),
                         infra.capability_manager.clone(),
                         infra.pending_store.clone(),
+                        data_dir.clone(),
                     )
                     .await;
 
@@ -272,6 +281,7 @@ pub async fn run_serve(
             infra.provider_registry.clone(),
             infra.capability_manager.clone(),
             infra.pending_store.clone(),
+            data_dir.clone(),
         )
         .await;
 
@@ -339,9 +349,6 @@ pub async fn run_serve(
     println!("  Capsule  localhost-provider  {}", infra.provider_cid);
     if let Some(ref cid) = infra.shell_cid {
         println!("  Capsule  shell           {}", cid);
-    }
-    if let Some(ref cid) = infra.notepad_cid {
-        println!("  Capsule  notepad         {}", cid);
     }
     println!("  App:     {}", app_session.token);
     println!("  API:     http://{}", addr);
@@ -436,6 +443,7 @@ pub async fn run_serve(
             supervisor: sup,
             ready_tx: None,
             attach_secret: Some(attach_secret),
+            host_helpers: infra.host_helpers,
         },
     )
     .await?;

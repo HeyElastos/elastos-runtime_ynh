@@ -166,11 +166,21 @@ const RESERVED_SUB_NAMES: &[&str] = &[
     "ai",
     "llama",
     "ipfs",
-    "blobs",
+    "content",
     "tunnel",
     "storage",
     "namespace",
     "message",
+    "chain",
+    "net",
+    "exit",
+    "browser-engine",
+    "wallet",
+    "drm",
+    "rights",
+    "key",
+    "decrypt",
+    "availability",
 ];
 
 /// Registry of providers
@@ -655,6 +665,22 @@ mod tests {
             .await
             .unwrap();
         assert!(registry.get_sub_provider("did").await.is_some());
+
+        for name in [
+            "chain",
+            "wallet",
+            "drm",
+            "rights",
+            "key",
+            "decrypt",
+            "availability",
+        ] {
+            registry
+                .register_sub_provider(name, Arc::new(MockProvider::new()))
+                .await
+                .unwrap();
+            assert!(registry.get_sub_provider(name).await.is_some());
+        }
 
         // Unregister removes the route (case-insensitive)
         registry.unregister_sub_provider("DiD").await;

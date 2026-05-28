@@ -25,7 +25,7 @@ const PROVIDER_VERSION: &str = match option_env!("ELASTOS_RELEASE_VERSION") {
 
 /// Request from runtime to provider
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "op", rename_all = "snake_case")]
+#[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ProviderRequest {
     /// Initialize the provider
     Init { config: ProviderConfig },
@@ -228,23 +228,11 @@ impl LocalProvider {
             )
         })?;
 
-        // Parse encryption key from hex. If the orchestrator didn't include
-        // one in the ProviderConfig, fall back to the
-        // ELASTOS_LOCALHOST_ENCRYPTION_KEY env var. The YunoHost wrapper
-        // exports this from a per-install file at
-        //   $XDG_DATA_HOME/elastos/.localhost-key
-        // (mode 0600, owned by the elastos_runtime user) so all on-disk
-        // state under this provider is AES-256-GCM encrypted at rest. The
-        // empty-string case still disables encryption entirely.
-        let key_hex = if !config.encryption_key.is_empty() {
-            config.encryption_key.clone()
-        } else {
-            std::env::var("ELASTOS_LOCALHOST_ENCRYPTION_KEY").unwrap_or_default()
-        };
-        let encryption_key = if key_hex.is_empty() {
+        // Parse encryption key from hex
+        let encryption_key = if config.encryption_key.is_empty() {
             None
         } else {
-            let bytes = hex::decode(&key_hex).map_err(|e| {
+            let bytes = hex::decode(&config.encryption_key).map_err(|e| {
                 io::Error::new(
                     io::ErrorKind::InvalidInput,
                     format!("bad encryption_key hex: {}", e),
@@ -433,15 +421,7 @@ impl LocalProvider {
             }
 
             let raw = fs::read(&full_path)?;
-            // Legacy-data tolerance: files written before encryption was
-            // enabled are plaintext on disk. Try to decrypt; if the bytes
-            // don't parse as an EncryptedEnvelope, treat them as plaintext.
-            // The next write through this path will encrypt them, so the
-            // population of unencrypted files shrinks to zero over time.
-            let plaintext = match decrypt_bytes(key, &raw) {
-                Ok(pt) => pt,
-                Err(_) => raw,
-            };
+            let plaintext = decrypt_bytes(key, &raw)?;
 
             let off = offset.unwrap_or(0) as usize;
             if off >= plaintext.len() {
@@ -515,10 +495,9 @@ impl LocalProvider {
             }
 
             let plaintext = if append && full_path.exists() {
-                // Read-decrypt-append-re-encrypt. Legacy-data tolerance:
-                // a pre-encryption plaintext file → just take the raw bytes.
+                // Read-decrypt-append-re-encrypt
                 let raw = fs::read(&full_path)?;
-                let mut existing = decrypt_bytes(key, &raw).unwrap_or(raw);
+                let mut existing = decrypt_bytes(key, &raw)?;
                 existing.extend_from_slice(content);
                 existing
             } else {

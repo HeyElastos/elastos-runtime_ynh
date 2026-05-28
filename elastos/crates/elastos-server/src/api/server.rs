@@ -1,10 +1,10 @@
 //! HTTP server implementation
 //!
-//! Provides server configurations:
-//! - Basic server (no auth, for local-only `elastos serve` without MicroVM)
-//! - Server with sessions (full auth + capability flow, used by MicroVM capsules)
+//! Provides the session/capability HTTP surface used by the runtime, Home, and
+//! browser-hosted capsule adapters.
 
 use std::path::PathBuf;
+use std::process::Child;
 use std::sync::Arc;
 
 use axum::{
@@ -68,54 +68,6 @@ fn is_allowed_local_origin(origin: &HeaderValue) -> bool {
     }
 }
 
-/// Start the HTTP API server (legacy, no auth)
-pub async fn start_server(runtime: Arc<Runtime>, addr: &str) -> anyhow::Result<()> {
-    start_server_with_capsules(runtime, addr, None).await
-}
-
-/// Start the HTTP API server with optional web capsule serving (legacy, no auth)
-pub async fn start_server_with_capsules(
-    runtime: Arc<Runtime>,
-    addr: &str,
-    capsule_dir: Option<PathBuf>,
-) -> anyhow::Result<()> {
-    let audit_log = Arc::new(AuditLog::new());
-    let cors = CorsLayer::new()
-        .allow_origin(Any)
-        .allow_methods(Any)
-        .allow_headers(Any);
-
-    let mut app = Router::new()
-        .route("/api/health", get(routes::health))
-        .route("/api/capsules", get(routes::list_capsules))
-        .route("/api/capsules", post(routes::launch_capsule))
-        .route("/api/capsules/:id", delete(routes::stop_capsule))
-        .layer(cors.clone())
-        .layer(Extension(audit_log))
-        .layer(Extension(runtime));
-
-    // Add static file serving for web capsules if directory is provided
-    let has_capsule = capsule_dir.is_some();
-    if let Some(dir) = capsule_dir {
-        tracing::info!("Serving web capsule from: {}", dir.display());
-        let serve_dir = ServeDir::new(&dir).append_index_html_on_directories(true);
-        app = app
-            .layer(axum_middleware::from_fn(cross_origin_isolation))
-            .fallback_service(serve_dir);
-    }
-
-    let listener = TcpListener::bind(addr).await?;
-    if has_capsule {
-        tracing::info!("Web capsule server listening on http://{}", addr);
-    } else {
-        tracing::info!("API server listening on http://{}", addr);
-    }
-
-    axum::serve(listener, app).await?;
-
-    Ok(())
-}
-
 /// Bootstrap state for web capsules (provides token + manifest info to the frontend)
 #[derive(Clone)]
 pub struct CapsuleBootstrapState {
@@ -150,6 +102,21 @@ pub struct ServerConfig {
     /// presenting this secret (read from the chmod-600 runtime-coords file) to
     /// mint short-lived session tokens.  When `None` the attach endpoint is disabled.
     pub attach_secret: Option<String>,
+    /// Operator-approved host helpers that must live as long as this API server.
+    pub host_helpers: Vec<HostHelperProcess>,
+}
+
+pub struct HostHelperProcess {
+    pub name: &'static str,
+    pub child: Child,
+}
+
+impl Drop for HostHelperProcess {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+        tracing::info!("{} host helper stopped", self.name);
+    }
 }
 
 /// Start the HTTP API server with full session and capability support
@@ -179,7 +146,9 @@ pub async fn start_server_with_sessions(config: ServerConfig) -> anyhow::Result<
         supervisor,
         ready_tx,
         attach_secret,
+        host_helpers,
     } = config;
+    let _host_helpers = host_helpers;
     // CORS: allow localhost origins for browser-based capsule UIs and
     // local development. Parses the Origin URL and compares the host
     // to prevent bypass via domains like localhost.evil.com.
@@ -222,40 +191,10 @@ pub async fn start_server_with_sessions(config: ServerConfig) -> anyhow::Result<
         )),
     };
 
-    // Read the auth-gate feature flag once. When enabled (env
-    // ELASTOS_AUTH_GATE=1), browser sessions start in PreAuth and
-    // must complete /api/auth/unlock (PIN or passkey) before the
-    // capability handler will mint tokens. Default off so the
-    // change is backwards-compatible on existing installs.
-    let auth_gate_enabled = matches!(
-        std::env::var("ELASTOS_AUTH_GATE")
-            .unwrap_or_default()
-            .as_str(),
-        "1" | "true" | "on" | "yes"
-    );
-    if auth_gate_enabled {
-        tracing::info!(
-            "ELASTOS_AUTH_GATE=1 — sessions start PreAuth; capability auto-grant requires unlock"
-        );
-    }
-
-    // Shared unlock-window handle: the auth handler owns the writer
-    // (opens it on successful unlock/setup), the capability handler
-    // owns a read-only reference for cross-capsule propagation.
-    let unlock_window = data_dir.as_ref().map(|_| {
-        Arc::new(tokio::sync::RwLock::new(
-            handlers::auth::UnlockWindow::new(std::time::Duration::from_secs(12 * 60 * 60)),
-        ))
-    });
-
     let capability_state = CapabilityState {
         pending_store: pending_store.clone(),
         capability_manager: capability_manager.clone(),
         policy_evaluator,
-        data_dir: data_dir.clone(),
-        auth_gate_enabled,
-        unlock_window: unlock_window.clone(),
-        session_registry: Some(session_registry.clone()),
     };
     let capsule_audit_log = audit_log
         .clone()
@@ -289,42 +228,6 @@ pub async fn start_server_with_sessions(config: ServerConfig) -> anyhow::Result<
             .with_state(attach_state)
     } else {
         Router::new()
-    };
-
-    // Auth gate (lock-screen counterpart). PIN / passkey unlock +
-    // server-side session graduation. The challenge endpoint is
-    // public (mints a random number); unlock and state require a
-    // valid session token (auth_middleware), which the home capsule
-    // session cookie already provides. Shares the same unlock_window
-    // handle as the capability handler so cross-capsule propagation
-    // works (one unlock graduates all PreAuth sessions for the TTL).
-    let (auth_gate_public, auth_gate_authed) = if let Some(ref dir) = data_dir {
-        let auth_state = handlers::auth::AuthGateState::with_unlock_window(
-            dir.clone(),
-            session_registry.clone(),
-            unlock_window
-                .clone()
-                .expect("unlock_window exists when data_dir is set"),
-        );
-        let public = Router::new()
-            .route(
-                "/api/auth/unlock/challenge",
-                post(handlers::auth::issue_challenge),
-            )
-            .with_state(auth_state.clone());
-        let authed = Router::new()
-            .route("/api/auth/unlock", post(handlers::auth::unlock))
-            .route("/api/auth/setup", post(handlers::auth::setup))
-            .route("/api/auth/state", get(handlers::auth::auth_state))
-            .route("/api/auth/wrapped-seed", get(handlers::auth::wrapped_seed))
-            .layer(axum_middleware::from_fn_with_state(
-                api_state.clone(),
-                auth_middleware,
-            ))
-            .with_state(auth_state);
-        (public, authed)
-    } else {
-        (Router::new(), Router::new())
     };
 
     // Authenticated routes (require valid session token, rate-limited)
@@ -385,7 +288,10 @@ pub async fn start_server_with_sessions(config: ServerConfig) -> anyhow::Result<
 
     // Supervisor routes (shell-only — capsule lifecycle for VM-based supervisor path)
     let supervisor_routes = if let Some(sup) = supervisor {
-        let sup_state = handlers::supervisor_api::SupervisorState { supervisor: sup };
+        let sup_state = handlers::supervisor_api::SupervisorState {
+            supervisor: sup,
+            data_dir: data_dir.clone(),
+        };
         Router::new()
             .route(
                 "/api/supervisor/ensure-external",
@@ -466,11 +372,6 @@ pub async fn start_server_with_sessions(config: ServerConfig) -> anyhow::Result<
             capability_manager: Some(capability_manager.clone()),
         };
 
-        // Axum's default body limit is 2MB — way too small for IPFS media
-        // uploads and large profile blobs. Raise to 100MB to match nginx's
-        // client_max_body_size (anything larger should chunk).
-        const STORAGE_BODY_LIMIT: usize = 100 * 1024 * 1024;
-
         let storage_router = Router::new()
             .route("/api/localhost", get(handlers::storage_get_root))
             .route("/api/localhost/", get(handlers::storage_get_root))
@@ -479,7 +380,6 @@ pub async fn start_server_with_sessions(config: ServerConfig) -> anyhow::Result<
             .route("/api/localhost/*path", delete(handlers::storage_delete))
             .route("/api/localhost/*path", head(handlers::storage_stat))
             .route("/api/localhost/*path", post(handlers::storage_post))
-            .layer(axum::extract::DefaultBodyLimit::max(STORAGE_BODY_LIMIT))
             .layer(axum_middleware::from_fn_with_state(
                 api_state.clone(),
                 auth_middleware,
@@ -492,7 +392,6 @@ pub async fn start_server_with_sessions(config: ServerConfig) -> anyhow::Result<
                 "/api/provider/:scheme/:op",
                 post(handlers::provider::provider_proxy),
             )
-            .layer(axum::extract::DefaultBodyLimit::max(STORAGE_BODY_LIMIT))
             .layer(axum_middleware::from_fn_with_state(
                 api_state.clone(),
                 auth_middleware,
@@ -583,6 +482,7 @@ pub async fn start_server_with_sessions(config: ServerConfig) -> anyhow::Result<
             api_state.clone(),
             auth_middleware,
         ))
+        .layer(Extension(data_dir.clone()))
         .layer(Extension(capsule_audit_log))
         .layer(Extension(runtime));
 
@@ -590,8 +490,6 @@ pub async fn start_server_with_sessions(config: ServerConfig) -> anyhow::Result<
     let mut app = Router::new()
         .merge(public_routes)
         .merge(attach_routes)
-        .merge(auth_gate_public)
-        .merge(auth_gate_authed)
         .merge(auth_routes)
         .merge(shell_routes)
         .merge(orchestrator_routes)

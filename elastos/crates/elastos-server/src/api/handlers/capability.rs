@@ -11,7 +11,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 
-use elastos_common::localhost::is_supported_resource_scheme;
+use elastos_common::localhost::{is_supported_resource_scheme, is_system_only_backend_resource};
 use elastos_runtime::capability::{
     pending::PendingRequestStore, Action, CapabilityManager, GrantDuration, PolicyEvaluator,
     PolicyOutcome, ResourceId, TokenConstraints,
@@ -24,65 +24,14 @@ pub struct CapabilityState {
     pub pending_store: Arc<PendingRequestStore>,
     pub capability_manager: Arc<CapabilityManager>,
     pub policy_evaluator: Arc<PolicyEvaluator>,
-    /// Runtime data dir. Used to load a capsule's manifest so the
-    /// capability handler can auto-grant resources in the capsule's
-    /// declared permissions without an out-of-band approval flow.
-    pub data_dir: Option<std::path::PathBuf>,
-    /// When true, sessions in AuthState::PreAuth are refused capability
-    /// auto-grant unless the server-wide unlock window is open. When
-    /// false, all sessions pass the gate (legacy / backward-compat).
-    /// Controlled by the ELASTOS_AUTH_GATE env var at server boot.
-    pub auth_gate_enabled: bool,
-    /// Read-only handle to the unlock window owned by the auth handler.
-    /// Capability auto-grant checks this when gating a PreAuth session:
-    /// if the window is open, the session graduates inline (cross-
-    /// capsule propagation) and proceeds.
-    pub unlock_window:
-        Option<Arc<tokio::sync::RwLock<super::auth::UnlockWindow>>>,
-    /// Needed to mutate a session's auth_state when the unlock window
-    /// is open. Cross-capsule propagation requires graduating the
-    /// CALLING session, not the original unlocking session.
-    pub session_registry: Option<Arc<elastos_runtime::session::SessionRegistry>>,
-}
-
-/// Pure helper extracted for unit-testing the gate.
-///
-/// Returns the action to take given the current state. Splits the
-/// HTTP-handler-vs-logic boundary cleanly.
-#[derive(Debug, PartialEq, Eq)]
-pub enum AuthGateOutcome {
-    /// Session can proceed — either gate disabled, or session is
-    /// already authenticated.
-    Proceed,
-    /// Session was PreAuth but the unlock window is open — graduate
-    /// it inline and then proceed.
-    GraduateAndProceed,
-    /// Session is PreAuth and the unlock window is closed. Refuse.
-    Refuse,
-}
-
-pub fn evaluate_auth_gate(
-    gate_enabled: bool,
-    session: &Session,
-    unlock_claim_valid: bool,
-) -> AuthGateOutcome {
-    if !gate_enabled {
-        return AuthGateOutcome::Proceed;
-    }
-    if session.can_access_resources() {
-        return AuthGateOutcome::Proceed;
-    }
-    if unlock_claim_valid {
-        return AuthGateOutcome::GraduateAndProceed;
-    }
-    AuthGateOutcome::Refuse
 }
 
 // === Request Capability ===
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RequestCapabilityInput {
-    /// Resource to request access to (e.g., "localhost://Users/self/Pictures/*")
+    /// Resource to request access to (e.g., "localhost://MyWebSite/Pictures/*")
     pub resource: String,
     /// Action to request (e.g., "read", "write")
     pub action: String,
@@ -103,8 +52,6 @@ pub struct RequestCapabilityOutput {
     pub reason: Option<String>,
 }
 
-/// Return true if the resource URI uses a supported scheme.
-///
 /// POST /api/capability/request
 ///
 /// Request a capability token. Returns immediately with either:
@@ -114,7 +61,6 @@ pub struct RequestCapabilityOutput {
 pub async fn request_capability(
     State(state): State<CapabilityState>,
     Extension(session): Extension<Session>,
-    headers: axum::http::HeaderMap,
     Json(input): Json<RequestCapabilityInput>,
 ) -> Result<Json<RequestCapabilityOutput>, (StatusCode, String)> {
     // Parse action
@@ -143,111 +89,21 @@ pub async fn request_capability(
         ));
     }
 
-    // Auth-state gate (Approach A). When ELASTOS_AUTH_GATE is on, a
-    // session must have proven identity (passkey / PIN via
-    // /api/auth/unlock or /api/auth/setup) before capability auto-
-    // grant will mint tokens. Shell sessions are exempt — they're the
-    // always-trusted orchestrator.
-    //
-    // Cross-capsule propagation (option B, replacing the legacy
-    // server-wide unlock window): the unlock handler sets a signed
-    // `elastos-unlock-claim` cookie on its response. The cookie is
-    // sent by the SAME browser on every subsequent request, so a
-    // hey-social iframe minted right after home unlocked carries the
-    // cookie too and gets auto-graduated here. A stranger from a
-    // different browser / IP has no cookie → no graduation → stays
-    // locked.
-    let unlock_claim_valid = state
-        .data_dir
-        .as_ref()
-        .map(|dir| super::auth::validate_unlock_claim(dir, &headers))
-        .unwrap_or(false);
-    match evaluate_auth_gate(state.auth_gate_enabled, &session, unlock_claim_valid) {
-        AuthGateOutcome::Proceed => { /* fall through to existing logic */ }
-        AuthGateOutcome::GraduateAndProceed => {
-            if let Some(ref reg) = state.session_registry {
-                reg.get_session_mut(&session.token, |s| s.set_authenticated())
-                    .await;
-            }
-        }
-        AuthGateOutcome::Refuse => {
-            return Err((
-                StatusCode::UNAUTHORIZED,
-                "Session not authenticated. POST /api/auth/unlock first.".to_string(),
-            ));
-        }
+    if is_system_only_backend_resource(&input.resource) {
+        return Ok(Json(RequestCapabilityOutput {
+            status: "denied".to_string(),
+            request_id: None,
+            token: None,
+            reason: Some(
+                "system backends are not app capabilities; use elastos://content".to_string(),
+            ),
+        }));
     }
 
     let resource = ResourceId::new(&input.resource);
 
-    // Manifest-based auto-grant. When the session is bound to a launched
-    // browser capsule (set by the home gateway via /api/auth/attach with
-    // ?capsule=…), load the capsule's manifest and check if the requested
-    // resource matches any pattern in permissions.storage (for localhost://)
-    // or permissions.messaging (for elastos://). If yes, mint a token
-    // immediately — no out-of-band approval needed because the capsule
-    // already declared this requirement at install time.
-    if let (Some(capsule_id), Some(data_dir)) = (session.capsule_id.as_deref(), state.data_dir.as_ref()) {
-        if let Some(manifest) = load_manifest_for_capsule(data_dir, capsule_id) {
-            let patterns: &[String] = if input.resource.starts_with("localhost://") {
-                &manifest.permissions.storage
-            } else {
-                &manifest.permissions.messaging
-            };
-            // Find the most restrictive manifest pattern that overlaps with
-            // the request. Two cases:
-            //   - request ⊆ manifest pattern (request narrower or equal):
-            //     grant a token for the request itself (narrowest allowed).
-            //   - request ⊇ manifest pattern (request broader):
-            //     grant a token for the manifest pattern (manifest is the
-            //     upper bound the capsule declared).
-            // No overlap → no auto-grant; fall through to pending approval.
-            let mut grant_resource: Option<ResourceId> = None;
-            for p in patterns {
-                let pat = ResourceId::new(p);
-                if resource.matches(&pat) {
-                    // Request is bounded by this manifest pattern. Token
-                    // for the request narrows things further; fine.
-                    grant_resource = Some(resource.clone());
-                    break;
-                } else if pat.matches(&resource) {
-                    // Manifest pattern bounds the (broader) request.
-                    // Token for the manifest pattern caps the capsule
-                    // to what it declared at install time.
-                    grant_resource = Some(pat);
-                    // Keep looking — a more-restrictive match may exist,
-                    // but for simplicity we accept the first overlap.
-                    break;
-                }
-            }
-            if let Some(grant_resource) = grant_resource {
-                // Bind the issued token to the session ID (NOT the capsule ID).
-                // enforce_capability in storage.rs validates the token against
-                // session.id.as_str(); the first arg of grant() is used as the
-                // capsule_id field inside the token and that field is what the
-                // validator compares to session.id. Mismatch → "Permission
-                // denied" even with a valid bearer.
-                let _ = capsule_id; // capsule_id was the manifest lookup key,
-                                     // not the validation binding
-                let token = state.capability_manager.grant(
-                    session.id.as_str(),
-                    grant_resource,
-                    action,
-                    TokenConstraints::default(),
-                    None,
-                );
-                return Ok(Json(RequestCapabilityOutput {
-                    status: "granted".to_string(),
-                    request_id: None,
-                    token: Some(token.to_base64().unwrap_or_default()),
-                    reason: None,
-                }));
-            }
-        }
-    }
-
-    // Resource not in the capsule's declared manifest — fall through to
-    // the pending/approval path (or for non-capsule sessions: shell etc.).
+    // For now, all requests go to pending (no auto-grant policy yet)
+    // Future: check if session already has this capability, or if policy allows auto-grant
 
     let request = state
         .pending_store
@@ -270,33 +126,6 @@ pub async fn request_capability(
         token: None,
         reason: None,
     }))
-}
-
-/// Load a capsule's manifest from data_dir or the dev tree, falling back
-/// gracefully if neither path resolves. Mirrors browser_capsules.rs's
-/// resolution order (installed first, dev tree second) without exposing
-/// its private internals.
-fn load_manifest_for_capsule(
-    data_dir: &std::path::Path,
-    capsule_id: &str,
-) -> Option<elastos_common::CapsuleManifest> {
-    let candidates = [
-        data_dir.join("capsules").join(capsule_id).join("capsule.json"),
-        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../../../capsules")
-            .join(capsule_id)
-            .join("capsule.json"),
-    ];
-    for path in candidates.iter() {
-        if let Ok(bytes) = std::fs::read(path) {
-            if let Ok(manifest) = serde_json::from_slice::<elastos_common::CapsuleManifest>(&bytes) {
-                if manifest.name == capsule_id && manifest.validate().is_ok() {
-                    return Some(manifest);
-                }
-            }
-        }
-    }
-    None
 }
 
 // === Request Status ===
@@ -421,6 +250,7 @@ pub async fn list_pending(
 // === Grant Request (Shell Only) ===
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct GrantRequestInput {
     /// Request ID to grant
     pub request_id: String,
@@ -516,6 +346,7 @@ pub async fn grant_request(
 // === Deny Request (Shell Only) ===
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct DenyRequestInput {
     /// Request ID to deny
     pub request_id: String,
@@ -665,6 +496,7 @@ pub async fn revoke_capability(
 // === Revoke All Capabilities (Shell Only) ===
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RevokeAllInput {
     /// Reason for revoking all capabilities
     #[serde(default = "default_revoke_reason")]
@@ -742,6 +574,7 @@ pub async fn session_info(
 // === Audit Log API (Shell Only) ===
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct AuditLogQuery {
     /// Maximum number of events to return (default: 100, max: 1000)
     #[serde(default = "default_audit_limit")]
@@ -833,13 +666,14 @@ pub async fn get_audit_event_types(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     #[test]
     fn test_supported_resource_schemes() {
         assert!(is_supported_resource_scheme("elastos://did/*"));
         assert!(is_supported_resource_scheme("elastos://ai/local/chat"));
         assert!(is_supported_resource_scheme(
-            "localhost://Users/self/Documents/*"
+            "localhost://MyWebSite/Documents/*"
         ));
     }
 
@@ -851,56 +685,117 @@ mod tests {
         assert!(!is_supported_resource_scheme(""));
     }
 
-    use elastos_runtime::session::{AuthState, Session, SessionType};
-
-    fn pre_auth_capsule() -> Session {
-        Session::new(SessionType::Capsule, None).with_auth_state(AuthState::PreAuth)
+    #[test]
+    fn test_system_only_backend_resource_detection() {
+        assert!(is_system_only_backend_resource("elastos://ipfs/add"));
+        assert!(is_system_only_backend_resource("elastos://ipfs"));
+        assert!(is_system_only_backend_resource("elastos://kubo/rpc"));
+        assert!(is_system_only_backend_resource(
+            "elastos://ipfs-cluster/pins"
+        ));
+        assert!(is_system_only_backend_resource("elastos://elacity-sdk/pin"));
+        assert!(is_system_only_backend_resource(
+            "elastos://ipfs-provider/add"
+        ));
+        assert!(is_system_only_backend_resource("elastos://gateway/raw"));
+        assert!(!is_system_only_backend_resource(
+            "elastos://content/publish"
+        ));
+        assert!(!is_system_only_backend_resource(
+            "localhost://MyWebSite/Documents/x"
+        ));
     }
 
-    fn authed_capsule() -> Session {
-        Session::new(SessionType::Capsule, None)
+    fn assert_rejects_unknown_field<T: serde::de::DeserializeOwned>(value: serde_json::Value) {
+        let err = match serde_json::from_value::<T>(value) {
+            Ok(_) => panic!("expected capability body to reject unknown fields"),
+            Err(err) => err.to_string(),
+        };
+        assert!(err.contains("unknown field"), "{err}");
     }
 
     #[test]
-    fn auth_gate_disabled_lets_everything_through() {
-        // Backward-compat: when the env flag is off, gate behaves
-        // exactly like the legacy "everyone gets auto-grant" path.
-        let s = pre_auth_capsule();
-        assert_eq!(evaluate_auth_gate(false, &s, false), AuthGateOutcome::Proceed);
-        assert_eq!(evaluate_auth_gate(false, &s, true), AuthGateOutcome::Proceed);
+    fn test_capability_inputs_reject_hidden_authority_fields() {
+        assert_rejects_unknown_field::<RequestCapabilityInput>(json!({
+            "resource": "elastos://content/publish",
+            "action": "write",
+            "capability_token": "must-not-be-accepted"
+        }));
+        assert_rejects_unknown_field::<GrantRequestInput>(json!({
+            "request_id": "request:test",
+            "duration": "session",
+            "rationale": "ok",
+            "token": "must-not-be-accepted"
+        }));
+        assert_rejects_unknown_field::<DenyRequestInput>(json!({
+            "request_id": "request:test",
+            "reason": "no",
+            "override": true
+        }));
+        assert_rejects_unknown_field::<RevokeAllInput>(json!({
+            "reason": "rotate",
+            "session_id": "session:other"
+        }));
+        assert_rejects_unknown_field::<AuditLogQuery>(json!({
+            "limit": 10,
+            "type": "capability_grant",
+            "include_private": true
+        }));
     }
 
-    #[test]
-    fn auth_gate_enabled_blocks_pre_auth_when_window_closed() {
-        let s = pre_auth_capsule();
-        assert_eq!(evaluate_auth_gate(true, &s, false), AuthGateOutcome::Refuse);
+    fn test_state() -> CapabilityState {
+        let audit_log = std::sync::Arc::new(elastos_runtime::primitives::audit::AuditLog::new());
+        let store = std::sync::Arc::new(elastos_runtime::capability::CapabilityStore::new());
+        let metrics =
+            std::sync::Arc::new(elastos_runtime::primitives::metrics::MetricsManager::new());
+        let capability_manager =
+            std::sync::Arc::new(CapabilityManager::new(store, audit_log.clone(), metrics));
+
+        CapabilityState {
+            pending_store: std::sync::Arc::new(PendingRequestStore::new(audit_log.clone())),
+            capability_manager,
+            policy_evaluator: std::sync::Arc::new(PolicyEvaluator::new(
+                Box::new(elastos_runtime::capability::evaluator::ShellPassthroughVerifier),
+                audit_log,
+            )),
+        }
     }
 
-    #[test]
-    fn auth_gate_enabled_promotes_pre_auth_when_window_open() {
-        // Cross-capsule propagation: a hey-social session that's
-        // PreAuth gets graduated transparently if hey-home already
-        // unlocked the user.
-        let s = pre_auth_capsule();
-        assert_eq!(
-            evaluate_auth_gate(true, &s, true),
-            AuthGateOutcome::GraduateAndProceed
-        );
+    #[tokio::test]
+    async fn test_request_capability_denies_ipfs_backend() {
+        let output = request_capability(
+            State(test_state()),
+            Extension(Session::new_capsule("capsule-1".to_string())),
+            Json(RequestCapabilityInput {
+                resource: "elastos://ipfs/add".to_string(),
+                action: "write".to_string(),
+            }),
+        )
+        .await
+        .expect("ipfs backend request should return a structured denial")
+        .0;
+
+        assert_eq!(output.status, "denied");
+        assert_eq!(output.request_id, None);
+        assert!(output.reason.unwrap().contains("elastos://content"));
     }
 
-    #[test]
-    fn auth_gate_lets_authenticated_proceed_regardless_of_window() {
-        let s = authed_capsule();
-        assert_eq!(evaluate_auth_gate(true, &s, false), AuthGateOutcome::Proceed);
-        assert_eq!(evaluate_auth_gate(true, &s, true), AuthGateOutcome::Proceed);
-    }
+    #[tokio::test]
+    async fn test_request_capability_allows_content_contract() {
+        let output = request_capability(
+            State(test_state()),
+            Extension(Session::new_capsule("capsule-1".to_string())),
+            Json(RequestCapabilityInput {
+                resource: "elastos://content/publish".to_string(),
+                action: "write".to_string(),
+            }),
+        )
+        .await
+        .expect("content contract request should be accepted")
+        .0;
 
-    #[test]
-    fn auth_gate_exempts_shell_sessions_always() {
-        // Shell = always-trusted orchestrator. Must pass regardless
-        // of the env flag or window state, or the runtime can't
-        // bootstrap itself.
-        let s = Session::new(SessionType::Shell, None).with_auth_state(AuthState::PreAuth);
-        assert_eq!(evaluate_auth_gate(true, &s, false), AuthGateOutcome::Proceed);
+        assert_eq!(output.status, "pending");
+        assert!(output.request_id.is_some());
+        assert!(output.reason.is_none());
     }
 }

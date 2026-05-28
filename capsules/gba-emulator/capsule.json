@@ -6,7 +6,6 @@
   "role": "viewer",
   "type": "data",
   "author": "elastos",
-  "icon": "favicon.svg",
   "entrypoint": "index.html",
   "permissions": {
     "storage": ["localhost://Users/self/.AppData/LocalHost/GBA/*"]
