@@ -1,0 +1,54 @@
+{
+  "schema": "elastos.components/v1-additions",
+  "description": "Hey-additive component entries. Merged on top of upstream components.json at install time. See docs/HEY_MODULAR_ARCHITECTURE.md.",
+  "external": {
+    "hey-social": {
+      "install_path": "capsules/hey-social",
+      "description": "Hey Social \u2014 photo + video + chat social app on Elastos",
+      "platforms": {
+        "*": {
+          "cid": "",
+          "checksum": "",
+          "size": 0,
+          "release_path": "hey-social.tar.gz",
+          "extract_path": "hey-social",
+          "install_path": "capsules/hey-social"
+        }
+      }
+    },
+    "hey-messenger": {
+      "install_path": "capsules/hey-messenger",
+      "description": "Hey Chat \u2014 P2P messenger with PQ-hybrid E2E DMs",
+      "platforms": {
+        "*": {
+          "cid": "",
+          "checksum": "",
+          "size": 0,
+          "release_path": "hey-messenger.tar.gz",
+          "extract_path": "hey-messenger",
+          "install_path": "capsules/hey-messenger"
+        }
+      }
+    },
+    "blobs-provider": {
+      "install_path": "bin/blobs-provider",
+      "description": "iroh-blobs P2P file transfer provider \u2014 backs Hey Chat",
+      "platforms": {
+        "linux-amd64": {
+          "cid": "",
+          "checksum": "",
+          "size": 0,
+          "release_path": "blobs-provider-linux-amd64",
+          "install_path": "bin/blobs-provider"
+        },
+        "linux-arm64": {
+          "cid": "",
+          "checksum": "",
+          "size": 0,
+          "release_path": "blobs-provider-linux-arm64",
+          "install_path": "bin/blobs-provider"
+        }
+      }
+    }
+  }
+}

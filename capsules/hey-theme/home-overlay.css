@@ -1,0 +1,86 @@
+/* ─────────────────────────────────────────────────────────────────────
+   Hey theme — frosted-glass overlay for upstream's home capsule.
+
+   This file is APPENDED to upstream's capsules/home/browser/style.css
+   at install time by scripts/install. It must:
+     - only override style, never structure
+     - target selectors upstream already defines
+     - be safe to drop entirely if the selectors disappear in a future
+       upstream version (worst case: visual regression, not breakage)
+
+   If upstream changes the DOM in a future release, expect to update
+   selectors here. Keep the file small — see docs/HEY_MODULAR_
+   ARCHITECTURE.md for the discipline.
+   ────────────────────────────────────────────────────────────────────*/
+
+/* Brand: gold accent over neutral graphite. Overrides upstream's
+   orange-ish brand without touching its variable names so any code
+   that reads var(--brand) inherits Hey's. */
+:root {
+  --brand: #d4b84b;
+  --brand-strong: #e3cb52;
+  --brand-focus: rgba(212, 184, 75, 0.55);
+  --brand-border: rgba(212, 184, 75, 0.72);
+  --brand-ring: rgba(212, 184, 75, 0.24);
+  --brand-glow: rgba(212, 184, 75, 0.26);
+  --brand-line: rgba(212, 184, 75, 0.45);
+
+  /* Frosted material — used by topbar, dock, launcher, window head.
+     Shared so the surfaces read as one material system. */
+  --hey-frosted-bg: rgba(15, 18, 26, 0.62);
+  --hey-frosted-border: rgba(255, 255, 255, 0.10);
+  --hey-frosted-blur: blur(40px);
+}
+
+/* Topbar — float as a pill that visually matches the dock. */
+.toolbar {
+  background: var(--hey-frosted-bg);
+  border: 1px solid var(--hey-frosted-border);
+  border-radius: 18px;
+  backdrop-filter: var(--hey-frosted-blur);
+  -webkit-backdrop-filter: var(--hey-frosted-blur);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
+}
+
+/* Dock — same material as topbar. */
+.taskbar-inner {
+  background: var(--hey-frosted-bg);
+  border: 1px solid var(--hey-frosted-border);
+  border-radius: 18px;
+  backdrop-filter: var(--hey-frosted-blur);
+  -webkit-backdrop-filter: var(--hey-frosted-blur);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
+}
+
+/* Launcher popover — darker tint for legibility against busy
+   wallpapers, otherwise same material recipe. */
+.launcher-popover {
+  background: rgba(11, 17, 32, 0.82);
+  border: 1px solid var(--hey-frosted-border);
+  backdrop-filter: var(--hey-frosted-blur);
+  -webkit-backdrop-filter: var(--hey-frosted-blur);
+}
+
+/* Windows — frosted titlebar + soft shadow. Upstream uses an HSL
+   formula on .window-head; we replace the background color with our
+   frosted material while keeping the rest of upstream's layout. */
+.window {
+  box-shadow:
+    0 24px 60px rgba(0, 0, 0, 0.5),
+    0 0 0 1px rgba(255, 255, 255, 0.04) inset;
+}
+.window-head {
+  background-color: var(--hey-frosted-bg);
+  backdrop-filter: var(--hey-frosted-blur);
+  -webkit-backdrop-filter: var(--hey-frosted-blur);
+  filter: none;
+  border-bottom: 1px solid var(--hey-frosted-border);
+}
+
+/* Active window indicator + active dock item — use Hey gold. */
+.active-taskbar-indicator,
+.window-active .window-head {
+  /* `.window-active .window-head` slightly tints the active window
+     head; if upstream removes this class the selector becomes a
+     no-op, no breakage. */
+}
