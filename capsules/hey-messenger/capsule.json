@@ -4,7 +4,6 @@
   "version": "0.1.0",
   "description": "Hey Chat — P2P messenger with hybrid post-quantum E2E for DMs, iroh-blobs file share, and Carrier transport. Standalone, sovereign, no third-party servers.",
   "author": "HeyElastos",
-  "icon": "hey-messenger-icon.svg",
   "role": "app",
   "type": "data",
   "entrypoint": "index.html",
