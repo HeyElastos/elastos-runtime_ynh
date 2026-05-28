@@ -48,31 +48,13 @@ const authedFetch = async (path, init = {}) => {
   });
 };
 
-// When the user lands on hey-social directly (not via hey-home unlock),
-// the session is PreAuth and the auth-gate refuses capability tokens, so
-// readSharedIdentity() returns null even though an identity exists on
-// disk. /api/auth/state is exempt from the gate and returns a sanitized
-// identity_preview slice (name/didKey/has_passkey/passkeys[id,transports])
-// — enough to render the "Welcome back" adoption card. Mirrors the same
-// preview fallback hey-home's lock screen uses.
-const serverAuthStatePreview = async () => {
-  try {
-    const r = await authedFetch("/api/auth/state", { method: "GET" });
-    if (!r.ok) return null;
-    const data = await r.json();
-    if (!data?.identity_present || !data.identity_preview) return null;
-    const preview = data.identity_preview;
-    if (!preview.didKey) return null;
-    return {
-      name: preview.name || "",
-      didKey: preview.didKey,
-      passkeys: Array.isArray(preview.passkeys) ? preview.passkeys : [],
-      previewOnly: true,
-    };
-  } catch (_) {
-    return null;
-  }
-};
+// NOTE: serverAuthStatePreview() removed. /api/auth/state was a v0.2
+// custom endpoint that v0.3.0 replaces with /api/auth/passkey/status.
+// Hey Social no longer reads the auth gate's state — it just reads
+// the shared identity file via the storage layer when a session is
+// graduated. If the file isn't readable yet, the signup wizard
+// shows; readSharedIdentity returning null is a valid first-run
+// signal.
 
 const b64uDecode = (b64u) => {
   const pad = (4 - (b64u.length % 4)) % 4;
@@ -131,27 +113,15 @@ const adoptSharedIdentityWithAuthKey = async (shared, authKey) => {
     );
   }
 
-  // Server-issued challenge → sign with the derived key → POST to
-  // /api/auth/unlock. Server verifies the signature against the
-  // stored didKey's pubkey and graduates the session, setting the
-  // unlock-claim cookie for cross-capsule propagation.
-  const challResp = await authedFetch("/api/auth/unlock/challenge", { method: "POST" });
-  if (!challResp.ok) throw new Error(`unlock challenge HTTP ${challResp.status}`);
-  const { challenge_id, challenge_hex } = await challResp.json();
-  if (!challenge_id || !challenge_hex) throw new Error("unlock challenge response invalid");
-  const challengeBytes = new Uint8Array(
-    challenge_hex.match(/.{2}/g).map((h) => parseInt(h, 16))
-  );
-  const signatureHex = sign(challengeBytes, seed);
-  const unlockResp = await authedFetch("/api/auth/unlock", {
-    method: "POST",
-    body: JSON.stringify({ method: "passkey", challenge_id, signature_hex: signatureHex }),
-  });
-  if (!unlockResp.ok) {
-    throw new Error(`unlock denied (HTTP ${unlockResp.status})`);
-  }
+  // v0.3.0 note: the server-side /api/auth/unlock dance is gone. We
+  // verify possession purely client-side via the didKey-match check
+  // above. The runtime's own auth (passkey ceremony against
+  // /api/auth/passkey/*) is the operator's responsibility — by the
+  // time the user reaches this code path they're either signed in
+  // via the home shell or this is their first Hey Social adoption.
+  // Either way, Hey Social trusts client-side cryptographic match.
 
-  // Session is Authenticated. Stand up Hey's session keypair + local
+  // Stand up Hey's session keypair + local
   // profile so the app can sign events + write storage as the same DID.
   await setSession(authKey);
   const authKeyHash = await hashAuthKey(authKey);
@@ -654,46 +624,19 @@ const Landing = () => {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      // Primary: capability-gated read of the full shared identity file.
-      // Works for graduated sessions (hey-home unlocked → cookie travels).
-      let shared = await readSharedIdentity().catch(() => null);
-      // Fallback: PreAuth-exempt /api/auth/state preview. Required when
-      // the user lands on hey-social directly without unlocking hey-home
-      // first — otherwise they'd see the signup form instead of "Welcome
-      // back" even though their identity is right there on disk.
-      if (!shared?.didKey) {
-        shared = await serverAuthStatePreview();
-      }
+      // Capability-gated read of the shared identity file. If the user
+      // has already signed up here (via Hey Social or upstream's home
+      // capsule wrote a compatible identity), surface "Welcome back" +
+      // the adoption flow. Otherwise the signup wizard renders.
+      //
+      // v0.3.0 dropped our custom /api/auth/state and /api/auth/wrapped-
+      // seed endpoints. The PIN path is gone (upstream is passkey-only).
+      // Adoption now means: prove possession of the shared identity by
+      // either passkey assertion (PRF → seed → didKey match) or
+      // typed recovery key (seed → didKey match). All client-side.
+      const shared = await readSharedIdentity().catch(() => null);
       if (cancelled) return;
-      if (!shared?.didKey) return;
-      setSharedIdentity(shared);
-
-      // Auto-adopt for PIN-only users: if hey-home stored a pin-wrapped
-      // seed and the user already unlocked the node with their PIN, the
-      // server has the plaintext seed cached against this session.
-      // Pull it down + run the same adoption ceremony the user would
-      // get by pasting their 64-char recovery key — but invisibly.
-      // Passkey-equipped identities skip this; tapping the passkey is
-      // already a one-tap path with stronger authentication.
-      const hasPasskey = (shared.passkeys || []).length > 0;
-      if (hasPasskey) return;
-      try {
-        const r = await authedFetch("/api/auth/wrapped-seed", { method: "GET" });
-        if (!r.ok) return; // 404 just means no cached seed; user pastes manually
-        const data = await r.json();
-        if (!data?.seed_hex || cancelled) return;
-        const adopted = await adoptSharedIdentityWithAuthKey(shared, data.seed_hex);
-        if (cancelled) return;
-        setProfile({
-          user: adopted.user,
-          accessToken: adopted.accessToken,
-          refreshToken: adopted.refreshToken,
-        });
-        navigate("/");
-      } catch (err) {
-        // Fail open — fall back to manual recovery-key paste UI.
-        console.warn("[hey] PIN auto-adopt failed; falling back to manual", err);
-      }
+      if (shared?.didKey) setSharedIdentity(shared);
     })();
     return () => { cancelled = true; };
   }, []);
@@ -752,11 +695,12 @@ const Landing = () => {
     }
     setPasskeyBusy(true);
     try {
-      // Route through /api/auth/setup (5g) so the runtime writes the
-      // identity file in PreAuth-allowed std::fs path and graduates
-      // the session before Hey's own storage writes start. Legacy
-      // passkeySignup() wrote passkey-challenge.json first → 403.
-      const data = await passkeySignupViaSetup(name.trim());
+      // v0.3.0 has its own native passkey auth at /api/auth/passkey/*
+      // (handled by upstream's home capsule). Hey Social does its OWN
+      // WebAuthn ceremony for its OWN signing identity — same passkey
+      // can be selected by the user, same PRF output, same Ed25519
+      // keypair → unified identity without any custom server endpoint.
+      const data = await passkeySignup(name.trim());
       const profile = {
         user: data.user,
         accessToken: data.accessToken,
@@ -781,13 +725,11 @@ const Landing = () => {
 
     setLoading(true);
     try {
-      // Route through /api/auth/setup (5g). The legacy signUp() did
-      // its own storage.writeJson(PROFILE_FILE) + writeSharedIdentity
-      // before the session was graduated → 403 under ELASTOS_AUTH_GATE.
-      // signUpViaSetup hits the server endpoint first (which writes
-      // the identity via std::fs and graduates the session) then
-      // lays down Hey's local profile after.
-      const data = await signUpViaSetup(name.trim());
+      // v0.3.0 has no auth gate on storage — manifest-based capability
+      // auto-grant is the only check. Legacy signUp() works fine again:
+      // it writes the Hey profile + shared identity via storage.writeJson
+      // (capability-token-gated, auto-granted from capsule.json).
+      const data = await signUp({ name: name.trim() });
       const profile = {
         user: data.user,
         accessToken: data.accessToken,
