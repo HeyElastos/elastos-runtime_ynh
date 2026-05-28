@@ -61,6 +61,19 @@ ram.runtime = "512M"
     sha256 = "9c3519de205d2ae1e4cc4ed37f54a18f54443199b2b46b80d8f8df836a694891"
     autoupdate.strategy = "latest_github_commit"
 
+    [resources.sources.hey_capsules]
+    # The Hey capsule pack — every Hey-specific capsule (hey-social,
+    # hey-messenger, blobs/docs/webrtc-signal providers) lives in its
+    # own repo so it stays YunoHost-agnostic and can be lifted onto
+    # any Elastos Runtime. Install script extracts capsules/* from
+    # this tarball into $install_dir/capsules/ alongside upstream's
+    # stock capsules. Bump url + sha256 on every Hey-capsule release.
+    url = "https://github.com/HeyElastos/Hey-capsule/archive/bc65ec1f6380e8b0fcaacac06bc0e91479d1e5a5.tar.gz"
+    sha256 = "5187b2046212cdcbd66c7f5e914f145886b1c5553b99637e2f4db6812bc8a1b5"
+    autoupdate.strategy = "latest_github_commit"
+    autoupdate.upstream = "https://github.com/HeyElastos/Hey-capsule"
+    in_subdir = false
+
     [resources.system_user]
 
     [resources.install_dir]

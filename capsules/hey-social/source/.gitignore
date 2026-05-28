@@ -1,5 +1,0 @@
-# Build inputs; outputs land one level up alongside capsule.json
-node_modules/
-dist/
-.vite/
-*.log

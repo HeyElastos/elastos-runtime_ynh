@@ -44,6 +44,17 @@ chown -R "$app:$app" "$install_dir"
 fetch_upstream_source "$install_dir"
 
 #=================================================
+# FETCH HEY CAPSULE PACK
+#=================================================
+#
+# The Hey-specific capsules (hey-social, hey-messenger, blobs/docs/
+# webrtc-signal providers) live in HeyElastos/Hey-capsule — a separate,
+# YunoHost-agnostic repo. Pull them and drop into $install_dir/capsules/
+# alongside upstream's stock capsules.
+
+fetch_hey_capsules "$install_dir"
+
+#=================================================
 # RUST TOOLCHAIN
 #=================================================
 

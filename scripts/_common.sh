@@ -75,21 +75,15 @@ fetch_upstream_source() {
     rm -rf "$target_dir/elastos"
     mv "$extracted/elastos" "$target_dir/elastos"
 
-    # Merge upstream capsules into $target_dir/capsules/ without
-    # clobbering our Hey-additive capsules (hey-social, hey-messenger,
-    # blobs-provider, hey-theme). Our git holds those; upstream's
-    # tarball ships theirs. Conflicts shouldn't happen because the
-    # names don't overlap, but if upstream ever ships a "hey-*"
-    # directory we want our version to win — so check before overwrite.
+    # Lay out upstream capsules under $target_dir/capsules/. Hey
+    # capsules don't live here anymore — they're fetched separately by
+    # fetch_hey_capsules() from HeyElastos/Hey-capsule and dropped in
+    # alongside afterward. If upstream and the Hey pack ever ship the
+    # same capsule name, the Hey pack wins (it's applied last).
     mkdir -p "$target_dir/capsules"
     for upstream_capsule in "$extracted/capsules"/*/; do
         local name
         name="$(basename "$upstream_capsule")"
-        if [ -d "$target_dir/capsules/$name" ]; then
-            # Already exists in our git tree — keep ours (e.g.,
-            # hey-social, hey-messenger, blobs-provider, hey-theme).
-            continue
-        fi
         cp -r "$upstream_capsule" "$target_dir/capsules/$name"
     done
 
@@ -122,6 +116,57 @@ PY
 
     rm -rf "$tmp_dir"
     chown -R "$app:$app" "$target_dir/elastos" "$target_dir/capsules" "$target_dir/components.json"
+}
+
+# ────────────────────────────────────────────────────────────────────
+# Hey capsule pack fetch
+# ────────────────────────────────────────────────────────────────────
+#
+# Pull the Hey-specific capsules (hey-social, hey-messenger, and the
+# blobs/docs/webrtc-signal Rust providers) from HeyElastos/Hey-capsule.
+# That repo is the canonical home for the pack; it stays YunoHost-
+# agnostic and works against any Elastos Runtime. Pin is in
+# manifest.toml's [resources.sources.hey_capsules]; ynh_setup_source
+# fetches + verifies sha256 from there.
+#
+# Layout in the tarball:
+#   capsules/{hey-social,hey-messenger,blobs-provider,docs-provider,
+#             webrtc-signal-provider}/
+#   Cargo.toml (workspace, dev convenience only — not needed at runtime)
+#   README.md  (pack docs)
+#
+# We extract to a staging dir, then move the pack's capsules/* into
+# $target_dir/capsules/ alongside upstream stock capsules. Hey wins
+# on name collision. Pack-level Cargo.toml is left at the staging
+# extraction site (each provider is self-contained — no workspace
+# inheritance — so building them in-place works without it).
+
+fetch_hey_capsules() {
+    local target_dir="$1"
+    local stage_dir="$target_dir/.hey-capsules-fetch"
+
+    rm -rf "$stage_dir"
+    mkdir -p "$stage_dir"
+
+    ynh_script_progression --message="Fetching Hey capsule pack..." --weight=3
+    ynh_setup_source --dest_dir="$stage_dir" --source_id="hey_capsules" \
+        || ynh_die --message="Failed to fetch the Hey capsule pack (resources.sources.hey_capsules)."
+
+    if [ ! -d "$stage_dir/capsules" ]; then
+        ynh_die --message="Hey capsule pack tarball missing capsules/ — layout changed?"
+    fi
+
+    mkdir -p "$target_dir/capsules"
+    for pack_capsule in "$stage_dir/capsules"/*/; do
+        local name
+        name="$(basename "$pack_capsule")"
+        # Hey wins on name collision with upstream.
+        rm -rf "$target_dir/capsules/$name"
+        cp -r "$pack_capsule" "$target_dir/capsules/$name"
+    done
+
+    rm -rf "$stage_dir"
+    chown -R "$app:$app" "$target_dir/capsules"
 }
 
 # Append the YunoHost-package frosted-glass theme overlay to

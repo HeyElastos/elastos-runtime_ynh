@@ -19,6 +19,11 @@ chown -R "$app:$app" "$install_dir"
 # install (sync-upstream.sh was used), this re-fetches the new version.
 fetch_upstream_source "$install_dir"
 
+#=================================================
+# FETCH HEY CAPSULE PACK
+#=================================================
+fetch_hey_capsules "$install_dir"
+
 if [ ! -x "$(rustup_root)/cargo/bin/cargo" ]; then
     ynh_script_progression --message="Reinstalling Rust toolchain..." --weight=20
     install_rust_toolchain
