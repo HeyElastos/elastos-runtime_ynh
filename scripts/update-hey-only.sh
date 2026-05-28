@@ -1,0 +1,92 @@
+#!/bin/bash
+#
+# Fast-path update for the Hey capsule pack ONLY.
+#
+# Skips the slow parts of `yunohost app upgrade elastos_runtime`
+# (cargo build, kubo download, full `elastos setup --with ...`).
+# Fetches the latest Hey-capsule tarball, builds the React bundles,
+# deploys them to the runtime's data_dir, restarts the service.
+#
+# Use this when iterating on hey-social / hey-messenger JS and you
+# want a sub-minute deploy loop instead of waiting 30+ minutes for
+# a full app upgrade.
+#
+# Usage (run as root or via sudo):
+#
+#   sudo bash /var/www/elastos_runtime/scripts/update-hey-only.sh
+#   sudo bash /var/www/elastos_runtime/scripts/update-hey-only.sh <commit-sha>
+#   sudo bash /var/www/elastos_runtime/scripts/update-hey-only.sh main
+#
+# Defaults to the latest commit on Hey-capsule's main branch.
+#
+# What it does NOT do (use `yunohost app upgrade` for these):
+#   - Rebuild the elastos runtime binary
+#   - Rebuild native provider binaries (did, ipfs, blobs, webspace)
+#   - Re-fetch upstream Elastos Runtime
+#   - Reapply upstream patches
+#   - Update the apt deps / system_user / nginx config
+#
+# What it DOES:
+#   - Fetch the named Hey-capsule commit's tarball from GitHub
+#   - Run `npm install && npm run build` for each app capsule that
+#     has a client/ subdir (hey-social, hey-messenger)
+#   - Move client/dist/* up to the capsule root (index.html + assets/)
+#   - Copy brand SVGs from client/public/ up to the capsule root
+#   - Replace the live capsule in data_dir with the freshly-built one
+#   - chown to the runtime user
+#   - Restart the elastos_runtime systemd service
+
+set -euo pipefail
+
+REPO="HeyElastos/Hey-capsule"
+COMMIT="${1:-main}"
+DATA_DIR="/home/yunohost.app/elastos_runtime/home/xdg-data/elastos/capsules"
+APP_USER="elastos_runtime"
+
+if [ ! -d "$DATA_DIR" ]; then
+    echo "ERROR: $DATA_DIR does not exist. Is elastos_runtime installed?" >&2
+    exit 1
+fi
+
+TMP=$(mktemp -d)
+trap "rm -rf '$TMP'" EXIT
+
+echo "=== Fetching $REPO @ $COMMIT ==="
+curl -fsSL "https://github.com/$REPO/archive/$COMMIT.tar.gz" -o "$TMP/pack.tar.gz"
+tar -xzf "$TMP/pack.tar.gz" -C "$TMP" --strip-components 1
+
+for app in hey-social hey-messenger; do
+    SRC="$TMP/capsules/$app"
+    if [ ! -f "$SRC/client/package.json" ]; then
+        echo "=== Skipping $app (no client/package.json) ==="
+        continue
+    fi
+
+    echo "=== Building $app ==="
+    (cd "$SRC/client" && npm install --no-audit --no-fund --loglevel=error && npm run build)
+
+    if [ ! -f "$SRC/client/dist/index.html" ]; then
+        echo "ERROR: $app build produced no client/dist/index.html" >&2
+        exit 1
+    fi
+
+    rm -rf "$SRC/index.html" "$SRC/assets"
+    mv "$SRC/client/dist/index.html" "$SRC/"
+    [ -d "$SRC/client/dist/assets" ] && mv "$SRC/client/dist/assets" "$SRC/"
+    if [ -d "$SRC/client/public" ]; then
+        for svg in "$SRC/client/public"/*.svg; do
+            [ -f "$svg" ] && cp -f "$svg" "$SRC/"
+        done
+    fi
+
+    echo "=== Deploying $app to $DATA_DIR ==="
+    rm -rf "$DATA_DIR/$app"
+    cp -r "$SRC" "$DATA_DIR/$app"
+    chown -R "$APP_USER:$APP_USER" "$DATA_DIR/$app"
+done
+
+echo "=== Restarting elastos_runtime ==="
+systemctl restart elastos_runtime
+
+echo
+echo "=== Done. Hard-refresh your browser to pick up the new bundle. ==="
