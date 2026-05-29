@@ -1,0 +1,28 @@
+--- a/elastos/crates/elastos-server/src/api/gateway_provider_proxy.rs
++++ b/elastos/crates/elastos-server/src/api/gateway_provider_proxy.rs
+@@ -68,7 +68,24 @@
+         }
+     };
+     request["op"] = serde_json::Value::String(op.clone());
+-    if scheme == "documents" || scheme == "net" {
++    // ── HEY-CAPSULE-PACK PATCH 0006 (REMOVABLE) ──────────────────────────
++    // Inject the authenticated runtime principal into elastos://identity/*
++    // requests too (upstream injects it only for documents/net). The
++    // identity-projection-provider derives a per-PRINCIPAL did:key + signing
++    // key from it, so a Hey user gets ONE stable identity across every Hey
++    // capsule with no passkey tap, and two users on one box never collide.
++    // Without it the provider can only fall back to a single per-install
++    // identity (same did:key for everyone).
++    //
++    // Open-access ONLY: it forwards the principal the runtime ALREADY
++    // validated (require_home_launch_token_for_any_context, just above) — it
++    // grants no new authority, it only tells the provider WHO is asking.
++    //
++    // KILL CONDITION: drop `|| scheme == "identity"` the moment upstream
++    // injects the principal for all provider schemes, or ships an identity
++    // surface that binds the principal itself. Pairs with patch 0003 (proxy
++    // allowlist) + patches 0004/0005 (reserve + register the provider).
++    if scheme == "documents" || scheme == "net" || scheme == "identity" {
+         request["principal_id"] = serde_json::Value::String(principal_id.clone());
+     }
+ 
