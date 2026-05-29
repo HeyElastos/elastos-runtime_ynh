@@ -193,41 +193,59 @@ build_hey_app_capsules() {
         local name
         name="$(basename "$capsule_dir")"
         local client_dir="$capsule_dir/client"
-        if [ ! -f "$client_dir/package.json" ]; then
-            continue   # not a React app capsule (Rust providers, etc.)
-        fi
+        if [ -f "$client_dir/package.json" ]; then
+            ynh_script_progression --message="Building $name (npm install + vite build)..." --weight=10
 
-        ynh_script_progression --message="Building $name (npm install + vite build)..." --weight=10
+            # Run npm as $app so node_modules permissions match. ynh_exec_as
+            # inherits PATH; the apt nodejs/npm binaries land in /usr/bin
+            # which is already on the default app PATH.
+            ynh_exec_as "$app" \
+                sh -c "cd '$client_dir' && npm install --no-audit --no-fund --loglevel=error && npm run build" \
+                || ynh_die --message="Failed to build $name capsule (npm install/build). Check that nodejs + npm are installed (apt resources)."
 
-        # Run npm as $app so node_modules permissions match. ynh_exec_as
-        # inherits PATH; the apt nodejs/npm binaries land in /usr/bin
-        # which is already on the default app PATH.
-        ynh_exec_as "$app" \
-            sh -c "cd '$client_dir' && npm install --no-audit --no-fund --loglevel=error && npm run build" \
-            || ynh_die --message="Failed to build $name capsule (npm install/build). Check that nodejs + npm are installed (apt resources)."
+            local dist_dir="$client_dir/dist"
+            if [ ! -f "$dist_dir/index.html" ]; then
+                ynh_die --message="Build of $name finished but no $dist_dir/index.html — vite config issue?"
+            fi
 
-        local dist_dir="$client_dir/dist"
-        if [ ! -f "$dist_dir/index.html" ]; then
-            ynh_die --message="Build of $name finished but no $dist_dir/index.html — vite config issue?"
-        fi
+            # Move dist/ output up to the capsule root, replacing any
+            # previous build artifacts (an upgrade picks up the new bundle).
+            rm -rf "$capsule_dir/index.html" "$capsule_dir/assets"
+            mv "$dist_dir/index.html" "$capsule_dir/index.html"
+            if [ -d "$dist_dir/assets" ]; then
+                mv "$dist_dir/assets" "$capsule_dir/assets"
+            fi
 
-        # Move dist/ output up to the capsule root, replacing any
-        # previous build artifacts (an upgrade picks up the new bundle).
-        rm -rf "$capsule_dir/index.html" "$capsule_dir/assets"
-        mv "$dist_dir/index.html" "$capsule_dir/index.html"
-        if [ -d "$dist_dir/assets" ]; then
-            mv "$dist_dir/assets" "$capsule_dir/assets"
-        fi
-
-        # Brand icons live under client/public/*.svg in the pack; the
-        # publisher Python looks for *.svg at the capsule root. Copy
-        # them up if present.
-        if [ -d "$client_dir/public" ]; then
-            local svg
-            for svg in "$client_dir/public"/*.svg; do
-                [ -f "$svg" ] || continue
-                cp -f "$svg" "$capsule_dir/$(basename "$svg")"
-            done
+            # Brand icons live under client/public/*.svg in the pack; the
+            # publisher Python looks for *.svg at the capsule root. Copy
+            # them up if present.
+            if [ -d "$client_dir/public" ]; then
+                local svg
+                for svg in "$client_dir/public"/*.svg; do
+                    [ -f "$svg" ] || continue
+                    cp -f "$svg" "$capsule_dir/$(basename "$svg")"
+                done
+            fi
+        elif [ -f "$capsule_dir/Trunk.toml" ]; then
+            # Rust+Leptos+WASM app capsule (hey-social, and hey-messenger once
+            # it flips off React). CI / the dev machine builds it into dist/ and
+            # commits that to the pack, so there is NO on-server trunk build —
+            # we just relocate the pre-built bundle. The runtime serves capsule
+            # files from the capsule ROOT (the entrypoint mounts at /apps/<app>/
+            # and its relative ./xxx.js / ./xxx_bg.wasm URLs resolve there), so
+            # the dist/* must be flattened up to the root exactly like the React
+            # client/dist/* above — otherwise the WASM/JS 404 and the app boots
+            # to a blank screen. capsule.json entrypoint must be "index.html".
+            local dist_dir="$capsule_dir/dist"
+            if [ ! -f "$dist_dir/index.html" ]; then
+                ynh_die --message="$name has Trunk.toml but no $dist_dir/index.html in the pack — did CI fail to build it, or was dist/ left gitignored (it must be force-added)?"
+            fi
+            ynh_script_progression --message="Deploying $name (pre-built WASM, flattening dist/)..." --weight=1
+            rm -f "$capsule_dir/index.html"        # drop the Trunk source template
+            cp -af "$dist_dir/." "$capsule_dir/"   # overlay built index.html + hashed assets
+            rm -rf "$dist_dir"
+        else
+            continue   # not an app capsule (Rust providers, static data, etc.)
         fi
     done
 

@@ -86,16 +86,23 @@ for app in hey-social hey-messenger; do
         fi
     elif [ -f "$SRC/Trunk.toml" ]; then
         # Rust+Leptos+WASM app — built by CI / dev-machine into dist/,
-        # shipped pre-built in the Hey-capsule tarball. capsule.json's
-        # entrypoint should already point at dist/index.html (the
-        # post-Trunk file with real <script> + WASM imports, not the
-        # source template at the capsule root). No on-server trunk
+        # shipped pre-built in the Hey-capsule tarball. No on-server trunk
         # build needed — keeps the fast deploy actually fast.
         if [ ! -f "$SRC/dist/index.html" ]; then
             echo "ERROR: $app has Trunk.toml but no dist/index.html in the tarball — did CI fail to build, or was dist/ gitignored?" >&2
             exit 1
         fi
-        echo "=== $app: pre-built WASM (from tarball), deploying as-is ==="
+        # The runtime serves capsule files from the capsule ROOT, not from a
+        # dist/ subdir: the entrypoint is mounted at /apps/<app>/ and its
+        # relative asset URLs (./xxx.js, ./xxx_bg.wasm) resolve against that
+        # root. So flatten dist/* up to the capsule root — exactly like the
+        # React client/dist/* flatten above. capsule.json entrypoint must be
+        # "index.html" (the post-Trunk file), NOT "dist/index.html"; otherwise
+        # the WASM/JS 404 and the app boots to a blank screen.
+        echo "=== $app: pre-built WASM (from tarball), flattening dist/ -> capsule root ==="
+        rm -f "$SRC/index.html"          # drop the Trunk source template at root
+        cp -af "$SRC/dist/." "$SRC/"     # overlay the built index.html + hashed assets
+        rm -rf "$SRC/dist"
     else
         # Static capsule (no client/, no Trunk.toml) — just deploy whatever
         # the tarball ships at the capsule root.
