@@ -1,0 +1,43 @@
+--- a/elastos/crates/elastos-server/src/api/gateway_provider_proxy.rs
++++ b/elastos/crates/elastos-server/src/api/gateway_provider_proxy.rs
+@@ -1,5 +1,13 @@
+ use super::*;
+ 
++// HEY-CAPSULE-PACK PATCH 0003 (REMOVABLE) — see the match arm below for the
++// full rationale and kill condition. These ids are matched against the
++// verified home-launch-token `app` field. Kept local to this file so the
++// entire bridge lifts out in one delete when upstream lands a manifest-/
++// capability-driven provider allowlist.
++const HEY_SOCIAL_CAPSULE_ID: &str = "hey-social";
++const HEY_MESSENGER_CAPSULE_ID: &str = "hey-messenger";
++
+ pub(super) async fn gateway_provider_proxy(
+     State(state): State<GatewayState>,
+     Path((scheme, op)): Path<(String, String)>,
+@@ -34,6 +42,26 @@
+                     .into_response()
+             }
+         },
++        // ── HEY-CAPSULE-PACK PATCH 0003 (REMOVABLE) ──────────────────────
++        // Authorize the hey-capsule-pack's app capsules (hey-social,
++        // hey-messenger) through the public gateway provider proxy. v0.3
++        // hardcodes the (scheme, op) → allowed_apps map to built-in capsules
++        // only, so additive third-party apps get 404/403 on every
++        // /api/provider/<scheme>/<op> their manifests legitimately declare
++        // under permissions.messaging. This arm is AUTHORIZATION ONLY — the
++        // per-scheme provider must still be registered (content and did are
++        // built-in; peer/identity/social-feed/hey-transcoder/elacity/blobs/
++        // docs come from the pack's own providers). Scheme-level, matching
++        // the manifest's `elastos://<scheme>/*` grants; ops are not narrowed.
++        //
++        // KILL CONDITION: delete this arm and the two consts above the moment
++        // upstream replaces the hardcoded allowed_apps map with a manifest- or
++        // capability-token-driven check. Hey then authorizes via its manifest
++        // permissions.messaging and this becomes dead code. Pairs with 0001
++        // (runtime-token) and 0002 (principal storage); same removal discipline.
++        "peer" | "content" | "did" | "identity" | "social-feed" | "hey-transcoder" | "elacity"
++        | "blobs" | "docs" => &[HEY_SOCIAL_CAPSULE_ID, HEY_MESSENGER_CAPSULE_ID],
++        // ── END HEY-CAPSULE-PACK PATCH 0003 ──────────────────────────────
+         _ => return (StatusCode::NOT_FOUND, "Gateway provider not found").into_response(),
+     };
+     let context =
