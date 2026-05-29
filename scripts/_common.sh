@@ -378,6 +378,18 @@ build_runtime_and_capsules() {
             CARGO_TARGET_DIR="$install_dir/elastos/target" \
         sh -c "cd '$install_dir/capsules/blobs-provider' && cargo build --release"
 
+    # identity-projection-provider: runtime-held did:key signing (whoami/sign/
+    # verify) so capsules don't keep Ed25519 seeds in localStorage. Its
+    # rust-toolchain.toml pins rustc 1.91, discovered by walking up from cargo's
+    # CWD — so `cd` into the crate dir (same reason as blobs-provider above).
+    # CARGO_TARGET_DIR lands the binary in the shared target/release tree.
+    ynh_exec_as "$app" \
+        env RUSTUP_HOME="$(rustup_root)/rustup" \
+            CARGO_HOME="$(rustup_root)/cargo" \
+            PATH="$(rustup_root)/cargo/bin:/usr/local/bin:/usr/bin:/bin" \
+            CARGO_TARGET_DIR="$install_dir/elastos/target" \
+        sh -c "cd '$install_dir/capsules/identity-projection-provider' && cargo build --release"
+
     # ── WASM capsules ──
     # home-cli: copy WASM next to capsule.json so home_cli_dir can tar both.
     cargo_as_app build --release --target wasm32-wasip1 \

@@ -149,7 +149,7 @@ def stamp(info, data: bytes) -> None:
     info["size"] = len(data)
 
 # ── 1) NATIVE BINARIES ──
-for name in ("shell", "localhost-provider", "did-provider", "webspace-provider", "ipfs-provider", "blobs-provider"):
+for name in ("shell", "localhost-provider", "did-provider", "webspace-provider", "ipfs-provider", "blobs-provider", "identity-projection-provider"):
     src = native_bin / name
     if not src.is_file():
         raise SystemExit(f"missing built artifact for {name}: {src}")
@@ -341,7 +341,7 @@ cp "$SOURCE_RUNTIME_DATA_DIR/components.json" "$CLIENT_HOME/xdg-data/elastos/com
 # List exactly what build_runtime_and_capsules produced + the upstream
 # capsules + Hey additives. To add wallet/browser support later, build
 # the new providers in _common.sh and add them to this list.
-ELASTOS_COMPONENTS="shell,localhost-provider,did-provider,webspace-provider,ipfs-provider,blobs-provider,kubo,home,system,chat-room,inbox,library,documents,hey-social,hey-messenger"
+ELASTOS_COMPONENTS="shell,localhost-provider,did-provider,webspace-provider,ipfs-provider,blobs-provider,identity-projection-provider,kubo,home,system,chat-room,inbox,library,documents,hey-social,hey-messenger"
 ynh_script_progression --message="Running elastos setup --with $ELASTOS_COMPONENTS..." --weight=5
 ynh_exec_as "$app" \
     env HOME="$CLIENT_HOME" \

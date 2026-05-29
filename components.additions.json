@@ -49,6 +49,26 @@
           "install_path": "bin/blobs-provider"
         }
       }
+    },
+    "identity-projection-provider": {
+      "install_path": "bin/identity-projection-provider",
+      "description": "Identity projection provider — runtime-held did:key signing (whoami/sign/verify) so capsules sign via the runtime instead of a localStorage keystore",
+      "platforms": {
+        "linux-amd64": {
+          "cid": "",
+          "checksum": "",
+          "size": 0,
+          "release_path": "identity-projection-provider-linux-amd64",
+          "install_path": "bin/identity-projection-provider"
+        },
+        "linux-arm64": {
+          "cid": "",
+          "checksum": "",
+          "size": 0,
+          "release_path": "identity-projection-provider-linux-arm64",
+          "install_path": "bin/identity-projection-provider"
+        }
+      }
     }
   }
 }
