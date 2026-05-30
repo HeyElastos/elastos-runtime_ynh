@@ -47,7 +47,7 @@ fetch_upstream_source "$install_dir"
 # FETCH HEY CAPSULE PACK
 #=================================================
 #
-# The Hey-specific capsules (hey-social, hey-messenger, blobs/docs/
+# The Hey-specific capsules (hey-social, hey-chat, blobs/docs/
 # webrtc-signal providers) live in HeyElastos/Hey-capsule — a separate,
 # YunoHost-agnostic repo. Pull them and drop into $install_dir/capsules/
 # alongside upstream's stock capsules.
@@ -210,7 +210,7 @@ for name in ("home", "system", "chat-room"):
 # ── 4) DATA CAPSULES ──
 # Two shapes covered:
 #   - documents / library / inbox: minimal — capsule.json + index.html
-#   - hey-messenger: Vite React build — capsule.json + index.html +
+#   - hey-chat: Vite React build — capsule.json + index.html +
 #     assets/ + *.svg at root
 #   - hey-social: Trunk Rust+WASM build — capsule.json + a dist/ subdir
 #     containing the entrypoint index.html + the WASM/JS bundle. Source
@@ -221,7 +221,7 @@ for name in ("home", "system", "chat-room"):
 # The tar block below is shape-agnostic: it includes index.html+assets/
 # when present (React) and dist/ when present (Trunk), so one loop covers
 # both.
-for name in ("documents", "library", "inbox", "hey-social", "hey-messenger"):
+for name in ("documents", "library", "inbox", "hey-social", "hey-chat"):
     info = platform_info(name)
     capsule_dir = capsules / name
     archive = artifacts_dir / info["release_path"]
@@ -346,7 +346,7 @@ cp "$SOURCE_RUNTIME_DATA_DIR/components.json" "$CLIENT_HOME/xdg-data/elastos/com
 # List exactly what build_runtime_and_capsules produced + the upstream
 # capsules + Hey additives. To add wallet/browser support later, build
 # the new providers in _common.sh and add them to this list.
-ELASTOS_COMPONENTS="shell,localhost-provider,did-provider,webspace-provider,ipfs-provider,blobs-provider,identity-projection-provider,kubo,home,system,chat-room,inbox,library,documents,hey-social,hey-messenger"
+ELASTOS_COMPONENTS="shell,localhost-provider,did-provider,webspace-provider,ipfs-provider,blobs-provider,identity-projection-provider,kubo,home,system,chat-room,inbox,library,documents,hey-social,hey-chat"
 ynh_script_progression --message="Running elastos setup --with $ELASTOS_COMPONENTS..." --weight=5
 ynh_exec_as "$app" \
     env HOME="$CLIENT_HOME" \

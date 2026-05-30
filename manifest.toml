@@ -113,7 +113,7 @@ ram.runtime = "512M"
         "qemu-system-x86",
         "qemu-utils",
         # Hey-capsule pack ships React source for hey-social and
-        # hey-messenger; fetch_hey_capsules + build_hey_app_capsules
+        # hey-chat; fetch_hey_capsules + build_hey_app_capsules
         # do `npm install && npm run build` at install time to produce
         # the static bundles the publisher then archives.
         "nodejs",

@@ -122,7 +122,7 @@ PY
 # Hey capsule pack fetch
 # ────────────────────────────────────────────────────────────────────
 #
-# Pull the Hey-specific capsules (hey-social, hey-messenger, and the
+# Pull the Hey-specific capsules (hey-social, hey-chat, and the
 # blobs/docs/webrtc-signal Rust providers) from HeyElastos/Hey-capsule.
 # That repo is the canonical home for the pack; it stays YunoHost-
 # agnostic and works against any Elastos Runtime. Pin is in
@@ -130,7 +130,7 @@ PY
 # fetches + verifies sha256 from there.
 #
 # Layout in the tarball:
-#   capsules/{hey-social,hey-messenger,blobs-provider,docs-provider,
+#   capsules/{hey-social,hey-chat,blobs-provider,docs-provider,
 #             webrtc-signal-provider}/
 #   Cargo.toml (workspace, dev convenience only — not needed at runtime)
 #   README.md  (pack docs)
@@ -174,7 +174,7 @@ fetch_hey_capsules() {
 # ────────────────────────────────────────────────────────────────────
 #
 # The Hey-capsule pack ships React SOURCE for app capsules (hey-social,
-# hey-messenger). The runtime install pipeline expects each app capsule
+# hey-chat). The runtime install pipeline expects each app capsule
 # to expose its built static bundle at the capsule root (index.html +
 # assets/) so stage_publisher_artifacts can tar it up directly. This
 # function walks every capsule under $install_dir/capsules/ that has a
@@ -227,7 +227,7 @@ build_hey_app_capsules() {
                 done
             fi
         elif [ -f "$capsule_dir/Trunk.toml" ]; then
-            # Rust+Leptos+WASM app capsule (hey-social, and hey-messenger once
+            # Rust+Leptos+WASM app capsule (hey-social, and hey-chat once
             # it flips off React). CI / the dev machine builds it into dist/ and
             # commits that to the pack, so there is NO on-server trunk build —
             # we just relocate the pre-built bundle. The runtime serves capsule
@@ -381,7 +381,7 @@ build_runtime_and_capsules() {
         cargo_as_app build --release --manifest-path "$install_dir/capsules/$crate/Cargo.toml"
     done
 
-    # blobs-provider: iroh-blobs direct P2P file transfer for hey-messenger.
+    # blobs-provider: iroh-blobs direct P2P file transfer for hey-chat.
     # Pinned to its own [workspace] + rust-toolchain.toml (rustc 1.91) because
     # iroh 1.0.0-rc.1 / iroh-blobs 0.102 need a newer toolchain than the rest
     # of the runtime. rustup discovers rust-toolchain.toml by walking up from

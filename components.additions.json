@@ -16,17 +16,17 @@
         }
       }
     },
-    "hey-messenger": {
-      "install_path": "capsules/hey-messenger",
+    "hey-chat": {
+      "install_path": "capsules/hey-chat",
       "description": "Hey Chat \u2014 P2P messenger with PQ-hybrid E2E DMs",
       "platforms": {
         "*": {
           "cid": "",
           "checksum": "",
           "size": 0,
-          "release_path": "hey-messenger.tar.gz",
-          "extract_path": "hey-messenger",
-          "install_path": "capsules/hey-messenger"
+          "release_path": "hey-chat.tar.gz",
+          "extract_path": "hey-chat",
+          "install_path": "capsules/hey-chat"
         }
       }
     },

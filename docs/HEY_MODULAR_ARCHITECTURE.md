@@ -34,7 +34,7 @@ elastos-runtime_ynh/
 │   │                                   any upstream Elastos Runtime.
 │   │
 │   ├── hey-social/                  ← HEY CAPSULE PACK. App capsule.
-│   └── hey-messenger/               ← HEY CAPSULE PACK. App capsule.
+│   └── hey-chat/               ← HEY CAPSULE PACK. App capsule.
 │
 ├── conf/                             ← YUNOHOST PACKAGE. nginx + systemd
 │   │                                   + branding (this YunoHost install
@@ -143,7 +143,7 @@ When upstream releases vN.M.0:
 #   - elastos/
 #   - All upstream-owned capsules under capsules/
 # Preserves:
-#   - capsules/{blobs-provider, hey-social, hey-messenger, hey-theme}
+#   - capsules/{blobs-provider, hey-social, hey-chat, hey-theme}
 #   - components.json's Hey-additive entries (re-merged)
 #   - conf/, scripts/, manifest.toml
 
