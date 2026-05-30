@@ -9,7 +9,7 @@
 +// entire bridge lifts out in one delete when upstream lands a manifest-/
 +// capability-driven provider allowlist.
 +const HEY_SOCIAL_CAPSULE_ID: &str = "hey-social";
-+const HEY_MESSENGER_CAPSULE_ID: &str = "hey-messenger";
++const HEY_CHAT_CAPSULE_ID: &str = "hey-chat";
 +
  pub(super) async fn gateway_provider_proxy(
      State(state): State<GatewayState>,
@@ -20,7 +20,7 @@
          },
 +        // ── HEY-CAPSULE-PACK PATCH 0003 (REMOVABLE) ──────────────────────
 +        // Authorize the hey-capsule-pack's app capsules (hey-social,
-+        // hey-messenger) through the public gateway provider proxy. v0.3
++        // hey-chat) through the public gateway provider proxy. v0.3
 +        // hardcodes the (scheme, op) → allowed_apps map to built-in capsules
 +        // only, so additive third-party apps get 404/403 on every
 +        // /api/provider/<scheme>/<op> their manifests legitimately declare
@@ -36,7 +36,7 @@
 +        // permissions.messaging and this becomes dead code. Pairs with 0001
 +        // (runtime-token) and 0002 (principal storage); same removal discipline.
 +        "peer" | "content" | "did" | "identity" | "social-feed" | "hey-transcoder" | "elacity"
-+        | "blobs" | "docs" => &[HEY_SOCIAL_CAPSULE_ID, HEY_MESSENGER_CAPSULE_ID],
++        | "blobs" | "docs" => &[HEY_SOCIAL_CAPSULE_ID, HEY_CHAT_CAPSULE_ID],
 +        // ── END HEY-CAPSULE-PACK PATCH 0003 ──────────────────────────────
          _ => return (StatusCode::NOT_FOUND, "Gateway provider not found").into_response(),
      };

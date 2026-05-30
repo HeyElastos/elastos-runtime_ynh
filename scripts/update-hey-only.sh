@@ -7,7 +7,7 @@
 # Fetches the latest Hey-capsule tarball, builds the React bundles,
 # deploys them to the runtime's data_dir, restarts the service.
 #
-# Use this when iterating on hey-social / hey-messenger JS and you
+# Use this when iterating on hey-social / hey-chat JS and you
 # want a sub-minute deploy loop instead of waiting 30+ minutes for
 # a full app upgrade.
 #
@@ -29,7 +29,7 @@
 # What it DOES:
 #   - Fetch the named Hey-capsule commit's tarball from GitHub
 #   - Run `npm install && npm run build` for each app capsule that
-#     has a client/ subdir (hey-social, hey-messenger)
+#     has a client/ subdir (hey-social, hey-chat)
 #   - Move client/dist/* up to the capsule root (index.html + assets/)
 #   - Copy brand SVGs from client/public/ up to the capsule root
 #   - Replace the live capsule in data_dir with the freshly-built one
@@ -55,7 +55,7 @@ echo "=== Fetching $REPO @ $COMMIT ==="
 curl -fsSL "https://github.com/$REPO/archive/$COMMIT.tar.gz" -o "$TMP/pack.tar.gz"
 tar -xzf "$TMP/pack.tar.gz" -C "$TMP" --strip-components 1
 
-for app in hey-social hey-messenger; do
+for app in hey-social hey-chat; do
     SRC="$TMP/capsules/$app"
     if [ ! -d "$SRC" ]; then
         echo "=== Skipping $app (not in pack) ==="
