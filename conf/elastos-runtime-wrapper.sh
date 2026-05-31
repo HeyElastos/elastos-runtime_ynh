@@ -36,6 +36,23 @@ if [ -s "$LOCALHOST_KEY_FILE" ]; then
     export ELASTOS_LOCALHOST_ENCRYPTION_KEY="$(cat "$LOCALHOST_KEY_FILE")"
 fi
 
+# ── Peer federation (cross-runtime gossip) ─────────────────────────────
+# The peer-provider (elastos://peer/* broker) the runtime spawns on demand
+# inherits this environment. Default with no config below: SAME-RUNTIME only
+# (local in-memory broker). To federate with OTHER runtimes (e.g. another
+# YunoHost Hey server), set PEER_HUB_URL (+ optional HEY_PEER_HUB_TOKEN) so the
+# provider forwards gossip to a shared hub; to BE that hub, set
+# HEY_PEER_HUB_PORT=8765 and this wrapper launches `peer-provider --hub`
+# (exposed by nginx at __PATH__/peer-hub/). Config lives in an optional env
+# file so upgrades don't clobber it. Example peer-hub.env:
+#     PEER_HUB_URL=https://hub-host/<app-path>/peer-hub/
+#     HEY_PEER_HUB_TOKEN=some-shared-secret
+#     HEY_PEER_HUB_PORT=8765      # ONLY on the box that hosts the hub
+PEER_HUB_ENV="$XDG_DATA_HOME/elastos/peer-hub.env"
+if [ -f "$PEER_HUB_ENV" ]; then
+    set -a; . "$PEER_HUB_ENV"; set +a
+fi
+
 # Approach A step 5d: server-enforced lock screen. With this on,
 # browser sessions start in PreAuth (no capability tokens) and must
 # complete /api/auth/unlock or /api/auth/setup before storage /
@@ -85,11 +102,25 @@ if [ -x "$KUBO_BIN" ]; then
     done
 fi
 
+# ── Peer federation hub ─────────────────────────────────────────────
+# Only the box designated the shared hub (HEY_PEER_HUB_PORT set, from
+# peer-hub.env above) runs the long-lived broker; nginx fronts it with TLS at
+# __PATH__/peer-hub/. The on-demand stdio peer-provider the runtime spawns is
+# SEPARATE — it forwards to PEER_HUB_URL. Same binary, different mode.
+PEER_HUB_PID=""
+PEER_PROVIDER_BIN="$XDG_DATA_HOME/elastos/bin/peer-provider"
+if [ -n "${HEY_PEER_HUB_PORT:-}" ] && [ -x "$PEER_PROVIDER_BIN" ]; then
+    "$PEER_PROVIDER_BIN" --hub >> "$LOG_DIR/peer-hub.log" 2>&1 < /dev/null &
+    PEER_HUB_PID=$!
+    echo "Started peer-provider hub PID $PEER_HUB_PID on :${HEY_PEER_HUB_PORT} (log: $LOG_DIR/peer-hub.log)"
+fi
+
 "$ELASTOS_BIN" serve &
 SERVE_PID=$!
 
 trap '
     [ -n "$KUBO_PID" ] && kill -TERM "$KUBO_PID" 2>/dev/null || true
+    [ -n "$PEER_HUB_PID" ] && kill -TERM "$PEER_HUB_PID" 2>/dev/null || true
     kill -TERM "$SERVE_PID" 2>/dev/null || true
     wait "$SERVE_PID" 2>/dev/null || true
     exit 0
