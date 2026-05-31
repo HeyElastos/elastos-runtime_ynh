@@ -377,11 +377,7 @@ build_runtime_and_capsules() {
     # foundation. Pairs with the kubo binary fetched in download_external_binaries.
     # Note: notepad was removed in upstream v0.3.0; if it returns in a
     # later release add it back here.
-    # peer-provider: same-runtime gossip broker backing elastos://peer/* (DM
-    # invites, follow requests, message delivery between Hey capsules). Pure
-    # serde_json, builds on the default toolchain like the three below. No new
-    # runtime patch — patch 0003 already authorizes the peer scheme.
-    for crate in did-provider webspace-provider ipfs-provider peer-provider; do
+    for crate in did-provider webspace-provider ipfs-provider; do
         cargo_as_app build --release --manifest-path "$install_dir/capsules/$crate/Cargo.toml"
     done
 
@@ -411,6 +407,19 @@ build_runtime_and_capsules() {
             PATH="$(rustup_root)/cargo/bin:/usr/local/bin:/usr/bin:/bin" \
             CARGO_TARGET_DIR="$install_dir/elastos/target" \
         sh -c "cd '$install_dir/capsules/identity-projection-provider' && cargo build --release"
+
+    # peer-provider: decentralized iroh-gossip node backing elastos://peer/* (DM
+    # invites, follow requests, cross-runtime message delivery). Uses iroh-gossip
+    # 0.100 / iroh 1.0.0-rc.1, so it needs rustc 1.91 like blobs-provider — `cd`
+    # into the crate dir for its rust-toolchain.toml pin. CARGO_TARGET_DIR lands
+    # the binary in the shared target/release tree. No new runtime patch — patch
+    # 0003 already authorizes the peer scheme; zero operator config (auto P2P).
+    ynh_exec_as "$app" \
+        env RUSTUP_HOME="$(rustup_root)/rustup" \
+            CARGO_HOME="$(rustup_root)/cargo" \
+            PATH="$(rustup_root)/cargo/bin:/usr/local/bin:/usr/bin:/bin" \
+            CARGO_TARGET_DIR="$install_dir/elastos/target" \
+        sh -c "cd '$install_dir/capsules/peer-provider' && cargo build --release"
 
     # ── WASM capsules ──
     # home-cli: copy WASM next to capsule.json so home_cli_dir can tar both.
