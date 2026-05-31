@@ -377,7 +377,11 @@ build_runtime_and_capsules() {
     # foundation. Pairs with the kubo binary fetched in download_external_binaries.
     # Note: notepad was removed in upstream v0.3.0; if it returns in a
     # later release add it back here.
-    for crate in did-provider webspace-provider ipfs-provider; do
+    # peer-provider: same-runtime gossip broker backing elastos://peer/* (DM
+    # invites, follow requests, message delivery between Hey capsules). Pure
+    # serde_json, builds on the default toolchain like the three below. No new
+    # runtime patch — patch 0003 already authorizes the peer scheme.
+    for crate in did-provider webspace-provider ipfs-provider peer-provider; do
         cargo_as_app build --release --manifest-path "$install_dir/capsules/$crate/Cargo.toml"
     done
 
