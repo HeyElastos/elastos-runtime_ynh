@@ -327,6 +327,22 @@ ensure_localhost_encryption_key() {
     fi
 }
 
+# Open the UDP port carrier-gossip's iroh endpoint binds — it hardcodes
+# `bind_addr 0.0.0.0:4433` (upstream elastos-server/src/carrier.rs). YunoHost's
+# firewall blocks everything not explicitly allowed, so without this two
+# separate runtimes can never form the iroh gossip mesh: cross-runtime DM
+# invites, friend requests and message delivery silently hang ("invite
+# pending") because the inbound dial is dropped. We open it directly rather
+# than via [resources.ports] because that resource auto-allocates a free port,
+# but carrier-gossip needs EXACTLY 4433. Idempotent; --no-upnp leaves the
+# router alone (both Hey runtimes are public VPSes with routable IPs).
+PEER_UDP_PORT=4433
+open_peer_firewall_port() {
+    ynh_script_progression --message="Opening UDP $PEER_UDP_PORT for cross-runtime P2P (carrier-gossip iroh)..." --weight=1
+    yunohost firewall allow UDP "$PEER_UDP_PORT" --no-upnp >/dev/null 2>&1 \
+        || ynh_print_warn --message="Could not open UDP $PEER_UDP_PORT automatically. Cross-runtime invites/DMs need it — run: yunohost firewall allow UDP $PEER_UDP_PORT"
+}
+
 install_rust_toolchain() {
     local root
     root="$(rustup_root)"

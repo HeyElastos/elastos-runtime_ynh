@@ -137,6 +137,9 @@ fi
 ynh_script_progression --message="Reapplying Hey theme overlay..." --weight=1
 apply_hey_theme_overlay "$(elastos_home)/xdg-data/elastos"
 
+# Existing installs predating the P2P port fix get it opened here too.
+open_peer_firewall_port
+
 ynh_script_progression --message="Starting Elastos Runtime..." --weight=3
 ynh_systemd_action --service_name="$app" --action="start" \
     --log_path="/var/log/$app/$app.log" \

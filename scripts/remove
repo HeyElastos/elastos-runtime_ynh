@@ -20,4 +20,7 @@ ynh_secure_remove --file="$(rustup_root)"
 ynh_script_progression --message="Removing logs..."
 ynh_secure_remove --file="/var/log/$app"
 
+ynh_script_progression --message="Closing the cross-runtime P2P UDP port..."
+yunohost firewall disallow UDP "$PEER_UDP_PORT" --no-upnp >/dev/null 2>&1 || true
+
 ynh_script_progression --message="Elastos Runtime removed." --last

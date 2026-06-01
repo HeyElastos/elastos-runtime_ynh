@@ -454,6 +454,11 @@ yunohost service add "$app" \
     --log="/var/log/$app/$app.log"
 
 #=================================================
+# OPEN THE PEER-TO-PEER UDP PORT (carrier-gossip iroh transport)
+#=================================================
+open_peer_firewall_port
+
+#=================================================
 # START THE REAL SERVICE
 #=================================================
 
