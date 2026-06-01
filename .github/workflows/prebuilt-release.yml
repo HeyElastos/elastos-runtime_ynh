@@ -112,9 +112,16 @@ jobs:
           . "$HOME/.cargo/env"
           # runtime binary (debug, matches the install)
           cargo build --manifest-path elastos/Cargo.toml -p elastos-server
-          # upstream native providers (release)
-          for c in shell localhost-provider did-provider webspace-provider ipfs-provider; do
+          # upstream native providers (release). NOTE the two locations, mirroring
+          # fetch_upstream_source(): shell + localhost-provider ship INSIDE the
+          # elastos/ workspace (elastos/capsules/), while did/webspace/ipfs are
+          # top-level capsules (capsules/). Building did-provider from
+          # elastos/capsules/ is the bug that made this step exit 101 at ~8.5min.
+          for c in shell localhost-provider; do
             cargo build --release --manifest-path "elastos/capsules/$c/Cargo.toml"
+          done
+          for c in did-provider webspace-provider ipfs-provider; do
+            cargo build --release --manifest-path "capsules/$c/Cargo.toml"
           done
           # Hey iroh providers (release, 1.91 via per-crate rust-toolchain.toml -> cd in)
           for c in blobs-provider identity-projection-provider peer-provider; do
