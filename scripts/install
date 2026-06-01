@@ -368,6 +368,30 @@ ynh_exec_as "$app" \
     || ynh_die --message="elastos setup --profile operator failed. Check $SOURCE_RUNTIME_LOG."
 
 #=================================================
+# INSTALL NATIVE PROVIDER BINARIES DIRECTLY INTO CLIENT bin/
+#=================================================
+# Belt-and-suspenders, identical to scripts/upgrade. `setup --with` above
+# fetches providers over Carrier from the temp publisher, but that path is
+# timing-fragile and a brand-new provider (e.g. peer-provider) can miss the
+# fetch window — leaving an old/absent binary in bin/. The freshly-built
+# binaries are right here in the target tree and are registered with empty
+# checksums in the client components.json (verification is skipped for empty
+# checksums, like blobs-provider), so copy them straight into bin/. The
+# runtime spawns providers from bin/ on demand — this guarantees the exact
+# built binary is what runs, on install and upgrade alike.
+ynh_script_progression --message="Installing native provider binaries into client bin/..." --weight=2
+CLIENT_BIN="$CLIENT_HOME/xdg-data/elastos/bin"
+mkdir -p "$CLIENT_BIN"
+for b in shell localhost-provider did-provider webspace-provider ipfs-provider \
+         blobs-provider identity-projection-provider peer-provider; do
+    src="$install_dir/elastos/target/release/$b"
+    if [ -x "$src" ]; then
+        install -m 0755 -o "$app" -g "$app" "$src" "$CLIENT_BIN/$b"
+        echo "  installed bin/$b"
+    fi
+done
+
+#=================================================
 # APPLY HEY THEME OVERLAY
 #=================================================
 #

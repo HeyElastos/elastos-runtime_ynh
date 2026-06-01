@@ -41,15 +41,27 @@ jobs:
     env:
       WORK: ${{ github.workspace }}
       CARGO_TARGET_DIR: ${{ github.workspace }}/elastos/target
+      CARGO_INCREMENTAL: "0"        # incremental artifacts blow up disk on the debug runtime build
+      CARGO_NET_RETRY: "5"
     steps:
       - uses: actions/checkout@v4
 
       - name: Free up disk space (full Rust runtime build is large)
         run: |
-          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android \
-            /opt/hostedtoolcache/CodeQL /usr/local/share/boost "$AGENT_TOOLSDIRECTORY" || true
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup /usr/local/lib/android \
+            /opt/hostedtoolcache/CodeQL /usr/local/share/boost /usr/lib/jvm \
+            /usr/share/swift "$AGENT_TOOLSDIRECTORY" || true
           sudo docker image prune -af || true
           df -h /
+
+      - name: Add swap (iroh release builds are memory-hungry; avoid rustc OOM → exit 101)
+        run: |
+          sudo swapoff -a || true
+          sudo fallocate -l 10G /swapfile
+          sudo chmod 600 /swapfile
+          sudo mkswap /swapfile
+          sudo swapon /swapfile
+          free -h
 
       - name: System build deps
         run: |
