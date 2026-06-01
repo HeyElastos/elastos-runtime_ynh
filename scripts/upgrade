@@ -77,7 +77,30 @@ sudo -u "$app" \
     XDG_DATA_HOME="$(elastos_home)/xdg-data" \
     XDG_CONFIG_HOME="$(elastos_home)/.config" \
     "$install_dir/elastos/target/debug/elastos" setup --with "$UPGRADE_COMPONENTS" \
-    || ynh_print_warn --message="elastos setup --with $UPGRADE_COMPONENTS failed (continuing — they may already be present)."
+    || ynh_print_warn --message="elastos setup --with $UPGRADE_COMPONENTS failed (continuing — installed directly below)."
+
+# Install native provider binaries DIRECTLY into the client bin/.
+# `setup --with` fetches NEW components over Carrier from the install's temp
+# publisher — which is torn down after install, so a brand-new provider (e.g.
+# peer-provider) times out on upgrade ("Trusted source Carrier fetch failed").
+# The binaries are right here in the build/prebuilt target tree, and they're
+# already registered in the client components.json, so copy them straight in —
+# the runtime spawns providers from bin/ on demand. This makes adding a new
+# provider work on upgrade without a live publisher.
+ynh_script_progression --message="Installing native provider binaries into client bin/..." --weight=2
+CLIENT_BIN="$(elastos_home)/xdg-data/elastos/bin"
+mkdir -p "$CLIENT_BIN"
+for b in shell localhost-provider did-provider webspace-provider ipfs-provider \
+         blobs-provider identity-projection-provider peer-provider; do
+    src="$install_dir/elastos/target/release/$b"
+    if [ -x "$src" ]; then
+        install -m 0755 -o "$app" -g "$app" "$src" "$CLIENT_BIN/$b"
+        echo "  installed bin/$b"
+    fi
+done
+# (No components.json overwrite: peer-provider is already registered in the
+# client manifest with an empty checksum — verification is skipped for empty
+# checksums, exactly like blobs-provider, so the copied binary spawns on demand.)
 
 # Refresh every static-asset capsule's data_dir copy from the freshly
 # unpacked install_dir/capsules/ tree. The runtime serves capsules
