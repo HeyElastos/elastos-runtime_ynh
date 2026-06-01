@@ -1,0 +1,137 @@
+name: prebuilt-release
+
+# Builds the native binaries + wasm capsules ONCE and publishes them as a
+# GitHub Release, so `yunohost app upgrade` (and install) can DOWNLOAD them
+# instead of doing the 20-40 min cargo/wasm build. The install side fetches
+#   https://github.com/HeyElastos/elastos-runtime_ynh/releases/latest/download/prebuilt-linux-<arch>.tar.gz
+# via maybe_download_prebuilt() in scripts/_common.sh.
+#
+# Trigger: push a tag `prebuilt-*` (e.g. `git tag prebuilt-2026-06-01 && git
+# push origin prebuilt-2026-06-01`) or run it manually (workflow_dispatch).
+# IMPORTANT: re-run this whenever the runtime-ynh pins or the Hey pack change,
+# so the prebuilt matches what the install lays out (UPSTREAM_VERSION + patches
+# + the hey_capsules pin in manifest.toml).
+#
+# The build recipe MUST mirror build_runtime_and_capsules in scripts/_common.sh.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to publish (e.g. prebuilt-2026-06-01)"
+        required: true
+        default: "prebuilt-latest"
+  push:
+    tags:
+      - "prebuilt-*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: ubuntu-latest, arch: amd64 }
+          # arm64: enable once a public arm runner is available to you.
+          # - { runner: ubuntu-24.04-arm, arch: arm64 }
+    runs-on: ${{ matrix.runner }}
+    env:
+      WORK: ${{ github.workspace }}
+      CARGO_TARGET_DIR: ${{ github.workspace }}/elastos/target
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: System build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential pkg-config libssl-dev libclang-dev clang cmake \
+            jq curl git python3 ca-certificates
+
+      - name: Rust toolchains (1.89 + 1.91)
+        run: |
+          curl -fsSL https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.89.0 --profile minimal
+          . "$HOME/.cargo/env"
+          rustup target add --toolchain 1.89.0 wasm32-wasip1
+          rustup toolchain install 1.91 --profile minimal   # iroh providers pin 1.91 via rust-toolchain.toml
+
+      - name: Fetch upstream runtime + apply patches + merge components
+        run: |
+          set -euxo pipefail
+          VER="$(tr -d '[:space:]' < UPSTREAM_VERSION)"
+          curl -fsSL "https://github.com/Elacity/elastos-runtime/archive/${VER}.tar.gz" -o up.tgz
+          mkdir -p .up && tar -xzf up.tgz -C .up
+          EX="$(find .up -mindepth 1 -maxdepth 1 -type d -name 'elastos-runtime-*' | head -1)"
+          rm -rf elastos && mv "$EX/elastos" elastos
+          mkdir -p capsules
+          for d in "$EX"/capsules/*/; do cp -r "$d" "capsules/$(basename "$d")"; done
+          python3 - "$EX/components.json" components.additions.json components.json <<'PY'
+          import json, sys
+          up = json.load(open(sys.argv[1]))
+          add = json.load(open(sys.argv[2]))
+          up.setdefault("external", {}).update(add.get("external", {}))
+          json.dump(up, open(sys.argv[3], "w"), indent=2)
+          PY
+          # Apply the fork patches (fatal on failure — mirrors fetch_upstream_source).
+          for p in scripts/patches/*.patch; do echo "applying $p"; patch -p1 --forward < "$p"; done
+
+      - name: Fetch Hey capsule pack (pinned in manifest.toml)
+        run: |
+          set -euxo pipefail
+          URL="$(python3 -c "import tomllib;print(tomllib.load(open('manifest.toml','rb'))['resources']['sources']['hey_capsules']['url'])")"
+          curl -fsSL "$URL" -o hey.tgz
+          mkdir -p .hey && tar -xzf hey.tgz -C .hey
+          HX="$(find .hey -mindepth 1 -maxdepth 1 -type d | head -1)"
+          for d in "$HX"/capsules/*/; do n="$(basename "$d")"; rm -rf "capsules/$n"; cp -r "$d" "capsules/$n"; done
+
+      - name: Build runtime + providers + wasm capsules (mirrors build_runtime_and_capsules)
+        run: |
+          set -euxo pipefail
+          . "$HOME/.cargo/env"
+          # runtime binary (debug, matches the install)
+          cargo build --manifest-path elastos/Cargo.toml -p elastos-server
+          # upstream native providers (release)
+          for c in shell localhost-provider did-provider webspace-provider ipfs-provider; do
+            cargo build --release --manifest-path "elastos/capsules/$c/Cargo.toml"
+          done
+          # Hey iroh providers (release, 1.91 via per-crate rust-toolchain.toml -> cd in)
+          for c in blobs-provider identity-projection-provider peer-provider; do
+            ( cd "capsules/$c" && cargo build --release )
+          done
+          # wasm capsules (wasm32-wasip1)
+          for c in home-cli home system chat-room; do
+            cargo build --release --target wasm32-wasip1 --manifest-path "capsules/$c/Cargo.toml"
+          done
+
+      - name: Package the target/ subset
+        run: |
+          set -euxo pipefail
+          cd "$WORK"
+          OUT="prebuilt-linux-${{ matrix.arch }}.tar.gz"
+          tar -czf "$OUT" \
+            elastos/target/debug/elastos \
+            elastos/target/release/shell \
+            elastos/target/release/localhost-provider \
+            elastos/target/release/did-provider \
+            elastos/target/release/webspace-provider \
+            elastos/target/release/ipfs-provider \
+            elastos/target/release/blobs-provider \
+            elastos/target/release/identity-projection-provider \
+            elastos/target/release/peer-provider \
+            elastos/target/wasm32-wasip1/release/home-cli.wasm \
+            elastos/target/wasm32-wasip1/release/home.wasm \
+            elastos/target/wasm32-wasip1/release/system.wasm \
+            elastos/target/wasm32-wasip1/release/chat-room.wasm
+          sha256sum "$OUT" | awk '{print $1}' > "$OUT.sha256"
+          ls -lh "$OUT" "$OUT.sha256"
+
+      - name: Publish to the release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          files: |
+            prebuilt-linux-${{ matrix.arch }}.tar.gz
+            prebuilt-linux-${{ matrix.arch }}.tar.gz.sha256

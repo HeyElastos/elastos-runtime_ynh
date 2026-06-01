@@ -34,8 +34,11 @@ if [ ! -x "$(rustup_root)/cargo/bin/cargo" ]; then
     install_rust_toolchain
 fi
 
-ynh_script_progression --message="Rebuilding elastos + capsules..." --weight=300
-build_runtime_and_capsules
+# Prefer prebuilt binaries (zero compile); fall back to a source rebuild.
+if ! maybe_download_prebuilt "$install_dir"; then
+    ynh_script_progression --message="No prebuilt — rebuilding elastos + capsules from source..." --weight=300
+    build_runtime_and_capsules
+fi
 
 # Replace the binary in the client home with the freshly-built one. State
 # in xdg-data (sources.json, components.json, capsules/) is preserved.

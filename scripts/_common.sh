@@ -362,6 +362,62 @@ cargo_as_app() {
 }
 
 # ────────────────────────────────────────────────────────────────────
+# Prebuilt binaries — download instead of the 20-40 min cargo/wasm build
+# ────────────────────────────────────────────────────────────────────
+#
+# If a prebuilt release exists for this arch, fetch + extract it into
+# $install_dir/elastos/target/ and SKIP build_runtime_and_capsules. The
+# tarball is produced by .github/workflows/prebuilt-release.yml and contains
+# exactly the target/ subset build_runtime_and_capsules produces (debug/elastos
+# + release/<providers> + wasm32-wasip1/release/<capsules>.wasm).
+#
+# Returns 0 = prebuilt in place (caller skips the build); 1 = build from source.
+# Override URL with $ELASTOS_PREBUILT_URL; force a source build with
+# ELASTOS_FORCE_BUILD=1.
+maybe_download_prebuilt() {
+    local target_dir="$1"
+    if [ "${ELASTOS_FORCE_BUILD:-0}" = "1" ]; then
+        return 1
+    fi
+    local arch
+    case "$(uname -m)" in
+        x86_64|amd64)  arch=amd64 ;;
+        aarch64|arm64) arch=arm64 ;;
+        *) ynh_print_warn --message="prebuilt: unsupported arch $(uname -m); building from source"; return 1 ;;
+    esac
+    local url="${ELASTOS_PREBUILT_URL:-https://github.com/HeyElastos/elastos-runtime_ynh/releases/latest/download/prebuilt-linux-$arch.tar.gz}"
+    local tmp; tmp="$(mktemp -d)"
+    ynh_script_progression --message="Fetching prebuilt binaries ($arch)..." --weight=10
+    if ! curl -fsSL "$url" -o "$tmp/p.tar.gz"; then
+        ynh_print_warn --message="prebuilt: not available ($url); building from source"
+        rm -rf "$tmp"; return 1
+    fi
+    # Integrity: verify against the sibling .sha256 if the release ships one.
+    if curl -fsSL "$url.sha256" -o "$tmp/p.sha256" 2>/dev/null && [ -s "$tmp/p.sha256" ]; then
+        local want got
+        want="$(awk '{print $1}' "$tmp/p.sha256")"
+        got="$(sha256sum "$tmp/p.tar.gz" | awk '{print $1}')"
+        if [ -n "$want" ] && [ "$want" != "$got" ]; then
+            ynh_print_warn --message="prebuilt: sha256 mismatch (want $want, got $got); building from source"
+            rm -rf "$tmp"; return 1
+        fi
+    fi
+    mkdir -p "$target_dir/elastos"
+    if ! tar -xzf "$tmp/p.tar.gz" -C "$target_dir/elastos"; then
+        ynh_print_warn --message="prebuilt: extract failed; building from source"
+        rm -rf "$tmp"; return 1
+    fi
+    rm -rf "$tmp"
+    if [ ! -x "$target_dir/elastos/target/debug/elastos" ]; then
+        ynh_print_warn --message="prebuilt: archive missing target/debug/elastos; building from source"
+        return 1
+    fi
+    chown -R "$app:$app" "$target_dir/elastos/target" 2>/dev/null || true
+    ynh_script_progression --message="Prebuilt binaries installed — skipping the source build." --weight=1
+    return 0
+}
+
+# ────────────────────────────────────────────────────────────────────
 # Build phase — what home-frontdoor-smoke.sh:135-149 builds
 # ────────────────────────────────────────────────────────────────────
 
