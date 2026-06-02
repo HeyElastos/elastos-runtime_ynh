@@ -580,9 +580,23 @@ cargo_as_app() {
 # Returns 0 = prebuilt in place (caller skips the build); 1 = build from source.
 # Override URL with $ELASTOS_PREBUILT_URL; force a source build with
 # ELASTOS_FORCE_BUILD=1.
+#
+# The prebuilt is PINNED to an explicit release tag ($PREBUILT_TAG), never
+# 'latest'. EMPTY (the default) means "no prebuilt published for the current
+# patch set" → always source-build, so new carrier patches in scripts/patches/
+# actually get compiled. This is deliberate: a stale 'latest' prebuilt MUST NOT
+# be able to shadow newer patches (that bug shipped an unpatched carrier and
+# silently dropped patches 0007/0008/0009). After cutting a prebuilt that
+# INCLUDES the current patches, set PREBUILT_TAG to its release tag (here, or via
+# $ELASTOS_PREBUILT_TAG) and installs are fast again — until the next patch bump.
+PREBUILT_TAG="${ELASTOS_PREBUILT_TAG:-}"
 maybe_download_prebuilt() {
     local target_dir="$1"
     if [ "${ELASTOS_FORCE_BUILD:-0}" = "1" ]; then
+        return 1
+    fi
+    if [ -z "$PREBUILT_TAG" ]; then
+        ynh_script_progression --message="No prebuilt pinned for this version (PREBUILT_TAG empty) — building from source so patches apply." --weight=1
         return 1
     fi
     local arch
@@ -591,7 +605,7 @@ maybe_download_prebuilt() {
         aarch64|arm64) arch=arm64 ;;
         *) ynh_print_warn --message="prebuilt: unsupported arch $(uname -m); building from source"; return 1 ;;
     esac
-    local url="${ELASTOS_PREBUILT_URL:-https://github.com/HeyElastos/elastos-runtime_ynh/releases/latest/download/prebuilt-linux-$arch.tar.gz}"
+    local url="${ELASTOS_PREBUILT_URL:-https://github.com/HeyElastos/elastos-runtime_ynh/releases/download/$PREBUILT_TAG/prebuilt-linux-$arch.tar.gz}"
     local tmp; tmp="$(mktemp -d)"
     ynh_script_progression --message="Fetching prebuilt binaries ($arch)..." --weight=10
     if ! curl -fsSL "$url" -o "$tmp/p.tar.gz"; then
