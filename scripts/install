@@ -461,22 +461,24 @@ open_peer_firewall_port
 #=================================================
 # SELF-HOSTED PEER RELAY (n0-independent gossip federation)
 #=================================================
+# Every node writes the FULL federation relay list (carrier patch 0009 parses it
+# into a multi-entry RelayMap) for ZERO-CONFIG + home-relay REDUNDANCY — no
+# manual .relay-url editing, and a node survives its own relay going down by
+# homing on another. (Reaching a peer doesn't need the peer's relay in the list;
+# iroh dials any advertised relay. So this is resilience + convenience.)
 # PUBLIC install: build + run our own iroh-relay (separate ${app}-relay service)
-# and home on it — its node ticket advertises it, so peers (incl. NAT'd laptops)
-# reach us with zero n0 dependency. NAT'd install: home on the default public
-# relay pool. We write the self URL ONLY if the sidecar actually came up; else
-# fall back to the pool so a node never homes on a relay that isn't running.
-# (HEY_RELAY_FEDERATION=0 makes is_public_host false → default/n0 fallback.)
+# and PREPEND it to the list — its node ticket advertises it and it homes there
+# by latency, while still knowing every federation relay. We prepend the self
+# URL ONLY if the sidecar actually came up, so a node never homes on a relay
+# that isn't running. NAT'd install: just the federation list (can't host one).
+# (HEY_RELAY_FEDERATION=0 makes is_public_host false → no self relay; the list
+#  still applies. compose_relay_list falls back to the single default if empty.)
+own_relay=""
 if is_public_host; then
     open_relay_firewall_ports
-    if install_relay_sidecar; then
-        write_relay_env "https://$domain:$RELAY_HTTPS_PORT"
-    else
-        write_relay_env "$HEY_RELAY_DEFAULT_URL"
-    fi
-else
-    write_relay_env "$HEY_RELAY_DEFAULT_URL"
+    install_relay_sidecar && own_relay="https://$domain:$RELAY_HTTPS_PORT"
 fi
+write_relay_env "$(compose_relay_list "$own_relay")"
 
 #=================================================
 # START THE REAL SERVICE

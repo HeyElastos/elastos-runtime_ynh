@@ -140,18 +140,18 @@ apply_hey_theme_overlay "$(elastos_home)/xdg-data/elastos"
 # Existing installs predating the P2P port fix get it opened here too.
 open_peer_firewall_port
 
-# Self-hosted peer relay (see install). Idempotent — re-templates + restarts so
-# an iroh-relay version bump propagates; re-asserts the relay URL each upgrade.
+# Self-hosted peer relay + FEDERATION (see install). Idempotent — re-templates +
+# restarts so an iroh-relay version bump propagates; re-asserts the relay list
+# each upgrade. Every node writes the FULL federation list (carrier patch 0009
+# parses it into a multi-relay RelayMap) for zero-config + home-relay redundancy,
+# so there's NO manual .relay-url editing. A public host that successfully runs
+# its own relay prepends it (homes there by latency); others use the list as-is.
+own_relay=""
 if is_public_host; then
     open_relay_firewall_ports
-    if install_relay_sidecar; then
-        write_relay_env "https://$domain:$RELAY_HTTPS_PORT"
-    else
-        write_relay_env "$HEY_RELAY_DEFAULT_URL"
-    fi
-else
-    write_relay_env "$HEY_RELAY_DEFAULT_URL"
+    install_relay_sidecar && own_relay="https://$domain:$RELAY_HTTPS_PORT"
 fi
+write_relay_env "$(compose_relay_list "$own_relay")"
 
 ynh_script_progression --message="Starting Elastos Runtime..." --weight=3
 ynh_systemd_action --service_name="$app" --action="start" \

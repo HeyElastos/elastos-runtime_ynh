@@ -372,6 +372,18 @@ RELAY_QUIC_PORT=7842
 # Override per-deploy with $HEY_RELAY_DEFAULT_URL.
 HEY_RELAY_DEFAULT_URL="${HEY_RELAY_DEFAULT_URL:-https://relay.heyelastos.com}"
 
+# Federation relay list. EVERY node embeds this FULL list in its RelayMap
+# (carrier patch 0009 parses it). Purpose: ZERO-CONFIG + home-relay REDUNDANCY —
+# both known relays are present from boot (no hand-edited .relay-url), and a node
+# homes on its lowest-latency reachable entry, so it survives its OWN relay going
+# down. (Reaching a peer does NOT actually need the peer's relay in this list:
+# iroh 0.96 dials any peer-advertised relay regardless of the local map — so this
+# is resilience + convenience, not a hard requirement.) A public host prepends
+# its OWN relay (homes there by latency); others use the list as-is. Comma/space
+# separated; override with $HEY_RELAY_FEDERATION_URLS. HEY_RELAY_FEDERATION=0
+# disables the feature.
+HEY_RELAY_FEDERATION_URLS="${HEY_RELAY_FEDERATION_URLS:-https://test.elastos.app:8443,https://elastos.app:8443}"
+
 # A host is PUBLIC iff it has a globally-scoped IPv4 that is not RFC1918 /
 # loopback / link-local. HEY_FORCE_SELF_RELAY=1 overrides for a NAT-behind-
 # port-forward host; HEY_RELAY_FEDERATION=0 is the global kill switch (never run
@@ -408,9 +420,28 @@ close_relay_firewall_ports() {
     yunohost firewall disallow UDP "$RELAY_QUIC_PORT" --no-upnp >/dev/null 2>&1 || true
 }
 
-# Write (or clear) the relay URL the wrapper injects into `serve` as
-# ELASTOS_RELAY_URL. Empty url => remove the file => carrier RelayMode::Default
-# (n0) — the vanilla, north-star-removable fallback.
+# Compose the COMMA-separated relay list written to .relay-url: the node's own
+# relay first (arg $1, only when it runs one) followed by the federation list,
+# de-duplicated, order preserved. Output is COMMA-only (no spaces) on purpose —
+# the wrapper runs `tr -d '[:space:]'` over the file before exporting it, so a
+# space-separated list would fuse into one garbage URL. The carrier (patch 0009)
+# splits on commas. Empty result falls back to the single default relay.
+compose_relay_list() {
+    local own="$1"
+    local out="" url
+    for url in "$own" $(printf '%s' "$HEY_RELAY_FEDERATION_URLS" | tr ',' ' '); do
+        [ -n "$url" ] || continue
+        case ",$out," in *",$url,"*) continue ;; esac   # already present — skip
+        out="${out:+$out,}$url"
+    done
+    [ -n "$out" ] || out="$HEY_RELAY_DEFAULT_URL"
+    printf '%s' "$out"
+}
+
+# Write (or clear) the relay URL(s) the wrapper injects into `serve` as
+# ELASTOS_RELAY_URL. Accepts a single URL or a comma-separated federation list
+# (see compose_relay_list). Empty => remove the file => carrier
+# RelayMode::Default (n0) — the vanilla, north-star-removable fallback.
 write_relay_env() {
     local url="$1"
     local f

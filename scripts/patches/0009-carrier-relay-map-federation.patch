@@ -1,0 +1,47 @@
+--- a/elastos/crates/elastos-server/src/carrier.rs
++++ b/elastos/crates/elastos-server/src/carrier.rs
+@@ -488,13 +488,37 @@
+     // Don't override address_lookup — the default includes pkarr for DHT discovery.
+     let mut builder = Endpoint::builder().secret_key(secret_key.clone());
+-    if let Ok(relay_url) = std::env::var("ELASTOS_RELAY_URL") {
+-        if let Ok(url) = relay_url.parse::<url::Url>() {
+-            let config = iroh::RelayConfig {
++    if let Ok(relay_env) = std::env::var("ELASTOS_RELAY_URL") {
++        // HEY-CAPSULE-PACK PATCH 0009 (REMOVABLE): accept a COMMA/whitespace-
++        // separated LIST of relay URLs and build a MULTI-entry RelayMap (upstream
++        // reads exactly one). This lets the YNH installer bake in every known
++        // relay so cross-runtime delivery is ZERO-CONFIG (no hand-edited
++        // .relay-url), and gives home-relay REDUNDANCY: a node homes on its
++        // lowest-latency reachable entry, so if its OWN relay is down it falls
++        // back to another instead of losing relay reachability entirely.
++        // NOTE: iroh 0.96 already dials a PEER's advertised relay regardless of
++        // the local map (permissive — see the relay actor's active_relay_handle),
++        // so listing both relays is NOT required to REACH a cross-relay peer; the
++        // value here is purely zero-config + home-relay failover. An unreachable
++        // entry is harmless (probed concurrently with a 10s cap, then ignored).
++        // KILL CONDITION: drop when upstream reads a relay list itself.
++        let configs: Vec<iroh::RelayConfig> = relay_env
++            .split(|c: char| c == ',' || c.is_whitespace())
++            .filter_map(|s| {
++                let s = s.trim();
++                if s.is_empty() {
++                    return None;
++                }
++                s.parse::<url::Url>().ok()
++            })
++            .map(|url| iroh::RelayConfig {
+                 url: url.into(),
+                 quic: Some(Default::default()),
+-            };
+-            builder =
+-                builder.relay_mode(iroh::RelayMode::Custom(iroh::RelayMap::from_iter([config])));
+-            info!("carrier: using custom relay {}", relay_url);
++            })
++            .collect();
++        if !configs.is_empty() {
++            let count = configs.len();
++            builder = builder
++                .relay_mode(iroh::RelayMode::Custom(iroh::RelayMap::from_iter(configs)));
++            info!("carrier: using {} custom relay(s): {}", count, relay_env);
+         }
+     }
