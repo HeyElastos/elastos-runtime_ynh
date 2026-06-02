@@ -7,7 +7,7 @@ name = "Elastos Runtime"
 description.en = "Signed capsules, explicit capabilities, and sovereign local execution"
 description.fr = "Capsules signées, capacités explicites, exécution locale souveraine"
 
-version = "0.3.0~ynh3"
+version = "0.3.0~ynh4"
 
 maintainers = ["HeyElastos"]
 
@@ -57,8 +57,8 @@ ram.runtime = "512M"
     # Pinned to a commit (not a moving `main` branch tarball) so the sha256
     # YunoHost 12 requires stays stable. Bump url + sha256 together on every
     # release — yunohost-bot can automate this via `autoupdate.strategy`.
-    url = "https://github.com/HeyElastos/elastos-runtime_ynh/archive/328baae78da254c7c598fa5a0ebdd5c2edd90165.tar.gz"
-    sha256 = "8029be4aebcb15b2de69c2bb65374b2b446aaf45867a3f2be099358d486c78c8"
+    url = "https://github.com/HeyElastos/elastos-runtime_ynh/archive/d047a5ea14c6fd4c53b1af484eec757a6a69839e.tar.gz"
+    sha256 = "b810198194bc7d7444bad3d7f82712c9745679a8af2a6b6cb96977450d26d833"
     autoupdate.strategy = "latest_github_commit"
 
     [resources.sources.hey_capsules]
