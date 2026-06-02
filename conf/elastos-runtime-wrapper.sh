@@ -111,6 +111,16 @@ if [ -s "$RELAY_URL_FILE" ]; then
     echo "carrier-wrapper: ELASTOS_RELAY_URL=$ELASTOS_RELAY_URL"
 fi
 
+# Dual-bind the carrier's iroh endpoint on IPv6 :4433 too (carrier patch 0007)
+# when this host has a global IPv6 address — IPv6 peers then connect directly,
+# bypassing relays. Gated so IPv6-less hosts never attempt a v6 bind that could
+# fail and orphan the v4:4433 hole. No-op unless the runtime was built from
+# source with patch 0007 applied (prebuilt binaries ignore the env).
+if ip -6 addr show scope global 2>/dev/null | grep -q 'inet6 '; then
+    export ELASTOS_BIND_IPV6=1
+    echo "carrier-wrapper: ELASTOS_BIND_IPV6=1 (global IPv6 present)"
+fi
+
 "$ELASTOS_BIN" serve &
 SERVE_PID=$!
 
