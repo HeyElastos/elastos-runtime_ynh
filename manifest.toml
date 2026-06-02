@@ -7,7 +7,7 @@ name = "Elastos Runtime"
 description.en = "Signed capsules, explicit capabilities, and sovereign local execution"
 description.fr = "Capsules signées, capacités explicites, exécution locale souveraine"
 
-version = "0.3.0~ynh5"
+version = "0.3.0~ynh6"
 
 maintainers = ["HeyElastos"]
 
@@ -57,8 +57,8 @@ ram.runtime = "512M"
     # Pinned to a commit (not a moving `main` branch tarball) so the sha256
     # YunoHost 12 requires stays stable. Bump url + sha256 together on every
     # release — yunohost-bot can automate this via `autoupdate.strategy`.
-    url = "https://github.com/HeyElastos/elastos-runtime_ynh/archive/d047a5ea14c6fd4c53b1af484eec757a6a69839e.tar.gz"
-    sha256 = "b810198194bc7d7444bad3d7f82712c9745679a8af2a6b6cb96977450d26d833"
+    url = "https://github.com/HeyElastos/elastos-runtime_ynh/archive/54e3334934a0faca2c46a9bdf5b09c979c3fbe6c.tar.gz"
+    sha256 = "f25a5d57fb265f82b1b17dfd1fb2a5e08f6b9a03c58d168f6f12beb9b1aca8a2"
     autoupdate.strategy = "latest_github_commit"
 
     [resources.sources.hey_capsules]
@@ -68,7 +68,7 @@ ram.runtime = "512M"
     # any Elastos Runtime. Install script extracts capsules/* from
     # this tarball into $install_dir/capsules/ alongside upstream's
     # stock capsules. Bump url + sha256 on every Hey-capsule release.
-    url = "https://github.com/HeyElastos/Hey-capsule/archive/6a9770b63f6544d03bc41882b0490c66b904144c.tar.gz"
+    url = "https://github.com/HeyElastos/Hey-capsule/archive/54e3334934a0faca2c46a9bdf5b09c979c3fbe6c.tar.gz"
     sha256 = "0a4e7e0c21099a6a07dbc57fc5f9d07215110087db86905f842d9d7318311027"
     autoupdate.strategy = "latest_github_commit"
     autoupdate.upstream = "https://github.com/HeyElastos/Hey-capsule"
