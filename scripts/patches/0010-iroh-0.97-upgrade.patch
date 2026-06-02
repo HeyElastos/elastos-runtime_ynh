@@ -1,0 +1,150 @@
+--- a/elastos/crates/elastos-server/Cargo.toml
++++ b/elastos/crates/elastos-server/Cargo.toml
+@@ -94,11 +94,12 @@
+ libc = "0.2"
+ 
+ # Built-in Carrier transport (P2P for updates, gossip messaging, DHT discovery)
+-iroh = { version = "0.96", features = ["address-lookup-mdns"] }
+-iroh-gossip = "0.96"
+-distributed-topic-tracker = "0.2"
++iroh = { version = "0.97", features = ["address-lookup-mdns"] }
++iroh-gossip = "0.97"
++distributed-topic-tracker = "0.3.0"
+ futures-lite = "2.6"
+ getrandom = "0.2"
++tokio-util = "0.7"  # CancellationToken for dtt 0.3 GossipReceiver
+ data-encoding = "2.6"
+ 
+ [dev-dependencies]
+--- a/elastos/crates/elastos-server/src/carrier.rs
++++ b/elastos/crates/elastos-server/src/carrier.rs
+@@ -393,10 +393,14 @@
+             )
+             .await?;
+         let (iroh_sender, iroh_receiver) = joined.split();
+-        let dtt_sender =
+-            distributed_topic_tracker::GossipSender::new(iroh_sender, state.gossip.clone());
+-        let dtt_receiver =
+-            distributed_topic_tracker::GossipReceiver::new(iroh_receiver, state.gossip.clone());
++        let dtt_sender = distributed_topic_tracker::GossipSender::new(
++            iroh_sender,
++            distributed_topic_tracker::TimeoutConfig::default(),
++        );
++        let dtt_receiver = distributed_topic_tracker::GossipReceiver::new(
++            iroh_receiver,
++            tokio_util::sync::CancellationToken::new(),
++        );
+         state
+             .buffers
+             .lock()
+@@ -425,10 +429,10 @@
+     let topic_id = TopicId::new(topic_name.to_string());
+     let record_publisher = RecordPublisher::new(
+         topic_id,
+-        dtt_sk.verifying_key(),
+         dtt_sk,
+         None,
+         TOPIC_DISCOVERY_SECRET.to_vec(),
++        distributed_topic_tracker::Config::default(),
+     );
+     info!(
+         "carrier: gossip_join '{}' via DHT auto-discovery ({} connected bootstrap peer(s))",
+@@ -504,7 +508,7 @@
+ 
+     // Build endpoint. Uses iroh default relays unless ELASTOS_RELAY_URL is set.
+     // Don't override address_lookup — the default includes pkarr for DHT discovery.
+-    let mut builder = Endpoint::builder().secret_key(secret_key.clone());
++    let mut builder = Endpoint::builder(iroh::endpoint::presets::N0).secret_key(secret_key.clone());
+     if let Ok(relay_env) = std::env::var("ELASTOS_RELAY_URL") {
+         // HEY-CAPSULE-PACK PATCH 0009 (REMOVABLE): accept a COMMA/whitespace-
+         // separated LIST of relay URLs and build a MULTI-entry RelayMap (upstream
+@@ -557,13 +561,13 @@
+     {
+         Ok(builder) => match builder.bind().await {
+             Ok(ep) => ep,
+-            Err(_) => Endpoint::builder()
++            Err(_) => Endpoint::builder(iroh::endpoint::presets::N0)
+                 .secret_key(secret_key)
+                 .bind()
+                 .await
+                 .context("Failed to bind Carrier endpoint")?,
+         },
+-        Err(_) => Endpoint::builder()
++        Err(_) => Endpoint::builder(iroh::endpoint::presets::N0)
+             .secret_key(secret_key)
+             .bind()
+             .await
+@@ -572,12 +576,16 @@
+ 
+     // Add mDNS for LAN discovery (supplements the default pkarr/DNS)
+     if let Ok(mdns) = iroh::address_lookup::MdnsAddressLookup::builder().build(endpoint.id()) {
+-        endpoint.address_lookup().add(mdns);
++        if let Ok(al) = endpoint.address_lookup() {
++            al.add(mdns);
++        }
+     }
+ 
+     // Add MemoryLookup for explicit peer addresses (--connect tickets)
+     let memory_lookup = MemoryLookup::new();
+-    endpoint.address_lookup().add(memory_lookup.clone());
++    if let Ok(al) = endpoint.address_lookup() {
++        al.add(memory_lookup.clone());
++    }
+ 
+     let gossip = Gossip::builder().spawn(endpoint.clone());
+ 
+@@ -1254,7 +1262,7 @@
+ }
+ 
+ async fn recv_loop(
+-    receiver: distributed_topic_tracker::GossipReceiver,
++    mut receiver: distributed_topic_tracker::GossipReceiver,
+     buffers: Arc<Mutex<HashMap<String, TopicBuffer>>>,
+     peers: Arc<Mutex<Vec<String>>>,
+     topic_peers: Arc<Mutex<HashMap<String, HashSet<String>>>>,
+@@ -1262,16 +1270,17 @@
+ ) {
+     loop {
+         match receiver.next().await {
+-            Some(Ok(event)) => {
++            Ok(event) => {
+                 handle_gossip_event(event, &buffers, &peers, &topic_peers, &topic).await;
+             }
+-            Some(Err(e)) => {
+-                tracing::warn!("carrier recv_loop error on '{}': {}", topic, e);
+-                // Continue — transient errors should not kill the receiver
+-            }
+-            None => {
+-                tracing::info!("carrier recv_loop ended for '{}' (stream closed)", topic);
+-                break;
++            Err(e) => {
++                let msg = e.to_string();
++                if msg.contains("closed") {
++                    tracing::info!("carrier recv_loop ended for '{}' ({})", topic, msg);
++                    break;
++                }
++                // Lagged / transient — keep receiving
++                tracing::warn!("carrier recv_loop transient on '{}': {}", topic, msg);
+             }
+         }
+     }
+@@ -1289,7 +1298,7 @@
+         let mut rng_bytes = [0u8; 32];
+         getrandom::getrandom(&mut rng_bytes).map_err(|e| anyhow::anyhow!("rng: {}", e))?;
+         let secret_key = SecretKey::from_bytes(&rng_bytes);
+-        let endpoint = Endpoint::builder()
++        let endpoint = Endpoint::builder(iroh::endpoint::presets::N0)
+             .secret_key(secret_key)
+             .bind()
+             .await
+--- a/elastos/crates/elastos-server/src/operator_control.rs
++++ b/elastos/crates/elastos-server/src/operator_control.rs
+@@ -1562,7 +1562,7 @@
+         let mut rng_bytes = [0u8; 32];
+         getrandom::getrandom(&mut rng_bytes).map_err(|err| anyhow::anyhow!("rng: {}", err))?;
+         let secret_key = SecretKey::from_bytes(&rng_bytes);
+-        let endpoint = Endpoint::builder()
++        let endpoint = Endpoint::builder(iroh::endpoint::presets::N0)
+             .secret_key(secret_key)
+             .bind()
+             .await
