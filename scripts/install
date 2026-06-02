@@ -459,6 +459,26 @@ yunohost service add "$app" \
 open_peer_firewall_port
 
 #=================================================
+# SELF-HOSTED PEER RELAY (n0-independent gossip federation)
+#=================================================
+# PUBLIC install: build + run our own iroh-relay (separate ${app}-relay service)
+# and home on it — its node ticket advertises it, so peers (incl. NAT'd laptops)
+# reach us with zero n0 dependency. NAT'd install: home on the default public
+# relay pool. We write the self URL ONLY if the sidecar actually came up; else
+# fall back to the pool so a node never homes on a relay that isn't running.
+# (HEY_RELAY_FEDERATION=0 makes is_public_host false → default/n0 fallback.)
+if is_public_host; then
+    open_relay_firewall_ports
+    if install_relay_sidecar; then
+        write_relay_env "https://$domain:$RELAY_HTTPS_PORT"
+    else
+        write_relay_env "$HEY_RELAY_DEFAULT_URL"
+    fi
+else
+    write_relay_env "$HEY_RELAY_DEFAULT_URL"
+fi
+
+#=================================================
 # START THE REAL SERVICE
 #=================================================
 

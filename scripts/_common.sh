@@ -343,6 +343,165 @@ open_peer_firewall_port() {
         || ynh_print_warn --message="Could not open UDP $PEER_UDP_PORT automatically. Cross-runtime invites/DMs need it — run: yunohost firewall allow UDP $PEER_UDP_PORT"
 }
 
+# ────────────────────────────────────────────────────────────────────
+# Self-hosted iroh-relay — n0-independent gossip federation
+# ────────────────────────────────────────────────────────────────────
+#
+# carrier-gossip forms a topic NeighborUp over a RELAY when a direct UDP path
+# isn't available (NAT, or a provider that filters 4433). Out of the box iroh
+# falls back to n0's public relays, which are third-party and (observed) flaky
+# for our WAN traffic — invites sit "pending" because the neighbor never forms.
+# To be fully sovereign, every PUBLIC install runs its OWN iroh-relay and homes
+# on it (the wrapper does this when it detects a public IP); its node ticket
+# then advertises that relay so peers — including NAT'd laptops — reach it with
+# zero n0 dependency. NAT'd installs can't host a reachable relay, so they home
+# on a baked-in default public relay. Payloads are E2E-encrypted (sealed-sender
+# v2), so the relay only ever forwards ciphertext.
+#
+# The relay binary MUST match the runtime's iroh client (0.96.1) or the protocol
+# won't pair. CRITICAL: the client always does QUIC Address Discovery on UDP
+# 7842 (carrier.rs: quic:Some(Default::default())), so the relay MUST run a real
+# config with enable_quic_addr_discovery=true binding [::]:7842 + TLS — NOT
+# `iroh-relay --dev` (binds no QUIC → discovery silently degrades, which is the
+# exact "neighbor never forms" failure we're fixing). nginx owns :443, so the
+# relay serves HTTPS on :8443 reusing YunoHost's cert. The node's own iroh
+# endpoint stays on UDP :4433 (opened by open_peer_firewall_port).
+RELAY_HTTPS_PORT=8443
+RELAY_QUIC_PORT=7842
+# Relay that NAT'd installs home on (a public install's relay = the pool).
+# Override per-deploy with $HEY_RELAY_DEFAULT_URL.
+HEY_RELAY_DEFAULT_URL="${HEY_RELAY_DEFAULT_URL:-https://relay.heyelastos.com}"
+
+# A host is PUBLIC iff it has a globally-scoped IPv4 that is not RFC1918 /
+# loopback / link-local. HEY_FORCE_SELF_RELAY=1 overrides for a NAT-behind-
+# port-forward host; HEY_RELAY_FEDERATION=0 is the global kill switch (never run
+# a relay, fall through to the default/n0 — north-star removable).
+detect_public_ipv4() {
+    local ip
+    for ip in $(ip -4 -o addr show scope global 2>/dev/null | awk '{print $4}' | cut -d/ -f1); do
+        case "$ip" in
+            10.*|127.*|169.254.*|192.168.*) continue ;;
+            172.1[6-9].*|172.2[0-9].*|172.3[01].*) continue ;;
+            *) echo "$ip"; return 0 ;;
+        esac
+    done
+    return 1
+}
+is_public_host() {
+    [ "${HEY_FORCE_SELF_RELAY:-0}" = "1" ] && return 0
+    [ "${HEY_RELAY_FEDERATION:-1}" = "1" ] || return 1
+    detect_public_ipv4 >/dev/null
+}
+
+# Open / close the relay listen ports. TCP 8443 = HTTPS relay transport; UDP
+# 7842 = QUIC address discovery (the client probes exactly 7842 — opening it is
+# mandatory or QAD silently degrades).
+open_relay_firewall_ports() {
+    ynh_script_progression --message="Opening relay ports TCP $RELAY_HTTPS_PORT + UDP $RELAY_QUIC_PORT (self-hosted iroh-relay)..." --weight=1
+    yunohost firewall allow TCP "$RELAY_HTTPS_PORT" --no-upnp >/dev/null 2>&1 \
+        || ynh_print_warn --message="Could not open TCP $RELAY_HTTPS_PORT — run: yunohost firewall allow TCP $RELAY_HTTPS_PORT"
+    yunohost firewall allow UDP "$RELAY_QUIC_PORT" --no-upnp >/dev/null 2>&1 \
+        || ynh_print_warn --message="Could not open UDP $RELAY_QUIC_PORT — run: yunohost firewall allow UDP $RELAY_QUIC_PORT"
+}
+close_relay_firewall_ports() {
+    yunohost firewall disallow TCP "$RELAY_HTTPS_PORT" --no-upnp >/dev/null 2>&1 || true
+    yunohost firewall disallow UDP "$RELAY_QUIC_PORT" --no-upnp >/dev/null 2>&1 || true
+}
+
+# Write (or clear) the relay URL the wrapper injects into `serve` as
+# ELASTOS_RELAY_URL. Empty url => remove the file => carrier RelayMode::Default
+# (n0) — the vanilla, north-star-removable fallback.
+write_relay_env() {
+    local url="$1"
+    local f
+    f="$(elastos_home)/xdg-data/elastos/.relay-url"
+    mkdir -p "$(dirname "$f")"
+    if [ -n "$url" ]; then
+        printf '%s' "$url" > "$f"
+        chown "$app:$app" "$f"
+        chmod 0644 "$f"
+        echo "relay env: ELASTOS_RELAY_URL=$url"
+    else
+        rm -f "$f"
+    fi
+}
+
+# Build + install the iroh-relay 0.96.1 server binary into the client bin/.
+# Pinned to 0.96.1 to match the runtime's iroh client. Built with the already-
+# installed Rust toolchain. Idempotent. NON-FATAL: a build failure leaves the
+# runtime on the default/n0 relay.
+install_iroh_relay() {
+    local client_bin
+    client_bin="$(elastos_home)/xdg-data/elastos/bin"
+    mkdir -p "$client_bin"
+    chown -R "$app:$app" "$client_bin"
+    if [ -x "$client_bin/iroh-relay" ]; then
+        echo "iroh-relay already installed"
+        return 0
+    fi
+    if [ ! -x "$(rustup_root)/cargo/bin/cargo" ]; then
+        ynh_print_warn --message="No Rust toolchain — skipping iroh-relay build (relay federation disabled)."
+        return 1
+    fi
+    ynh_script_progression --message="Building iroh-relay 0.96.1 (n0-independent relay)..." --weight=40
+    local relay_root="$install_dir/.iroh-relay-build"
+    rm -rf "$relay_root"
+    mkdir -p "$relay_root"
+    chown -R "$app:$app" "$relay_root"
+    if cargo_as_app install --root "$relay_root" --version 0.96.1 --features server iroh-relay; then
+        install -m 0755 -o "$app" -g "$app" "$relay_root/bin/iroh-relay" "$client_bin/iroh-relay"
+        echo "  installed bin/iroh-relay (0.96.1)"
+        rm -rf "$relay_root"
+        return 0
+    fi
+    ynh_print_warn --message="iroh-relay 0.96.1 build failed — relay federation disabled; runtime uses the default/n0 relay. (Re-run the upgrade to retry.)"
+    rm -rf "$relay_root"
+    return 1
+}
+
+# Stand up the relay sidecar on a public host: build the binary, template the
+# config + systemd unit, grant cert read (YunoHost key.pem is root:ssl-cert
+# 0640), register + (re)start the ${app}-relay service. Returns 0 ONLY if the
+# service ends up active — the caller then homes on it; otherwise it falls back
+# to the default pool so a node never homes on a relay that isn't running.
+# Idempotent — safe on every upgrade (re-copies the binary + re-templates so an
+# iroh-relay version bump propagates).
+install_relay_sidecar() {
+    install_iroh_relay || return 1
+
+    # Manual-TLS relay runs as $app and must read YunoHost's cert. key.pem is
+    # typically root:ssl-cert 0640; add $app to ssl-cert (crt.pem is world-
+    # readable). The (re)started unit picks up the new supplementary group.
+    if getent group ssl-cert >/dev/null 2>&1; then
+        usermod -aG ssl-cert "$app" >/dev/null 2>&1 || true
+    fi
+
+    ynh_add_config --template="iroh-relay.toml" \
+        --destination="$install_dir/conf/iroh-relay.toml"
+    chown "$app:$app" "$install_dir/conf/iroh-relay.toml"
+
+    ynh_add_systemd_config --service="${app}-relay" --template="iroh-relay.service"
+    yunohost service add "${app}-relay" \
+        --description="Hey iroh-relay (federated P2P relay)" \
+        --log="/var/log/$app/iroh-relay.log" >/dev/null 2>&1 || true
+
+    ynh_systemd_action --service_name="${app}-relay" --action="restart" >/dev/null 2>&1 || true
+    sleep 2
+    if systemctl is-active --quiet "${app}-relay"; then
+        return 0
+    fi
+    ynh_print_warn --message="${app}-relay failed to start (check /var/log/$app/iroh-relay.log — likely TLS cert read perms or a port clash). Homing on the default relay pool instead."
+    return 1
+}
+
+# Tear the relay sidecar down (scripts/remove).
+remove_relay_sidecar() {
+    ynh_systemd_action --service_name="${app}-relay" --action="stop" >/dev/null 2>&1 || true
+    yunohost service remove "${app}-relay" >/dev/null 2>&1 || true
+    ynh_remove_systemd_config --service="${app}-relay" >/dev/null 2>&1 || true
+    close_relay_firewall_ports
+}
+
 install_rust_toolchain() {
     local root
     root="$(rustup_root)"

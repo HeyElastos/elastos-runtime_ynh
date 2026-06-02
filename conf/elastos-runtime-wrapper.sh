@@ -36,11 +36,10 @@ if [ -s "$LOCALHOST_KEY_FILE" ]; then
     export ELASTOS_LOCALHOST_ENCRYPTION_KEY="$(cat "$LOCALHOST_KEY_FILE")"
 fi
 
-# Peer federation (elastos://peer/*) is ZERO-CONFIG: the peer-provider the
-# runtime spawns is a self-contained iroh-gossip node (persistent key under
-# $XDG_DATA_HOME/elastos/peer-provider/, discovery + NAT traversal via iroh
-# defaults). No env, no hub, no operator setup — two runtimes federate P2P as
-# soon as a capsule exchanges node tickets via invite links / IPFS profiles.
+# Peer federation (elastos://peer/*) rides carrier-gossip (iroh). Cross-runtime
+# delivery needs a relay for NAT traversal; rather than depend on n0's public
+# relays we home on our OWN (ELASTOS_RELAY_URL, set below from .relay-url). See
+# the relay-URL block before `serve` and conf/iroh-relay.{toml,service}.
 
 # Approach A step 5d: server-enforced lock screen. With this on,
 # browser sessions start in PreAuth (no capability tokens) and must
@@ -89,6 +88,27 @@ if [ -x "$KUBO_BIN" ]; then
         curl -fsS --max-time 1 http://127.0.0.1:5001/api/v0/version >/dev/null 2>&1 && break
         sleep 1
     done
+fi
+
+# ── Peer relay URL (n0-independent gossip federation) ───────────────
+# carrier-gossip forms a topic neighbor over a RELAY when no direct UDP path
+# exists (NAT / a provider that filters :4433). To avoid depending on n0's
+# (flaky, third-party) relays, public installs run their OWN iroh-relay as a
+# SEPARATE service (${app}-relay; see conf/iroh-relay.service) and home on it;
+# the node ticket then advertises that relay so peers — incl. NAT'd laptops —
+# reach them with zero n0 dependency. Payloads are E2E-encrypted, so the relay
+# only forwards ciphertext.
+#
+# Here we just tell `serve` which relay to home on, read from .relay-url (the
+# install/upgrade scripts write it; an admin can overwrite it to point all
+# installs at one shared relay, then restart). `serve` reads its env from THIS
+# wrapper, not systemd Environment= (it's double-forked). Empty/missing file =>
+# ELASTOS_RELAY_URL unset => carrier RelayMode::Default (n0) — vanilla fallback,
+# north-star removable.
+RELAY_URL_FILE="$XDG_DATA_HOME/elastos/.relay-url"
+if [ -s "$RELAY_URL_FILE" ]; then
+    export ELASTOS_RELAY_URL="$(tr -d '[:space:]' < "$RELAY_URL_FILE")"
+    echo "carrier-wrapper: ELASTOS_RELAY_URL=$ELASTOS_RELAY_URL"
 fi
 
 "$ELASTOS_BIN" serve &

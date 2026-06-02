@@ -1,0 +1,29 @@
+[Unit]
+Description=Hey iroh-relay 0.96.1 (federated n0-independent P2P relay for __APP__)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=__APP__
+Group=__APP__
+WorkingDirectory=__INSTALL_DIR__
+# Binary installed by install_iroh_relay into the client bin dir; config
+# templated by ynh_add_config. All listen ports are non-privileged
+# (HTTPS 8443, QUIC 7842, http/metrics loopback) so no CAP_NET_BIND_SERVICE.
+ExecStart=__DATA_DIR__/home/xdg-data/elastos/bin/iroh-relay --config-path __INSTALL_DIR__/conf/iroh-relay.toml
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=20
+
+NoNewPrivileges=true
+ProtectSystem=full
+# Manual TLS reads YunoHost's cert dir; the app user is in the ssl-cert group.
+ReadOnlyPaths=/etc/yunohost/certs/__DOMAIN__
+ReadWritePaths=__DATA_DIR__ /var/log/__APP__
+PrivateTmp=true
+StandardOutput=append:/var/log/__APP__/iroh-relay.log
+StandardError=append:/var/log/__APP__/iroh-relay.log
+
+[Install]
+WantedBy=multi-user.target

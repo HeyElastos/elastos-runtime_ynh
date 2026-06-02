@@ -20,6 +20,9 @@ ynh_secure_remove --file="$(rustup_root)"
 ynh_script_progression --message="Removing logs..."
 ynh_secure_remove --file="/var/log/$app"
 
+ynh_script_progression --message="Removing the self-hosted iroh-relay sidecar..."
+remove_relay_sidecar
+
 ynh_script_progression --message="Closing the cross-runtime P2P UDP port..."
 yunohost firewall disallow UDP "$PEER_UDP_PORT" --no-upnp >/dev/null 2>&1 || true
 

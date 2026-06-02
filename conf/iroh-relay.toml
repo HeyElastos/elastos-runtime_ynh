@@ -1,0 +1,33 @@
+# Hey self-hosted iroh-relay — n0-independent gossip federation.
+#
+# Pinned to iroh-relay 0.96.1 to match the runtime's iroh client (a mismatched
+# relay won't pair). Templated by ynh_add_config (__DOMAIN__).
+#
+# Why these ports:
+#   * nginx owns :443 on a YunoHost box, so the relay serves HTTPS on :8443.
+#   * The carrier client always does QUIC Address Discovery on UDP :7842
+#     (carrier.rs quic:Some(Default::default()) -> DEFAULT_RELAY_QUIC_PORT).
+#     enable_quic_addr_discovery MUST be true and quic_bind_addr MUST be 7842,
+#     or discovery silently degrades and the gossip neighbor never forms.
+#   * http_bind_addr is loopback-only (the public transport is HTTPS:8443);
+#     binding it on :80 would collide with nginx.
+# TLS reuses YunoHost's existing Let's Encrypt cert (Manual mode); the relay
+# runs as the app user, which is added to the ssl-cert group so it can read
+# key.pem. Self-signed certs are rejected by iroh clients (UnknownCA).
+#
+# ELASTOS_RELAY_URL on a self-homing public install = https://<domain>:8443
+# (the :8443 is load-bearing — it must be in the URL and firewall-open, and UDP
+# 7842 must be firewall-open on the same host).
+
+enable_relay = true
+http_bind_addr = "127.0.0.1:8480"
+enable_quic_addr_discovery = true
+enable_metrics = true
+metrics_bind_addr = "127.0.0.1:9090"
+
+[tls]
+https_bind_addr  = "[::]:8443"
+quic_bind_addr   = "[::]:7842"
+cert_mode        = "Manual"
+manual_cert_path = "/etc/yunohost/certs/__DOMAIN__/crt.pem"
+manual_key_path  = "/etc/yunohost/certs/__DOMAIN__/key.pem"
