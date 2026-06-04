@@ -158,4 +158,8 @@ ynh_systemd_action --service_name="$app" --action="start" \
     --log_path="/var/log/$app/$app.log" \
     --line_match="room gateway listening"
 
+# Re-apply IPFS content peering (federation list may have changed; non-fatal).
+ynh_script_progression --message="Configuring IPFS content peering..." --weight=1
+configure_ipfs_peering || true
+
 ynh_script_progression --message="Elastos Runtime upgraded." --last

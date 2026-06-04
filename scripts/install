@@ -489,4 +489,9 @@ ynh_systemd_action --service_name="$app" --action="start" \
     --log_path="/var/log/$app/$app.log" \
     --line_match="room gateway listening"
 
+# Peer this node's kubo with the IPFS content federation so file attachments
+# fetch across runtimes (non-fatal; runs after serve brings kubo up).
+ynh_script_progression --message="Configuring IPFS content peering..." --weight=1
+configure_ipfs_peering || true
+
 ynh_script_progression --message="Elastos Runtime installed. Open https://$domain$path/apps/home/ from any LAN browser." --last

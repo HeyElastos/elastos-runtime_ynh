@@ -384,6 +384,28 @@ HEY_RELAY_DEFAULT_URL="${HEY_RELAY_DEFAULT_URL:-https://relay.heyelastos.com}"
 # disables the feature.
 HEY_RELAY_FEDERATION_URLS="${HEY_RELAY_FEDERATION_URLS:-https://test.elastos.app:8443,https://elastos.app:8443}"
 
+# Public relay(s) appended AFTER the self-hosted federation as a LAST-RESORT home
+# relay, so a node stays reachable even if EVERY self-hosted federation relay is
+# down. The carrier (patch 0009) homes on the lowest-latency REACHABLE entry, so
+# this only takes over on a full self-hosted outage — normal operation still
+# prefers the closer federation relay. Default = the project's public relay; set
+# to n0's hosted relays (e.g. https://use1-1.relay.iroh.network) for an always-on
+# fallback, or empty to disable. Comma/space separated.
+HEY_RELAY_PUBLIC_FALLBACK_URLS="${HEY_RELAY_PUBLIC_FALLBACK_URLS:-$HEY_RELAY_DEFAULT_URL}"
+
+# IPFS content federation — the IPFS analog of the relay federation above. A
+# file attachment's BYTES travel via content/IPFS by CID (not gossip), so the
+# recipient's kubo must be able to FETCH the sender's blob. On the public DHT
+# alone that is slow/unreliable; peering the federation's kubo nodes directly
+# makes cross-runtime fetch ~1s. Each new runtime peers (kubo `Peering.Peers`,
+# persisted + auto-reconnecting) with these content-hub nodes — the same hosts
+# that run the relays. Comma/space separated kubo multiaddrs
+# (/ip4/<ip>/tcp/4001/p2p/<peerid>); a node skips its own id. Override with
+# $HEY_IPFS_FEDERATION_PEERS; HEY_IPFS_FEDERATION=0 disables.
+HEY_IPFS_FEDERATION_PEERS="${HEY_IPFS_FEDERATION_PEERS:-/ip4/94.156.119.216/tcp/4001/p2p/12D3KooWSmM6N6Md7U6a2JrErgC8z1LuQ7gk2SSYo5GH7DzSjCYH,/ip4/94.156.119.217/tcp/4001/p2p/12D3KooWSCpnJLdik75T9G46BfcHCSw7rvD4mtbCGHHZJes4jbGu}"
+# kubo HTTP API the runtime brings up alongside `serve` (standard local port).
+HEY_IPFS_API="${HEY_IPFS_API:-http://127.0.0.1:5001}"
+
 # A host is PUBLIC iff it has a globally-scoped IPv4 that is not RFC1918 /
 # loopback / link-local. HEY_FORCE_SELF_RELAY=1 overrides for a NAT-behind-
 # port-forward host; HEY_RELAY_FEDERATION=0 is the global kill switch (never run
@@ -429,7 +451,12 @@ close_relay_firewall_ports() {
 compose_relay_list() {
     local own="$1"
     local out="" url
-    for url in "$own" $(printf '%s' "$HEY_RELAY_FEDERATION_URLS" | tr ',' ' '); do
+    # Order: own relay (homes by latency) → self-hosted federation → public
+    # fallback. The carrier homes on the lowest-latency REACHABLE entry, so the
+    # public fallback only takes over when every self-hosted relay is down.
+    for url in "$own" \
+        $(printf '%s' "$HEY_RELAY_FEDERATION_URLS" | tr ',' ' ') \
+        $(printf '%s' "$HEY_RELAY_PUBLIC_FALLBACK_URLS" | tr ',' ' '); do
         [ -n "$url" ] || continue
         case ",$out," in *",$url,"*) continue ;; esac   # already present — skip
         out="${out:+$out,}$url"
@@ -531,6 +558,58 @@ remove_relay_sidecar() {
     yunohost service remove "${app}-relay" >/dev/null 2>&1 || true
     ynh_remove_systemd_config --service="${app}-relay" >/dev/null 2>&1 || true
     close_relay_firewall_ports
+}
+
+# Configure kubo Peering.Peers from $HEY_IPFS_FEDERATION_PEERS so file
+# attachments fetch across runtimes (the IPFS analog of the relay federation).
+# Runs AFTER `serve` starts (kubo's API must be up). Persists to kubo config
+# (survives restart, verified) AND does a live `swarm peering add` for immediate
+# effect. Idempotent. NON-FATAL: a failure just leaves cross-runtime file fetch
+# reliant on the slow public DHT — install/upgrade still succeeds. A node skips
+# its own peer id. Re-runnable any time via scripts/configure-ipfs-peering.sh.
+configure_ipfs_peering() {
+    [ "${HEY_IPFS_FEDERATION:-1}" = "1" ] || { echo "ipfs federation disabled"; return 0; }
+    local peers="$HEY_IPFS_FEDERATION_PEERS" api="$HEY_IPFS_API"
+    [ -n "$peers" ] || return 0
+
+    # Wait for the kubo API (the runtime brings it up shortly after serve).
+    local up="" i
+    for i in $(seq 1 30); do
+        curl -fsS -m 3 -X POST "$api/api/v0/id" >/dev/null 2>&1 && { up=1; break; }
+        sleep 2
+    done
+    [ -n "$up" ] || {
+        ynh_print_warn --message="kubo API ($api) not reachable — skipping IPFS peering. File attachments may not fetch across runtimes until you run: bash scripts/configure-ipfs-peering.sh"
+        return 0
+    }
+
+    local self addr id ipaddr json="[" first=1
+    self="$(curl -fsS -m 4 -X POST "$api/api/v0/id" 2>/dev/null | sed -n 's/.*"ID":"\([^"]*\)".*/\1/p')"
+    for addr in $(printf '%s' "$peers" | tr ',' ' '); do
+        [ -n "$addr" ] || continue
+        id="${addr##*/p2p/}"
+        [ -n "$id" ] && [ "$id" = "$self" ] && continue          # never peer with self
+        ipaddr="${addr%/p2p/*}"
+        [ "$first" = 1 ] || json="$json,"
+        json="$json{\"ID\":\"$id\",\"Addrs\":[\"$ipaddr\"]}"
+        first=0
+        # Live peering (immediate; the config below makes it survive restart).
+        curl -fsS -m 8 -X POST "$api/api/v0/swarm/peering/add?arg=$addr" >/dev/null 2>&1 || true
+    done
+    json="$json]"
+
+    if [ "$first" = 1 ]; then
+        echo "ipfs peering: only self in the federation list — nothing to peer"
+        return 0
+    fi
+    if curl -fsS -G -m 8 -X POST "$api/api/v0/config" \
+        --data-urlencode "arg=Peering.Peers" \
+        --data-urlencode "arg=$json" \
+        --data "json=true" >/dev/null 2>&1; then
+        echo "ipfs peering: configured Peering.Peers = $peers"
+    else
+        ynh_print_warn --message="ipfs config Peering.Peers failed — run: bash scripts/configure-ipfs-peering.sh"
+    fi
 }
 
 install_rust_toolchain() {
