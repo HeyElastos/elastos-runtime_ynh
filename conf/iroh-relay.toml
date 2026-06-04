@@ -1,7 +1,8 @@
 # Hey self-hosted iroh-relay — n0-independent gossip federation.
 #
-# Pinned to iroh-relay 0.96.1 to match the runtime's iroh client (a mismatched
-# relay won't pair). Templated by ynh_add_config (__DOMAIN__).
+# Pinned to iroh-relay 0.97.0 to match the runtime's iroh client (a mismatched
+# relay won't pair — must track the iroh version in patch 0010). Templated by
+# ynh_add_config (__DOMAIN__).
 #
 # Why these ports:
 #   * nginx owns :443 on a YunoHost box, so the relay serves HTTPS on :8443.
