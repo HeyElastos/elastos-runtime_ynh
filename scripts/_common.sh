@@ -337,10 +337,40 @@ ensure_localhost_encryption_key() {
 # but carrier-gossip needs EXACTLY 4433. Idempotent; --no-upnp leaves the
 # router alone (both Hey runtimes are public VPSes with routable IPs).
 PEER_UDP_PORT=4433
+
+# Is a port ACTUALLY open in the live kernel ruleset? `yunohost firewall list`
+# under-reports UDP on some builds (it showed only TCP even with UDP 4433/7842
+# live in nft), so we read the real source of truth: nftables, falling back to
+# iptables. This is what lets ensure_firewall_port detect a silent allow failure.
+_firewall_port_live() {
+    local proto port
+    proto=$(echo "$1" | tr 'A-Z' 'a-z'); port="$2"
+    if command -v nft >/dev/null 2>&1; then
+        nft list ruleset 2>/dev/null | grep -iE "${proto} dport" | grep -qw "$port" && return 0
+    fi
+    iptables -L INPUT -n 2>/dev/null | grep -iE "${proto}" | grep -qw "dpt:${port}" && return 0
+    return 1
+}
+
+# Allow a firewall port and CONFIRM it opened. The old bare `allow … || warn`
+# swallowed failures, so a box could end up silently blocked — cross-runtime
+# carrier-gossip then never forms a topic neighbor (invites/DMs/feed hang). We
+# allow, verify against the live ruleset, retry once (without --no-upnp in case
+# a build rejects the flag), and only then warn LOUDLY with the manual command.
+ensure_firewall_port() {
+    local proto="$1" port="$2"
+    _firewall_port_live "$proto" "$port" && return 0
+    yunohost firewall allow "$proto" "$port" --no-upnp >/dev/null 2>&1 || true
+    _firewall_port_live "$proto" "$port" && return 0
+    yunohost firewall allow "$proto" "$port" >/dev/null 2>&1 || true
+    _firewall_port_live "$proto" "$port" && return 0
+    ynh_print_warn --message="FIREWALL: ${proto} ${port} is NOT open after allow — cross-runtime P2P (carrier-gossip iroh) will fail. Open it manually: yunohost firewall allow ${proto} ${port}"
+    return 1
+}
+
 open_peer_firewall_port() {
     ynh_script_progression --message="Opening UDP $PEER_UDP_PORT for cross-runtime P2P (carrier-gossip iroh)..." --weight=1
-    yunohost firewall allow UDP "$PEER_UDP_PORT" --no-upnp >/dev/null 2>&1 \
-        || ynh_print_warn --message="Could not open UDP $PEER_UDP_PORT automatically. Cross-runtime invites/DMs need it — run: yunohost firewall allow UDP $PEER_UDP_PORT"
+    ensure_firewall_port UDP "$PEER_UDP_PORT"
 }
 
 # ────────────────────────────────────────────────────────────────────
@@ -432,10 +462,8 @@ is_public_host() {
 # mandatory or QAD silently degrades).
 open_relay_firewall_ports() {
     ynh_script_progression --message="Opening relay ports TCP $RELAY_HTTPS_PORT + UDP $RELAY_QUIC_PORT (self-hosted iroh-relay)..." --weight=1
-    yunohost firewall allow TCP "$RELAY_HTTPS_PORT" --no-upnp >/dev/null 2>&1 \
-        || ynh_print_warn --message="Could not open TCP $RELAY_HTTPS_PORT — run: yunohost firewall allow TCP $RELAY_HTTPS_PORT"
-    yunohost firewall allow UDP "$RELAY_QUIC_PORT" --no-upnp >/dev/null 2>&1 \
-        || ynh_print_warn --message="Could not open UDP $RELAY_QUIC_PORT — run: yunohost firewall allow UDP $RELAY_QUIC_PORT"
+    ensure_firewall_port TCP "$RELAY_HTTPS_PORT"
+    ensure_firewall_port UDP "$RELAY_QUIC_PORT"
 }
 close_relay_firewall_ports() {
     yunohost firewall disallow TCP "$RELAY_HTTPS_PORT" --no-upnp >/dev/null 2>&1 || true
