@@ -1,0 +1,81 @@
+--- a/capsules/ipfs-provider/src/main.rs
++++ b/capsules/ipfs-provider/src/main.rs
+@@ -21,6 +21,19 @@
+ const HTTP_TIMEOUT: Duration = Duration::from_secs(30);
+ const LARGE_HTTP_TIMEOUT: Duration = Duration::from_secs(300);
+ 
++// ── HEY PATCH 0014: bounded content-fetch (fail-fast + retry) ──────────────
++// The provider serves every elastos://content/* read through ONE line-delimited
++// stdin/stdout loop (see module header). A single LARGE_HTTP_TIMEOUT cat against
++// a COLD bitswap session therefore head-of-line-blocks every queued content
++// fetch behind it for up to 300s. These bound each attempt so a warm/local block
++// returns instantly and a cold one fails fast + retries (a `cat` issues the
++// bitswap want, so the block can land on a later attempt) instead of wedging the
++// provider. Worst case is now ~75s bounded, not 20 min.
++const FETCH_FAST_TIMEOUT: Duration = Duration::from_secs(15);
++const FETCH_FAST_RETRIES: usize = 2;
++const FETCH_RETRY_GAP: Duration = Duration::from_secs(2);
++// ── END HEY PATCH 0014 ─────────────────────────────────────────────────────
++
+ const PROVIDER_VERSION: &str = match option_env!("ELASTOS_RELEASE_VERSION") {
+     Some(version) => version,
+     None => concat!(env!("CARGO_PKG_VERSION"), "-dev"),
+@@ -203,9 +216,9 @@
+         }
+     }
+ 
+-    fn kubo_prefetch_cid(&mut self, cid: &str) -> Result<(), String> {
++    fn kubo_prefetch_cid(&mut self, cid: &str, timeout: Duration) -> Result<(), String> {
+         let url = format!("{}/api/v0/pin/add?arg={}", self.api_url(), cid);
+-        match ureq::post(&url).timeout(LARGE_HTTP_TIMEOUT).call() {
++        match ureq::post(&url).timeout(timeout).call() {
+             Ok(resp) if resp.status() == 200 => {
+                 update_coord_last_used(&self.data_dir);
+                 Ok(())
+@@ -219,22 +232,38 @@
+         let mut failures = Vec::new();
+ 
+         if self.state == KuboState::Ready || self.ensure_kubo().is_ok() {
+-            match self.kubo_cat_bytes(arg, LARGE_HTTP_TIMEOUT) {
+-                Ok(bytes) => return Ok(bytes),
+-                Err(err) => failures.push(err),
++            // ── HEY PATCH 0014: fail-fast + bounded retry ──────────────────────
++            // One LARGE_HTTP_TIMEOUT cat HANGS the provider's single stdio loop on
++            // a cold bitswap session (audit: >90s wedge while `kubo block/get`
++            // served the same CID in 8ms), head-of-line-blocking every other
++            // content fetch. Bound each cat so a warm block returns instantly and a
++            // cold one fails fast; a `cat` issues the bitswap want, so retrying with
++            // a short gap lets the block arrive on a later attempt.
++            // KILL CONDITION: drop when upstream bounds the cat timeout or makes the
++            // ipfs-provider request loop concurrent. File as an upstream PR.
++            for attempt in 0..FETCH_FAST_RETRIES {
++                match self.kubo_cat_bytes(arg, FETCH_FAST_TIMEOUT) {
++                    Ok(bytes) => return Ok(bytes),
++                    Err(err) => failures.push(err),
++                }
++                if attempt + 1 < FETCH_FAST_RETRIES {
++                    std::thread::sleep(FETCH_RETRY_GAP);
++                }
+             }
+ 
++            // Stubborn DAG: one bounded prefetch (pin) nudge + a final cat, still
++            // bounded so it can never reintroduce the 300s wedge.
+             let root_cid = Self::root_cid(arg);
+-            match self.kubo_prefetch_cid(root_cid) {
+-                Ok(()) => match self.kubo_cat_bytes(arg, LARGE_HTTP_TIMEOUT) {
++            if self.kubo_prefetch_cid(root_cid, FETCH_FAST_TIMEOUT).is_ok() {
++                match self.kubo_cat_bytes(arg, FETCH_FAST_TIMEOUT) {
+                     Ok(bytes) => return Ok(bytes),
+                     Err(err) => failures.push(err),
+-                },
+-                Err(err) => failures.push(err),
++                }
+             }
++            // ── END HEY PATCH 0014 ─────────────────────────────────────────────
+         }
+ 
+-        match self.fetch_from_local_gateway_with_timeout(arg, LARGE_HTTP_TIMEOUT) {
++        match self.fetch_from_local_gateway_with_timeout(arg, FETCH_FAST_TIMEOUT) {
+             Ok(bytes) => Ok(bytes),
+             Err(err) => {
+                 failures.push(err);
