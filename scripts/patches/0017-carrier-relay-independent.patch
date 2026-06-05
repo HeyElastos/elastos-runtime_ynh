@@ -11,7 +11,7 @@
      let bootstrap_peers = state.bootstrap_peers.clone();
      if force_direct {
          let topic = topic_hash(topic_name);
-@@ -497,6 +501,222 @@
+@@ -497,6 +501,265 @@
      Ok(())
  }
  
@@ -37,6 +37,49 @@
 +/// KILL CONDITION: drop when iroh/pkarr publishes direct addresses alongside the
 +/// relay URL (or the mainline DHT bootstraps reliably here), so peers learn direct
 +/// addresses through normal discovery.
++/// HEY PATCH 0017: is this host PUBLICLY REACHABLE (a server with a public IP on its
++/// outbound interface) rather than behind NAT (a phone/laptop)? Only publicly-reachable
++/// hosts auto-graduate to relay-independent — a NAT'd client KEEPS the relay, because it
++/// needs it for discovery, hole-punch coordination, and as a data fallback when a direct
++/// path is impossible (symmetric/CGNAT). Determined from the source IP the OS picks for
++/// outbound routing: no packet is sent, it is a pure local routing-table lookup.
++fn host_is_publicly_reachable() -> bool {
++    fn probe(dst: &str) -> Option<std::net::IpAddr> {
++        let dst: std::net::SocketAddr = dst.parse().ok()?;
++        let bind = if dst.is_ipv6() { "[::]:0" } else { "0.0.0.0:0" };
++        let s = std::net::UdpSocket::bind(bind).ok()?;
++        s.connect(dst).ok()?;
++        s.local_addr().ok().map(|a| a.ip())
++    }
++    // IPv4 verdict first (the reliable discriminator); fall back to IPv6 only on a
++    // v4-less host. A phone on v4-NAT returns a private v4 here → not public.
++    match probe("192.0.2.1:443").or_else(|| probe("[2001:db8::1]:443")) {
++        Some(ip) => ip_is_global(&ip),
++        None => false, // can't determine → safe default: assume NAT, keep the relay
++    }
++}
++fn ip_is_global(ip: &std::net::IpAddr) -> bool {
++    match ip {
++        std::net::IpAddr::V4(v4) => {
++            let o = v4.octets();
++            !(v4.is_private()
++                || v4.is_loopback()
++                || v4.is_link_local()
++                || v4.is_broadcast()
++                || v4.is_unspecified()
++                || o[0] == 0
++                || (o[0] == 100 && o[1] >= 64 && o[1] <= 127)) // 100.64/10 CGNAT
++        }
++        std::net::IpAddr::V6(v6) => {
++            let s = v6.segments();
++            !(v6.is_loopback()
++                || v6.is_unspecified()
++                || (s[0] & 0xffc0) == 0xfe80 // link-local fe80::/10
++                || (s[0] & 0xfe00) == 0xfc00) // unique-local fc00::/7
++        }
++    }
++}
++
 +/// HEY PATCH 0017: persisted peer cache. The direct addresses we learn during the
 +/// relay-assisted discovery phase are written here so the NEXT boot can come up
 +/// relay-INDEPENDENT (relay disabled, data 100% direct) and reach its peers
@@ -234,7 +277,7 @@
  pub fn source_carrier_addrs(source: &TrustedSource) -> Vec<String> {
      let mut addrs = Vec::new();
  
-@@ -542,7 +762,21 @@
+@@ -542,7 +805,29 @@
      // Build endpoint. Uses iroh default relays unless ELASTOS_RELAY_URL is set.
      // Don't override address_lookup — the default includes pkarr for DHT discovery.
      let mut builder = Endpoint::builder(iroh::endpoint::presets::N0).secret_key(secret_key.clone());
@@ -245,19 +288,27 @@
 +    // earlier relay-assisted discovery phase). "Use the relay to find each other
 +    // once, then cut the cord." iroh's flaky relay->direct multipath upgrade is
 +    // never exercised because there is no relay path to begin with.
-+    // Graduate to relay-independent automatically once we've cached peer addresses
-+    // from an earlier relay-assisted discovery run (or when forced via env).
++    // Graduate to relay-independent automatically — but ONLY on a publicly-reachable
++    // host (a server with a public IP) that has already cached peer addresses from an
++    // earlier relay-assisted discovery run. A NAT'd device (phone/laptop) is detected
++    // here and KEEPS the relay: it still needs it to be found, to coordinate hole-
++    // punching, and as a fallback when a direct path is impossible. ELASTOS_RELAY_INDEPENDENT=1
++    // forces it regardless (e.g. a port-forwarded home server the probe can't classify).
++    let publicly_reachable = host_is_publicly_reachable();
 +    let relay_independent = std::env::var("ELASTOS_RELAY_INDEPENDENT").ok().as_deref()
 +        == Some("1")
-+        || !load_cached_peers(&data_dir).is_empty();
++        || (publicly_reachable && !load_cached_peers(&data_dir).is_empty());
 +    if relay_independent {
 +        builder = builder.relay_mode(iroh::RelayMode::Disabled);
-+        info!("carrier: relay-independent mode — relay DISABLED, all data direct P2P");
++        info!("carrier: relay-independent mode (publicly reachable) — relay DISABLED, all data direct P2P");
 +    } else if let Ok(relay_env) = std::env::var("ELASTOS_RELAY_URL") {
++        if !publicly_reachable {
++            info!("carrier: behind NAT — relay KEPT for discovery + hole-punch + fallback");
++        }
          // HEY-CAPSULE-PACK PATCH 0009 (REMOVABLE): accept a COMMA/whitespace-
          // separated LIST of relay URLs and build a MULTI-entry RelayMap (upstream
          // reads exactly one). This lets the YNH installer bake in every known
-@@ -678,6 +912,44 @@
+@@ -678,6 +963,44 @@
          }
      }
  
@@ -302,7 +353,7 @@
      if is_trusted_source_runtime(&data_dir) {
          let mut state = gossip_state.lock().await;
          match join_gossip_topic(&mut state, CHAT_DISCOVERY_TOPIC_GENERAL, true).await {
-@@ -730,6 +1002,23 @@
+@@ -730,6 +1053,23 @@
          }
      }
  
