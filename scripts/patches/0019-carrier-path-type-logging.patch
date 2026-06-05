@@ -1,0 +1,114 @@
+--- a/elastos/crates/elastos-server/src/carrier.rs
++++ b/elastos/crates/elastos-server/src/carrier.rs
+@@ -602,6 +602,71 @@
+     }
+ }
+ 
++/// HEY: per-peer path-type observability. Classify a peer's ACTIVE transport (from
++/// iroh's endpoint.remote_info()) as DIRECT(IPv6) / DIRECT(IPv4) / RELAY — so the carrier
++/// can log the direct-vs-relay ratio and the `peer_paths` provider op can drive the app's
++/// connection badge (🔒 direct vs ↪ relay). iroh connects relay-first then upgrades to the
++/// best direct path, so a peer reads RELAY for ~1-2s then flips to DIRECT once punched.
++fn classify_peer_path(info: &iroh::endpoint::RemoteInfo) -> &'static str {
++    let (mut v6, mut v4, mut relay) = (false, false, false);
++    for a in info.addrs() {
++        if !matches!(a.usage(), iroh::endpoint::TransportAddrUsage::Active) {
++            continue;
++        }
++        match a.addr() {
++            iroh::TransportAddr::Ip(sa) => {
++                if sa.is_ipv6() {
++                    v6 = true;
++                } else {
++                    v4 = true;
++                }
++            }
++            iroh::TransportAddr::Relay(_) => relay = true,
++            _ => {}
++        }
++    }
++    // Report the best ACTIVE path: direct preferred over relay, IPv6 over IPv4.
++    if v6 {
++        "DIRECT(IPv6)"
++    } else if v4 {
++        "DIRECT(IPv4)"
++    } else if relay {
++        "RELAY"
++    } else {
++        "connecting"
++    }
++}
++
++/// HEY: every 30s, summarise how many peers are reached direct (v6/v4) vs via the relay.
++async fn path_type_logger(endpoint: Endpoint, peers: Arc<Mutex<Vec<String>>>) {
++    let mut tick = tokio::time::interval(Duration::from_secs(30));
++    loop {
++        tick.tick().await;
++        let ids: Vec<String> = { peers.lock().await.clone() };
++        if ids.is_empty() {
++            continue;
++        }
++        let (mut d6, mut d4, mut rl) = (0u32, 0u32, 0u32);
++        for pid in &ids {
++            let Ok(eid) = pid.parse::<iroh::EndpointId>() else {
++                continue;
++            };
++            if let Some(info) = endpoint.remote_info(eid).await {
++                match classify_peer_path(&info) {
++                    "DIRECT(IPv6)" => d6 += 1,
++                    "DIRECT(IPv4)" => d4 += 1,
++                    "RELAY" => rl += 1,
++                    _ => {}
++                }
++            }
++        }
++        info!(
++            "carrier: peer paths — direct(IPv6)={} direct(IPv4)={} relay={} (of {} known)",
++            d6, d4, rl, ids.len()
++        );
++    }
++}
++
+ async fn direct_addr_announce_loop(
+     endpoint: Endpoint,
+     gossip: Gossip,
+@@ -1065,6 +1130,13 @@
+         ));
+     }
+ 
++    // HEY: path-type observability — log each peer's active transport (direct v6/v4 vs
++    // relay) every 30s; exposed to apps via the `peer_paths` op for a connection badge.
++    {
++        let peers = gossip_state.lock().await.peers.clone();
++        tokio::spawn(path_type_logger(endpoint.clone(), peers));
++    }
++
+     Ok(CarrierNode {
+         endpoint,
+         gossip,
+@@ -1544,6 +1616,25 @@
+                 Ok(serde_json::json!({"status":"ok","data":{"peers": peers}}))
+             }
+ 
++            "peer_paths" => {
++                // Per-peer transport for the app connection badge: DIRECT(IPv6) /
++                // DIRECT(IPv4) / RELAY — live from iroh's endpoint.remote_info().
++                let ids = state.peers.lock().await.clone();
++                let ep = state.endpoint.clone();
++                let mut paths = serde_json::Map::new();
++                for pid in ids {
++                    if let Ok(eid) = pid.parse::<iroh::EndpointId>() {
++                        if let Some(info) = ep.remote_info(eid).await {
++                            paths.insert(
++                                pid,
++                                serde_json::Value::from(classify_peer_path(&info)),
++                            );
++                        }
++                    }
++                }
++                Ok(serde_json::json!({"status":"ok","data":{"paths": paths}}))
++            }
++
+             "list_topics" => {
+                 let topics: Vec<&String> = state
+                     .joined_topics
