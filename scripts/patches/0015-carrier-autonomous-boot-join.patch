@@ -1,0 +1,99 @@
+--- a/elastos/crates/elastos-server/src/carrier.rs
++++ b/elastos/crates/elastos-server/src/carrier.rs
+@@ -152,6 +152,7 @@
+     peers: Arc<Mutex<Vec<String>>>,
+     topic_peers: Arc<Mutex<HashMap<String, HashSet<String>>>>,
+     did: Option<String>,
++    data_dir: PathBuf,
+ }
+ 
+ impl GossipState {
+@@ -161,6 +162,7 @@
+         memory_lookup: MemoryLookup,
+         signing_key: Option<ed25519_dalek::SigningKey>,
+         did: Option<String>,
++        data_dir: PathBuf,
+     ) -> Self {
+         Self {
+             endpoint,
+@@ -176,6 +178,7 @@
+             peers: Arc::new(Mutex::new(Vec::new())),
+             topic_peers: Arc::new(Mutex::new(HashMap::new())),
+             did,
++            data_dir,
+         }
+     }
+ }
+@@ -349,6 +352,29 @@
+         || publisher_artifacts_path(data_dir).exists()
+ }
+ 
++// ── HEY PATCH 0015 (REMOVABLE): persist joined topics + autonomously rejoin them
++// on boot, so a restarted runtime re-forms its gossip mesh WITHOUT needing a
++// browser/app to re-trigger gossip_join (closes the post-restart cold window).
++// Rejoin uses DHT auto-discovery (proven to re-mesh from 0 bootstrap peers), so
++// no peer-address cache is required for correctness. KILL CONDITION: drop when
++// the runtime gains a first-class persistent-subscription mechanism upstream.
++fn carrier_topics_path(data_dir: &std::path::Path) -> std::path::PathBuf {
++    data_dir.join("carrier-topics.json")
++}
++fn persist_joined_topics(data_dir: &std::path::Path, topics: &std::collections::HashSet<String>) {
++    let list: Vec<&String> = topics.iter().collect();
++    if let Ok(json) = serde_json::to_string(&list) {
++        let _ = std::fs::write(carrier_topics_path(data_dir), json);
++    }
++}
++fn load_persisted_topics(data_dir: &std::path::Path) -> Vec<String> {
++    std::fs::read_to_string(carrier_topics_path(data_dir))
++        .ok()
++        .and_then(|s| serde_json::from_str::<Vec<String>>(&s).ok())
++        .unwrap_or_default()
++}
++// ── END HEY PATCH 0015 ───────────────────────────────────────────────────────
++
+ fn register_topic_state(
+     state: &mut GossipState,
+     topic_name: &str,
+@@ -363,6 +389,7 @@
+     {
+         existing.abort();
+     }
++    persist_joined_topics(&state.data_dir, &state.joined_topics);
+ }
+ 
+ async fn join_gossip_topic(
+@@ -595,6 +622,7 @@
+         memory_lookup.clone(),
+         Some(signing_key.clone()),
+         Some(did.to_string()),
++        data_dir.clone(),
+     )));
+ 
+     let file_handler = FileHandler {
+@@ -662,6 +690,26 @@
+             }
+         }
+     }
++
++    // ── HEY PATCH 0015: autonomous boot-join — rejoin previously-joined topics
++    // via DHT auto-discovery so the mesh re-forms after a restart with no app open.
++    {
++        let persisted = load_persisted_topics(&data_dir);
++        if !persisted.is_empty() {
++            let mut state = gossip_state.lock().await;
++            for topic in persisted {
++                if state.joined_topics.contains(&topic) {
++                    continue;
++                }
++                match join_gossip_topic(&mut state, &topic, false).await {
++                    Ok(()) => info!("carrier: autonomous rejoin '{}'", topic),
++                    Err(err) => {
++                        tracing::warn!("carrier: autonomous rejoin '{}' failed: {}", topic, err)
++                    }
++                }
++            }
++        }
++    }
+ 
+     Ok(CarrierNode {
+         endpoint,
