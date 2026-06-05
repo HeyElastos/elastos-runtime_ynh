@@ -418,10 +418,15 @@ HEY_RELAY_FEDERATION_URLS="${HEY_RELAY_FEDERATION_URLS:-https://test.elastos.app
 # relay, so a node stays reachable even if EVERY self-hosted federation relay is
 # down. The carrier (patch 0009) homes on the lowest-latency REACHABLE entry, so
 # this only takes over on a full self-hosted outage — normal operation still
-# prefers the closer federation relay. Default = the project's public relay; set
-# to n0's hosted relays (e.g. https://use1-1.relay.iroh.network) for an always-on
-# fallback, or empty to disable. Comma/space separated.
-HEY_RELAY_PUBLIC_FALLBACK_URLS="${HEY_RELAY_PUBLIC_FALLBACK_URLS:-$HEY_RELAY_DEFAULT_URL}"
+# prefers the closer federation relay. Default = the project's public relay
+# (relay.heyelastos.com) PLUS n0's always-on hosted relay
+# (use1-1.relay.iroh.network) as the TRUE last-resort — so a node stays
+# reachable even if EVERY self-hosted relay (incl. relay.heyelastos.com) is
+# down. With this, a public host that homes on its own relay composes the full
+# four-relay map: relay.heyelastos.com -> test.elastos.app:8443 ->
+# elastos.app:8443 -> use1-1.relay.iroh.network. Set empty to disable n0, or
+# override. Comma/space separated.
+HEY_RELAY_PUBLIC_FALLBACK_URLS="${HEY_RELAY_PUBLIC_FALLBACK_URLS:-$HEY_RELAY_DEFAULT_URL,https://use1-1.relay.iroh.network}"
 
 # IPFS content federation — the IPFS analog of the relay federation above. A
 # file attachment's BYTES travel via content/IPFS by CID (not gossip), so the
