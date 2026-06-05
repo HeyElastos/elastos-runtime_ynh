@@ -1,0 +1,35 @@
+--- a/elastos/crates/elastos-server/src/carrier.rs
++++ b/elastos/crates/elastos-server/src/carrier.rs
+@@ -51,6 +51,12 @@
+ 
+ const CARRIER_ALPN: &[u8] = b"elastos/carrier/1";
+ const CHAT_DISCOVERY_TOPIC_GENERAL: &str = "__elastos_internal/chat-presence-v1/#general";
++// ── HEY PATCH 0016 (REMOVABLE): a fixed global mesh topic EVERY runtime joins at
++// boot via DHT auto-discovery, so all Hey runtimes are ALWAYS meshed — no
++// dependence on a shared user topic ("it should always just work"). Keeps presence
++// live + makes per-pair topic bootstrap instant (endpoints already connected).
++// KILL CONDITION: drop when upstream ships a presence/overlay mesh layer.
++const HEY_GLOBAL_MESH_TOPIC: &str = "hey/v0/mesh/global/1";
+ 
+ /// Well-known secret for topic discovery. Any Carrier node with this secret
+ /// can discover peers on the same topic via DHT.
+@@ -710,6 +716,19 @@
+             }
+         }
+     }
++
++    // ── HEY PATCH 0016: always-on global mesh — unconditionally join the fixed Hey
++    // mesh topic at boot (DHT auto-discovery) so every runtime is meshed with no
++    // shared user topic required.
++    {
++        let mut state = gossip_state.lock().await;
++        if !state.joined_topics.contains(HEY_GLOBAL_MESH_TOPIC) {
++            match join_gossip_topic(&mut state, HEY_GLOBAL_MESH_TOPIC, false).await {
++                Ok(()) => info!("carrier: joined global mesh '{}'", HEY_GLOBAL_MESH_TOPIC),
++                Err(err) => tracing::warn!("carrier: global mesh join failed: {}", err),
++            }
++        }
++    }
+ 
+     Ok(CarrierNode {
+         endpoint,
