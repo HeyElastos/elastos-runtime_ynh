@@ -388,7 +388,7 @@ open_peer_firewall_port() {
 # on a baked-in default public relay. Payloads are E2E-encrypted (sealed-sender
 # v2), so the relay only ever forwards ciphertext.
 #
-# The relay binary MUST match the runtime's iroh client (0.97.0) or the protocol
+# The relay binary MUST match the runtime's iroh client (1.0.0-rc.1) or the protocol
 # won't pair. CRITICAL: the client always does QUIC Address Discovery on UDP
 # 7842 (carrier.rs: quic:Some(Default::default())), so the relay MUST run a real
 # config with enable_quic_addr_discovery=true binding [::]:7842 + TLS — NOT
@@ -512,8 +512,8 @@ write_relay_env() {
     fi
 }
 
-# Build + install the iroh-relay 0.97.0 server binary into the client bin/.
-# Pinned to 0.97.0 to match the runtime's iroh client. Built with the already-
+# Build + install the iroh-relay 1.0.0-rc.1 server binary into the client bin/.
+# Pinned to 1.0.0-rc.1 to match the runtime's iroh client. Built with the already-
 # installed Rust toolchain. Idempotent. NON-FATAL: a build failure leaves the
 # runtime on the default/n0 relay.
 install_iroh_relay() {
@@ -529,18 +529,18 @@ install_iroh_relay() {
         ynh_print_warn --message="No Rust toolchain — skipping iroh-relay build (relay federation disabled)."
         return 1
     fi
-    ynh_script_progression --message="Building iroh-relay 0.97.0 (n0-independent relay)..." --weight=40
+    ynh_script_progression --message="Building iroh-relay 1.0.0-rc.1 (n0-independent relay)..." --weight=40
     local relay_root="$install_dir/.iroh-relay-build"
     rm -rf "$relay_root"
     mkdir -p "$relay_root"
     chown -R "$app:$app" "$relay_root"
-    if cargo_as_app install --root "$relay_root" --version 0.97.0 --features server iroh-relay; then
+    if cargo_as_app install --root "$relay_root" --version 1.0.0-rc.1 --features server iroh-relay; then
         install -m 0755 -o "$app" -g "$app" "$relay_root/bin/iroh-relay" "$client_bin/iroh-relay"
-        echo "  installed bin/iroh-relay (0.97.0)"
+        echo "  installed bin/iroh-relay (1.0.0-rc.1)"
         rm -rf "$relay_root"
         return 0
     fi
-    ynh_print_warn --message="iroh-relay 0.97.0 build failed — relay federation disabled; runtime uses the default/n0 relay. (Re-run the upgrade to retry.)"
+    ynh_print_warn --message="iroh-relay 1.0.0-rc.1 build failed — relay federation disabled; runtime uses the default/n0 relay. (Re-run the upgrade to retry.)"
     rm -rf "$relay_root"
     return 1
 }
@@ -653,13 +653,13 @@ install_rust_toolchain() {
     # Install rustup with the exact version pinned by rust-toolchain.toml.
     ynh_exec_warn_less ynh_exec_as "$app" \
         env RUSTUP_HOME="$root/rustup" CARGO_HOME="$root/cargo" \
-        bash -c 'curl -fsSL https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.89.0 --profile minimal'
+        bash -c 'curl -fsSL https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.91 --profile minimal'
 
     ynh_exec_warn_less ynh_exec_as "$app" \
         env RUSTUP_HOME="$root/rustup" \
             CARGO_HOME="$root/cargo" \
             PATH="$root/cargo/bin:/usr/bin:/bin" \
-        bash -c "rustup target add --toolchain 1.89.0 wasm32-wasip1"
+        bash -c "rustup target add --toolchain 1.91 wasm32-wasip1"
 }
 
 # Run cargo with the toolchain env baked in.
