@@ -1,0 +1,328 @@
+--- a/elastos/crates/elastos-server/src/carrier.rs
++++ b/elastos/crates/elastos-server/src/carrier.rs
+@@ -403,6 +403,10 @@
+     topic_name: &str,
+     force_direct: bool,
+ ) -> Result<()> {
++    // HEY PATCH 0017: in relay-independent mode there is no relay to auto-discover
++    // through, so ALWAYS join in direct mode (bootstrap = the seeded/cached peers).
++    let force_direct = force_direct
++        || std::env::var("ELASTOS_RELAY_INDEPENDENT").ok().as_deref() == Some("1");
+     let bootstrap_peers = state.bootstrap_peers.clone();
+     if force_direct {
+         let topic = topic_hash(topic_name);
+@@ -497,6 +501,222 @@
+     Ok(())
+ }
+ 
++/// HEY PATCH 0017 (REMOVABLE): direct-address self-announce so peer DATA flows
++/// direct P2P and the relay is used ONLY to connect/discover (never to carry data).
++///
++/// iroh's pkarr publisher advertises a node's RELAY URL *only* (never its direct
++/// addresses) whenever a relay is configured, and the mainline DHT that would
++/// otherwise carry direct addresses cannot bootstrap on these hosts. Net effect:
++/// peers learn each other ONLY by relay, iroh's hole-puncher has no direct
++/// candidate to punch to, and all gossip DATA rides the relay even though direct
++/// UDP on :4433 works (verified end-to-end: a 100-msg burst went 241KB via relay,
++/// ~0 direct — and flipped to 247KB direct once peers were handed each other's
++/// direct addr).
++///
++/// This closes the gap WITHOUT patching iroh: every node periodically broadcasts
++/// its OWN full EndpointAddr (relay + public direct, from endpoint.watch_addr())
++/// on a fixed gossip topic. On receipt each peer injects the sender's direct
++/// address into the endpoint address book and dials it once — exactly what the
++/// manual `connect` op does. iroh then hole-punches the direct path and the relay
++/// drops to connect/discovery-only on its own.
++///
++/// KILL CONDITION: drop when iroh/pkarr publishes direct addresses alongside the
++/// relay URL (or the mainline DHT bootstraps reliably here), so peers learn direct
++/// addresses through normal discovery.
++/// HEY PATCH 0017: persisted peer cache. The direct addresses we learn during the
++/// relay-assisted discovery phase are written here so the NEXT boot can come up
++/// relay-INDEPENDENT (relay disabled, data 100% direct) and reach its peers
++/// immediately — "use the relay to find each other once, then cut the cord."
++fn peer_cache_path(data_dir: &std::path::Path) -> std::path::PathBuf {
++    data_dir.join("carrier-peers.json")
++}
++fn load_cached_peers(data_dir: &std::path::Path) -> Vec<iroh::EndpointAddr> {
++    std::fs::read(peer_cache_path(data_dir))
++        .ok()
++        .and_then(|b| serde_json::from_slice::<Vec<iroh::EndpointAddr>>(&b).ok())
++        .unwrap_or_default()
++}
++fn cache_peer(data_dir: &std::path::Path, addr: &iroh::EndpointAddr) {
++    // Persist DIRECT addresses only (the relay addr is useless once independent).
++    let direct: Vec<iroh::TransportAddr> = addr
++        .addrs
++        .iter()
++        .filter(|t| match t {
++            iroh::TransportAddr::Ip(sa) => !sa.ip().is_loopback(),
++            _ => false,
++        })
++        .cloned()
++        .collect();
++    if direct.is_empty() {
++        return;
++    }
++    let entry = iroh::EndpointAddr::from(addr.id).with_addrs(direct);
++    let mut peers = load_cached_peers(data_dir);
++    peers.retain(|p| p.id != addr.id);
++    peers.push(entry);
++    if let Ok(bytes) = serde_json::to_vec(&peers) {
++        let _ = std::fs::write(peer_cache_path(data_dir), bytes);
++    }
++}
++
++async fn direct_addr_announce_loop(
++    endpoint: Endpoint,
++    gossip: Gossip,
++    memory_lookup: MemoryLookup,
++    peers: Arc<Mutex<Vec<String>>>,
++    signing_key_bytes: [u8; 32],
++    data_dir: PathBuf,
++) {
++    const ANNOUNCE_TOPIC: &str = "hey/v0/addr-announce/1";
++
++    // Join the announce topic via the SAME DHT/relay auto-discovery path the global
++    // mesh uses, so it meshes cross-host with no bootstrap peers required.
++    let dtt_sk = ed25519_dalek3::SigningKey::from_bytes(&signing_key_bytes);
++    let record_publisher = RecordPublisher::new(
++        TopicId::new(ANNOUNCE_TOPIC.to_string()),
++        dtt_sk,
++        None,
++        TOPIC_DISCOVERY_SECRET.to_vec(),
++        distributed_topic_tracker::Config::default(),
++    );
++    let topic = match gossip
++        .subscribe_and_join_with_auto_discovery_no_wait(record_publisher)
++        .await
++    {
++        Ok(t) => t,
++        Err(e) => {
++            tracing::warn!("carrier: addr-announce join failed: {}", e);
++            return;
++        }
++    };
++    let (sender, mut receiver) = match topic.split().await {
++        Ok(parts) => parts,
++        Err(e) => {
++            tracing::warn!("carrier: addr-announce split failed: {}", e);
++            return;
++        }
++    };
++    info!("carrier: direct-address announce active on '{}'", ANNOUNCE_TOPIC);
++
++    let self_id = endpoint.id();
++
++    // Receiver: inject every peer's advertised direct address into the address
++    // book, and dial it once (iroh maintains + hole-punches the path afterward).
++    {
++        let endpoint = endpoint.clone();
++        let gossip = gossip.clone();
++        let memory_lookup = memory_lookup.clone();
++        let peers = peers.clone();
++        let data_dir = data_dir.clone();
++        tokio::spawn(async move {
++            let mut dialed: Vec<iroh::EndpointId> = Vec::new();
++            loop {
++                match receiver.next().await {
++                    Ok(iroh_gossip::api::Event::Received(msg)) => {
++                        let ticket = match std::str::from_utf8(&msg.content) {
++                            Ok(s) => s,
++                            Err(_) => continue,
++                        };
++                        for addr in decode_ticket_endpoints(ticket) {
++                            if addr.id == self_id {
++                                continue;
++                            }
++                            // Quiet address-book refresh on every (re)announce: give
++                            // iroh BOTH addrs (relay for fallback + direct).
++                            memory_lookup.add_endpoint_info(addr.clone());
++                            // Dial once per peer; re-announces only refresh the book.
++                            if !dialed.contains(&addr.id) {
++                                dialed.push(addr.id);
++                                // Persist for relay-independent graduation on next boot.
++                                cache_peer(&data_dir, &addr);
++                                // Dial DIRECT-ONLY (strip the relay addr). iroh 0.97's
++                                // multipath relay->direct UPGRADE is flaky here (paths get
++                                // Abandoned ValidationFailed even though raw UDP :4433 works),
++                                // so instead we open a connection whose PRIMARY path is the
++                                // direct :4433 path — validated by the initial QUIC handshake,
++                                // not the multipath PATH_CHALLENGE. gossip multiplexes its
++                                // topics over this direct connection. The relay is still in the
++                                // address book (above) as fallback if the direct dial fails.
++                                let direct_addrs: Vec<iroh::TransportAddr> = addr
++                                    .addrs
++                                    .iter()
++                                    .filter(|a| matches!(a, iroh::TransportAddr::Ip(_)))
++                                    .cloned()
++                                    .collect();
++                                info!(
++                                    "carrier: addr-announce RECV from {} ({} direct addr) — direct-dialing",
++                                    &addr.id.to_string()[..12],
++                                    direct_addrs.len()
++                                );
++                                if !direct_addrs.is_empty() {
++                                    let direct_only =
++                                        iroh::EndpointAddr::from(addr.id).with_addrs(direct_addrs);
++                                    let c = connect_ticket_endpoints(
++                                        &endpoint,
++                                        &gossip,
++                                        peers.clone(),
++                                        std::slice::from_ref(&direct_only),
++                                    )
++                                    .await;
++                                    info!(
++                                        "carrier: addr-announce direct-dial result for {}: connected={:?}",
++                                        &addr.id.to_string()[..12],
++                                        c
++                                    );
++                                }
++                            }
++                        }
++                    }
++                    Ok(_) => {}
++                    Err(e) => {
++                        if e.to_string().contains("closed") {
++                            break;
++                        }
++                    }
++                }
++            }
++        });
++    }
++
++    // Sender: re-broadcast our full EndpointAddr (loopback stripped) every 30s. The
++    // first interval tick fires immediately, so a freshly-joined peer goes direct
++    // within one interval.
++    let mut ticker = tokio::time::interval(Duration::from_secs(30));
++    loop {
++        ticker.tick().await;
++        let mut watcher = endpoint.watch_addr();
++        let addr = watcher.get();
++        let public_addrs: Vec<iroh::TransportAddr> = addr
++            .addrs
++            .iter()
++            .filter(|t| match t {
++                iroh::TransportAddr::Ip(sa) => !sa.ip().is_loopback(),
++                _ => true,
++            })
++            .cloned()
++            .collect();
++        if public_addrs.is_empty() {
++            continue;
++        }
++        let ndirect = public_addrs
++            .iter()
++            .filter(|a| matches!(a, iroh::TransportAddr::Ip(_)))
++            .count();
++        let announce = iroh::EndpointAddr::from(addr.id).with_addrs(public_addrs);
++        let ticket_json = serde_json::json!({ "topic": null, "endpoints": [announce] });
++        let ticket_bytes = serde_json::to_vec(&ticket_json).unwrap_or_default();
++        let mut ticket_str = data_encoding::BASE32_NOPAD.encode(&ticket_bytes);
++        ticket_str.make_ascii_lowercase();
++        match sender.broadcast(ticket_str.into_bytes()).await {
++            Ok(_) => info!(
++                "carrier: addr-announce SENT ({} direct addr) on '{}'",
++                ndirect, ANNOUNCE_TOPIC
++            ),
++            Err(e) => tracing::debug!("carrier: addr-announce broadcast failed: {}", e),
++        }
++    }
++}
++
+ pub fn source_carrier_addrs(source: &TrustedSource) -> Vec<String> {
+     let mut addrs = Vec::new();
+ 
+@@ -542,7 +762,21 @@
+     // Build endpoint. Uses iroh default relays unless ELASTOS_RELAY_URL is set.
+     // Don't override address_lookup — the default includes pkarr for DHT discovery.
+     let mut builder = Endpoint::builder(iroh::endpoint::presets::N0).secret_key(secret_key.clone());
+-    if let Ok(relay_env) = std::env::var("ELASTOS_RELAY_URL") {
++    // HEY PATCH 0017: relay-independent mode — disable the relay ENTIRELY so all
++    // data is direct P2P. Peers are reached purely by their direct addresses
++    // (seeded from ELASTOS_MESH_SEED / the persisted peer cache, learned during an
++    // earlier relay-assisted discovery phase). "Use the relay to find each other
++    // once, then cut the cord." iroh's flaky relay->direct multipath upgrade is
++    // never exercised because there is no relay path to begin with.
++    // Graduate to relay-independent automatically once we've cached peer addresses
++    // from an earlier relay-assisted discovery run (or when forced via env).
++    let relay_independent = std::env::var("ELASTOS_RELAY_INDEPENDENT").ok().as_deref()
++        == Some("1")
++        || !load_cached_peers(&data_dir).is_empty();
++    if relay_independent {
++        builder = builder.relay_mode(iroh::RelayMode::Disabled);
++        info!("carrier: relay-independent mode — relay DISABLED, all data direct P2P");
++    } else if let Ok(relay_env) = std::env::var("ELASTOS_RELAY_URL") {
+         // HEY-CAPSULE-PACK PATCH 0009 (REMOVABLE): accept a COMMA/whitespace-
+         // separated LIST of relay URLs and build a MULTI-entry RelayMap (upstream
+         // reads exactly one). This lets the YNH installer bake in every known
+@@ -678,6 +912,44 @@
+         }
+     }
+ 
++    // HEY PATCH 0017: relay-independent seeding — dial the peers we already know
++    // (ELASTOS_MESH_SEED connect tickets, or the persisted peer cache) DIRECTLY and
++    // make them the gossip bootstrap, so the mesh forms with ZERO relay. Runs before
++    // any topic join so bootstrap_peers is populated for the force-direct joins.
++    if relay_independent {
++        // Seed from the persisted cache (peers found during the earlier relay phase)
++        // plus any ELASTOS_MESH_SEED override tickets, then connect DIRECTLY. These
++        // become the gossip bootstrap so the mesh forms with ZERO relay.
++        let mut seeds: Vec<iroh::EndpointAddr> = load_cached_peers(&data_dir);
++        if let Ok(seed) = std::env::var("ELASTOS_MESH_SEED") {
++            for tk in seed
++                .split(|c: char| c == ',' || c.is_whitespace())
++                .filter(|s| !s.trim().is_empty())
++            {
++                seeds.extend(decode_ticket_endpoints(tk.trim()));
++            }
++        }
++        let mut deduped: Vec<iroh::EndpointAddr> = Vec::new();
++        for e in seeds {
++            if !deduped.iter().any(|d| d.id == e.id) {
++                deduped.push(e);
++            }
++        }
++        if !deduped.is_empty() {
++            let mut state = gossip_state.lock().await;
++            let ml = state.memory_lookup.clone();
++            let ep = state.endpoint.clone();
++            let gs = state.gossip.clone();
++            let peers = state.peers.clone();
++            add_ticket_endpoints(&ml, &mut state.bootstrap_peers, &deduped, true);
++            connect_ticket_endpoints(&ep, &gs, peers, &deduped).await;
++            info!(
++                "carrier: relay-independent — seeded + connected {} direct peer(s) (cache+env)",
++                deduped.len()
++            );
++        }
++    }
++
+     if is_trusted_source_runtime(&data_dir) {
+         let mut state = gossip_state.lock().await;
+         match join_gossip_topic(&mut state, CHAT_DISCOVERY_TOPIC_GENERAL, true).await {
+@@ -730,6 +1002,23 @@
+         }
+     }
+ 
++    // ── HEY PATCH 0017: during the relay-assisted (discovery) phase, run the
++    // direct-address self-announce — it learns peers' direct addresses and PERSISTS
++    // them to the cache, so the NEXT boot graduates to relay-independent (data 100%
++    // direct). In relay-independent mode the cache already drives connectivity (and
++    // there is no relay to auto-discover through), so we skip it.
++    if !relay_independent {
++        let peers = gossip_state.lock().await.peers.clone();
++        tokio::spawn(direct_addr_announce_loop(
++            endpoint.clone(),
++            gossip.clone(),
++            memory_lookup.clone(),
++            peers,
++            signing_key.to_bytes(),
++            data_dir.clone(),
++        ));
++    }
++
+     Ok(CarrierNode {
+         endpoint,
+         gossip,
