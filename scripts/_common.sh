@@ -84,6 +84,15 @@ fetch_upstream_source() {
     for upstream_capsule in "$extracted/capsules"/*/; do
         local name
         name="$(basename "$upstream_capsule")"
+        # Reset to fresh upstream BEFORE copying. On an UPGRADE the install_dir
+        # persists, so capsules/<name>/ may already hold the PREVIOUS run's
+        # ALREADY-PATCHED source. `cp -r src/ dst` over a live dir merges/nests
+        # instead of replacing, leaving stale-patched files — the patch loop
+        # below then hits "Reversed (or previously applied)" / partial-hunk
+        # failures (this is exactly why 0014-ipfs-provider failed on upgrade).
+        # The elastos/ tree is rm'd above for the same reason; capsules must be
+        # too. fetch_hey_capsules() already rm's per-capsule — match it here.
+        rm -rf "$target_dir/capsules/$name"
         cp -r "$upstream_capsule" "$target_dir/capsules/$name"
     done
 
