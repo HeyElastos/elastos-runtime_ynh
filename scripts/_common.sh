@@ -679,6 +679,18 @@ install_rust_toolchain() {
             CARGO_HOME="$root/cargo" \
             PATH="$root/cargo/bin:/usr/bin:/bin" \
         bash -c "rustup target add --toolchain 1.91 wasm32-wasip1"
+
+    # Pin 1.91 as the DEFAULT explicitly. The installer's --default-toolchain
+    # only sets it on a fresh install; if a bare `cargo build` in a provider dir
+    # (build_*_provider below run `cargo build` directly, not via cargo_as_app)
+    # resolves the toolchain off the rustup default and that default ever drifts
+    # to a system 1.89, the iroh-1.0-rc deps reject it ("rustc 1.89.0 is not
+    # supported by the following packages") and the whole build dies. Pin it hard.
+    ynh_exec_warn_less ynh_exec_as "$app" \
+        env RUSTUP_HOME="$root/rustup" \
+            CARGO_HOME="$root/cargo" \
+            PATH="$root/cargo/bin:/usr/bin:/bin" \
+        bash -c "rustup default 1.91"
 }
 
 # Run cargo with the toolchain env baked in.
@@ -688,6 +700,7 @@ cargo_as_app() {
     ynh_exec_as "$app" \
         env RUSTUP_HOME="$root/rustup" \
             CARGO_HOME="$root/cargo" \
+            RUSTUP_TOOLCHAIN=1.91 \
             PATH="$root/cargo/bin:/usr/local/bin:/usr/bin:/bin" \
             CARGO_TARGET_DIR="$install_dir/elastos/target" \
         cargo "$@"
