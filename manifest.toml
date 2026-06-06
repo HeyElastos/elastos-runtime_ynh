@@ -110,12 +110,9 @@ ram.runtime = "512M"
         "libssl-dev",
         "libclang-dev",
         "cmake",
-        "qemu-system-x86",
-        "qemu-utils",
-        # Hey-capsule pack ships React source for hey-social and
-        # hey-chat; fetch_hey_capsules + build_hey_app_capsules
-        # do `npm install && npm run build` at install time to produce
-        # the static bundles the publisher then archives.
-        "nodejs",
-        "npm",
+        # NOTE: no nodejs/npm — the Hey app capsules (hey-social, hey-chat)
+        # ship PREBUILT Trunk/WASM dist that is relocated at install time;
+        # there is ZERO package.json in the pack, so the old npm build branch
+        # never fires. No qemu either — crosvm is the VM backend the runtime
+        # uses; no qemu binary is ever invoked.
     ]

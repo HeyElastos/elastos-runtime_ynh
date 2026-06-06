@@ -54,10 +54,12 @@ PUBLIC_IP="$(curl -fsS --max-time 5 https://api.ipify.org 2>/dev/null || true)"
 log "Installing apt dependencies"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
+# No nodejs/npm (Hey app capsules ship PREBUILT Trunk/WASM dist, relocated at
+# install — zero package.json in the pack) and no qemu (crosvm is the VM backend).
 apt-get install -y --no-install-recommends \
     ca-certificates curl git python3 openssl jq \
     build-essential pkg-config libssl-dev libclang-dev cmake \
-    qemu-system-x86 qemu-utils nodejs npm nginx sudo util-linux
+    nginx sudo util-linux
 
 # Cold `cargo --release` of the workspace peaks ~4 GB. On a small droplet,
 # add a swapfile so the build doesn't get OOM-killed.

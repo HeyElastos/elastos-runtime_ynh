@@ -1,0 +1,46 @@
+# HEY-CAPSULE-PACK PATCH 0020 (REMOVABLE): bound ProviderBridge::send_raw with a
+# request timeout, matching the timeout the typed request()/request_raw() path
+# already has.
+#
+# send_raw is the generic provider-proxy path (content/* etc. forward custom ops
+# through it). Unlike request() — which wraps its inner send_json_line await in
+# tokio::time::timeout(REQUEST_TIMEOUT, ...) and maps elapsed to
+# BridgeError::Timeout (see bridge.rs request() ~244-248) — send_raw awaited
+# send_json_line with NO timeout. send_json_line takes the shared io Mutex for
+# the whole write+read, so a provider that stalls (e.g. a cold-bitswap fetch in
+# the content provider) blocks INSIDE the lock indefinitely: the caller hangs
+# (~90s, then surfaces as a downstream EAGAIN) AND every other ipfs op queued on
+# the same bridge is starved behind the held mutex. kubo itself is fast (an add
+# is ~49ms) — the stall is purely this unbounded IPC await.
+#
+# This wraps send_raw's send_json_line in the SAME tokio::time::timeout(
+# REQUEST_TIMEOUT, ...) request() uses, mapping elapsed to the EXISTING
+# BridgeError::Timeout variant (no new const, no new variant). A stuck provider
+# now returns a fast, retriable Timeout error and the io mutex is released after
+# at most REQUEST_TIMEOUT instead of being pinned for the life of the hang.
+#
+# KILL CONDITION: drop when upstream bounds provider request time on all bridge
+# paths (i.e. send_raw wraps its inner await in a timeout itself).
+--- a/elastos/crates/elastos-runtime/src/provider/bridge.rs
++++ b/elastos/crates/elastos-runtime/src/provider/bridge.rs
+@@ -255,10 +255,18 @@ impl ProviderBridge {
+
+     /// Send arbitrary JSON to the provider (bypasses typed ProviderRequest enum).
+     /// Used by the generic provider proxy to forward custom ops.
++    ///
++    /// HEY PATCH 0020: bounded by REQUEST_TIMEOUT, mirroring request(). Without
++    /// the timeout a stalled provider would hold the shared io mutex for the
++    /// whole unbounded send_json_line await, hanging this caller (~90s/EAGAIN)
++    /// and starving every other op queued on the bridge. Elapsed maps to the
++    /// same BridgeError::Timeout request() returns — fast and retriable.
+     pub async fn send_raw(
+         &self,
+         request: &serde_json::Value,
+     ) -> Result<serde_json::Value, BridgeError> {
+-        let line = self.send_json_line(request.clone()).await?;
++        let line = tokio::time::timeout(REQUEST_TIMEOUT, self.send_json_line(request.clone()))
++            .await
++            .map_err(|_| BridgeError::Timeout)??;
+         serde_json::from_str(line.trim()).map_err(BridgeError::Serde)
+     }
+

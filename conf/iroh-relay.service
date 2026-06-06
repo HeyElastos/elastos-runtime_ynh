@@ -1,5 +1,5 @@
 [Unit]
-Description=Hey iroh-relay 0.97.0 (federated n0-independent P2P relay for __APP__)
+Description=Hey iroh-relay 1.0.0-rc.1 (federated n0-independent P2P relay for __APP__)
 After=network-online.target
 Wants=network-online.target
 

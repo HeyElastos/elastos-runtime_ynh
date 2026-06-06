@@ -399,8 +399,10 @@ open_peer_firewall_port() {
 RELAY_HTTPS_PORT=8443
 RELAY_QUIC_PORT=7842
 # Relay that NAT'd installs home on (a public install's relay = the pool).
-# Override per-deploy with $HEY_RELAY_DEFAULT_URL.
-HEY_RELAY_DEFAULT_URL="${HEY_RELAY_DEFAULT_URL:-https://relay.heyelastos.com}"
+# Override per-deploy with $HEY_RELAY_DEFAULT_URL. The :8443 is load-bearing:
+# the host must serve iroh-relay HTTPS on :8443 (nginx owns :443, so a bare
+# https://relay.heyelastos.com would hit nginx, not iroh-relay).
+HEY_RELAY_DEFAULT_URL="${HEY_RELAY_DEFAULT_URL:-https://relay.heyelastos.com:8443}"
 
 # Federation relay list. EVERY node embeds this FULL list in its RelayMap
 # (carrier patch 0009 parses it). Purpose: ZERO-CONFIG + home-relay REDUNDANCY —
@@ -451,6 +453,9 @@ detect_public_ipv4() {
         case "$ip" in
             10.*|127.*|169.254.*|192.168.*) continue ;;
             172.1[6-9].*|172.2[0-9].*|172.3[01].*) continue ;;
+            # RFC6598 CGNAT (100.64.0.0/10): a carrier-NAT'd box is NOT public.
+            # HEY_FORCE_SELF_RELAY=1 still overrides (is_public_host checks it first).
+            100.6[4-9].*|100.[7-9][0-9].*|100.1[01][0-9].*|100.12[0-7].*) continue ;;
             *) echo "$ip"; return 0 ;;
         esac
     done

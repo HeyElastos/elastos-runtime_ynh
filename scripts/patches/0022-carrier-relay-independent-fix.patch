@@ -1,0 +1,123 @@
+# HEY-CAPSULE-PACK PATCH 0022 (REMOVABLE): relay-independent correctness fixes
+# (audit gaps #6 + #10) on top of PATCH 0017's auto-graduated relay-independent mode.
+#
+# #6 — auto-graduated hosts defeat the iroh-1.0 fix. PATCH 0017 computes a
+#   `relay_independent` bool in start_carrier_node (publicly-reachable host with a
+#   non-empty peer cache → RelayMode::Disabled, seeded direct bootstrap_peers). BUT
+#   join_gossip_topic re-derives its `force_direct` ONLY from the
+#   ELASTOS_RELAY_INDEPENDENT env var, which is UNSET on an AUTO-graduated host. So
+#   the 0015 boot-rejoin and 0016 global-mesh joins (both force_direct=false) fall
+#   into the DHT auto-discovery branch — the very branch PATCH 0017's own header says
+#   "cannot bootstrap on these hosts" — with the relay already DISABLED. The mesh then
+#   never forms after a restart on an auto-graduated box. Fix: thread the
+#   already-computed `relay_independent` bool through GossipState so EVERY topic join
+#   on such a host goes force-direct and uses the seeded bootstrap_peers instead.
+#
+# #10 — a cross-topic NeighborDown evicts a still-meshed peer (badge flicker). The
+#   global `peers` vec is shared across all topics; NeighborDown unconditionally
+#   retain-drops the peer from it even when the peer is still an active neighbor on
+#   OTHER topics. The presence badge flickers off/on. Fix: drop the peer from THIS
+#   topic's set first, then only retain-drop it from the global vec when it is in NO
+#   remaining topic set.
+#
+# This is a MINIMAL CORRECTNESS fix: the relay-independent feature and its
+# auto-graduation are PRESERVED unchanged.
+#
+# NOTE (recommended strategic follow-up): once cross-host FIRST-CONTACT is
+# live-verified on iroh 1.0, the cleaner fix for #6 is to STOP auto-graduating to
+# RelayMode::Disabled at all and instead keep RelayMode::Custom — iroh 1.0's fixed
+# relay->direct multipath upgrade hole-punches to the direct path on its own (proven
+# 431KB DIRECT / 0 ValidationFailed in the 1.0 upgrade), so the relay can stay for
+# discovery + first-contact while data still graduates to direct. That retires the
+# whole peer-cache/seeded-bootstrap machinery (PATCH 0017) AND this fix. Until that
+# is verified, keep the conservative both-paths approach below.
+#
+# KILL CONDITION: drop this patch when PATCH 0017 is dropped (iroh/pkarr publishes
+# direct addresses + the relay->direct upgrade is trusted, so auto-graduation to
+# RelayMode::Disabled is no longer needed) — at which point join_gossip_topic no
+# longer needs a relay_independent flag and NeighborDown's cross-topic bookkeeping
+# stands on its own.
+--- a/elastos/crates/elastos-server/src/carrier.rs
++++ b/elastos/crates/elastos-server/src/carrier.rs
+@@ -150,6 +150,12 @@ pub struct GossipState {
+     signing_key: Option<ed25519_dalek::SigningKey>,
+     joined_topics: std::collections::HashSet<String>,
+     bootstrap_peers: Vec<iroh::EndpointId>,
++    // HEY PATCH 0022 (#6): set true by start_carrier_node when this host has
++    // auto-graduated (or been forced) into PATCH 0017's relay-independent mode.
++    // join_gossip_topic ORs this into force_direct so boot joins (0015/0016) use
++    // the seeded bootstrap_peers instead of the DHT branch that cannot bootstrap
++    // once the relay is disabled.
++    relay_independent: bool,
+     senders: HashMap<String, distributed_topic_tracker::GossipSender>,
+     receiver_tasks: HashMap<String, tokio::task::JoinHandle<()>>,
+     buffers: Arc<Mutex<HashMap<String, TopicBuffer>>>,
+@@ -176,6 +181,7 @@ impl GossipState {
+             signing_key,
+             joined_topics: std::collections::HashSet::new(),
+             bootstrap_peers: Vec::new(),
++            relay_independent: false,
+             senders: HashMap::new(),
+             receiver_tasks: HashMap::new(),
+             buffers: Arc::new(Mutex::new(HashMap::new())),
+@@ -403,10 +409,15 @@ async fn join_gossip_topic(
+     topic_name: &str,
+     force_direct: bool,
+ ) -> Result<()> {
+-    // HEY PATCH 0017: in relay-independent mode there is no relay to auto-discover
+-    // through, so ALWAYS join in direct mode (bootstrap = the seeded/cached peers).
+-    let force_direct = force_direct
+-        || std::env::var("ELASTOS_RELAY_INDEPENDENT").ok().as_deref() == Some("1");
++    // HEY PATCH 0017 + 0022 (#6): in relay-independent mode there is no relay to
++    // auto-discover through, so ALWAYS join in direct mode (bootstrap = the
++    // seeded/cached peers). The env var only covers the FORCED case; state
++    // .relay_independent additionally covers the AUTO-graduated case (publicly
++    // reachable + non-empty peer cache), which the env-only check missed — so the
++    // 0015 boot-rejoin / 0016 global-mesh joins stop falling into the dead DHT branch.
++    let force_direct = force_direct
++        || state.relay_independent
++        || std::env::var("ELASTOS_RELAY_INDEPENDENT").ok().as_deref() == Some("1");
+     let bootstrap_peers = state.bootstrap_peers.clone();
+     if force_direct {
+         let topic = topic_hash(topic_name);
+@@ -967,6 +976,11 @@ pub async fn start_carrier_node(
+         Some(did.to_string()),
+         data_dir.clone(),
+     )));
++    // HEY PATCH 0022 (#6): record the relay-independent verdict computed above onto
++    // the gossip state so EVERY topic join (incl. the 0015 boot-rejoin and 0016
++    // global-mesh joins, which pass force_direct=false) goes force-direct on an
++    // auto-graduated host instead of the DHT branch that cannot bootstrap here.
++    gossip_state.lock().await.relay_independent = relay_independent;
+
+     let file_handler = FileHandler {
+         data_dir: data_dir.clone(),
+@@ -1742,13 +1759,22 @@ async fn handle_gossip_event(
+                 .or_default()
+                 .insert(peer_str);
+         }
+         iroh_gossip::api::Event::NeighborDown(peer) => {
+-            let mut p = peers.lock().await;
+-            p.retain(|x| x != &peer.to_string());
+-            drop(p);
+-            if let Some(topic_set) = topic_peers.lock().await.get_mut(topic) {
+-                topic_set.remove(&peer.to_string());
+-            }
++            // HEY PATCH 0022 (#10): the `peers` vec is shared across ALL topics, so a
++            // NeighborDown on ONE topic must not evict a peer still meshed on others
++            // (the presence badge flickered). Drop the peer from THIS topic's set
++            // first, then only retain-drop it from the global vec when it is in NO
++            // remaining topic set.
++            let peer_str = peer.to_string();
++            let mut tp = topic_peers.lock().await;
++            if let Some(topic_set) = tp.get_mut(topic) {
++                topic_set.remove(&peer_str);
++            }
++            let still_meshed = tp.values().any(|s| s.contains(&peer_str));
++            drop(tp);
++            if !still_meshed {
++                peers.lock().await.retain(|x| x != &peer_str);
++            }
+         }
+         _ => {}
+     }

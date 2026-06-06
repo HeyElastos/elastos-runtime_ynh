@@ -1,3 +1,5 @@
+# HEY-CAPSULE-PACK PATCH 0001 (REMOVABLE): bearer mint for third-party capsules.
+# KILL CONDITION: drop when upstream makes the gateway provider-proxy allowlist configurable.
 --- a/elastos/crates/elastos-server/src/api/gateway.rs
 +++ b/elastos/crates/elastos-server/src/api/gateway.rs
 @@ -518,6 +518,19 @@

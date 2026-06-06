@@ -1,3 +1,5 @@
+# HEY-CAPSULE-PACK PATCH 0002 (REMOVABLE): principal-scoped storage for third-party capsules.
+# KILL CONDITION: drop when upstream ships principal-scoped storage for third-party capsules.
 --- a/elastos/crates/elastos-server/src/api/gateway.rs
 +++ b/elastos/crates/elastos-server/src/api/gateway.rs
 @@ -57,6 +57,11 @@
