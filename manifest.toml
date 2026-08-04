@@ -7,7 +7,7 @@ name = "Elastos Runtime"
 description.en = "Signed capsules, explicit capabilities, and sovereign local execution"
 description.fr = "Capsules signées, capacités explicites, exécution locale souveraine"
 
-version = "0.6.0~ynh1"
+version = "0.6.0~ynh2"
 
 maintainers = ["HeyElastos"]
 
@@ -68,8 +68,8 @@ ram.runtime = "512M"
     # any Elastos Runtime. Install script extracts capsules/* from
     # this tarball into $install_dir/capsules/ alongside upstream's
     # stock capsules. Bump url + sha256 on every Hey-capsule release.
-    url = "https://github.com/HeyElastos/Hey-capsule/archive/8a5f66d9bc5d17b812739fe30ff38ea1f9f03d53.tar.gz"
-    sha256 = "9534d9b06d3d349c99fa00d03608c8f3269e910d1a3fb3cfd9e83fdb55aab00c"
+    url = "https://github.com/HeyElastos/Hey-capsule/archive/0a2f7fa6e41e12be1d91996396cce53a0188117d.tar.gz"
+    sha256 = "757330826dccaed43f21b65673869f7d2daedd285f72e0ee82f530a004806ade"
     autoupdate.strategy = "latest_github_commit"
     autoupdate.upstream = "https://github.com/HeyElastos/Hey-capsule"
 
