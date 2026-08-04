@@ -12,7 +12,7 @@
 # Kill condition: drop if upstream makes DHT discovery work behind NAT.
 --- a/elastos/crates/elastos-server/src/carrier.rs
 +++ b/elastos/crates/elastos-server/src/carrier.rs
-@@ -425,6 +425,11 @@
+@@ -510,6 +510,11 @@ async fn join_gossip_topic(
      // 0015 boot-rejoin / 0016 global-mesh joins stop falling into the dead DHT branch.
      let force_direct = force_direct
          || state.relay_independent
@@ -24,7 +24,7 @@
          || std::env::var("ELASTOS_RELAY_INDEPENDENT").ok().as_deref() == Some("1");
      let bootstrap_peers = state.bootstrap_peers.clone();
      if force_direct {
-@@ -1047,11 +1052,13 @@
+@@ -1160,11 +1165,13 @@ pub async fn start_carrier_node_with_registry(
          }
      }
  
@@ -43,7 +43,7 @@
          // Seed from the persisted cache (peers found during the earlier relay phase)
          // plus any ELASTOS_MESH_SEED override tickets, then connect DIRECTLY. These
          // become the gossip bootstrap so the mesh forms with ZERO relay.
-@@ -1079,8 +1086,9 @@
+@@ -1192,8 +1199,9 @@ pub async fn start_carrier_node_with_registry(
              add_ticket_endpoints(&ml, &mut state.bootstrap_peers, &deduped, true);
              connect_ticket_endpoints(&ep, &gs, peers, &deduped).await;
              info!(

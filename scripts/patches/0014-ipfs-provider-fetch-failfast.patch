@@ -1,6 +1,6 @@
 --- a/capsules/ipfs-provider/src/main.rs
 +++ b/capsules/ipfs-provider/src/main.rs
-@@ -21,6 +21,19 @@
+@@ -21,6 +21,19 @@ const LOCKFILE_POLL_TIMEOUT: Duration = Duration::from_secs(30);
  const HTTP_TIMEOUT: Duration = Duration::from_secs(30);
  const LARGE_HTTP_TIMEOUT: Duration = Duration::from_secs(300);
  
@@ -20,7 +20,7 @@
  const PROVIDER_VERSION: &str = match option_env!("ELASTOS_RELEASE_VERSION") {
      Some(version) => version,
      None => concat!(env!("CARGO_PKG_VERSION"), "-dev"),
-@@ -203,9 +216,9 @@
+@@ -213,9 +226,9 @@ impl IpfsProvider {
          }
      }
  
@@ -32,7 +32,7 @@
              Ok(resp) if resp.status() == 200 => {
                  update_coord_last_used(&self.data_dir);
                  Ok(())
-@@ -219,22 +232,38 @@
+@@ -229,22 +242,38 @@ impl IpfsProvider {
          let mut failures = Vec::new();
  
          if self.state == KuboState::Ready || self.ensure_kubo().is_ok() {

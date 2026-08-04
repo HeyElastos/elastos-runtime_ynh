@@ -2,10 +2,10 @@
 # KILL CONDITION: drop when upstream ships principal-scoped storage for third-party capsules.
 --- a/elastos/crates/elastos-server/src/api/gateway.rs
 +++ b/elastos/crates/elastos-server/src/api/gateway.rs
-@@ -57,6 +57,11 @@
- mod gateway_site;
- #[path = "gateway_wallet.rs"]
+@@ -80,6 +80,11 @@ mod gateway_transaction_effects;
  mod gateway_wallet;
+ #[path = "gateway_wallet_adapter.rs"]
+ mod gateway_wallet_adapter;
 +// HEY-CAPSULE-PACK PATCH 0002: third-party app capsule storage,
 +// principal-scoped. Pairs with viewer_gateway::viewer_storage_* but
 +// surfaces under /api/apps/:capsule/storage/*path for browser SPAs.
@@ -13,8 +13,8 @@
 +mod gateway_hey_capsule_storage;
  #[cfg(test)]
  use gateway_browser::browser_runtime_stream_socket_path;
- pub(crate) use gateway_home_runtime::is_wallet_connector_capsule_id;
-@@ -603,6 +608,17 @@
+ use gateway_capsule_catalog::*;
+@@ -1049,6 +1054,17 @@ fn gateway_router_with_api_url(state: GatewayState, gateway_api_url: String) ->
              get(super::viewer_gateway::viewer_storage_get)
                  .put(super::viewer_gateway::viewer_storage_put),
          )

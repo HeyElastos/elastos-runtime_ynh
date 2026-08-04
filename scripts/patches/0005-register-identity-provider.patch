@@ -1,8 +1,8 @@
 --- a/elastos/crates/elastos-server/src/server_infra.rs
 +++ b/elastos/crates/elastos-server/src/server_infra.rs
-@@ -172,6 +172,59 @@
-             }
-         }
+@@ -365,6 +365,59 @@ async fn setup_server_infrastructure_impl(
+             Arc::new(provider::CapsuleProvider::new(Arc::new(bridge)));
+         provider_registry.register(provider).await;
  
 +        // ── HEY-CAPSULE-PACK PATCH 0005 (REMOVABLE) ──────────────────────
 +        // Register the identity-projection-provider (a stdin/stdout bridge
@@ -57,6 +57,6 @@
 +        }
 +        // ── END HEY-CAPSULE-PACK PATCH 0005 ──────────────────────────────
 +
-         if let Some(path) = crate::find_installed_provider_binary("webspace-provider") {
-             if let Err(e) = verify_provider_binary("webspace-provider", &path) {
-                 tracing::warn!(
+         let mut llama_endpoint: Option<String> = None;
+         if let Some(path) = crate::find_installed_provider_binary("llama-provider") {
+             let mut llama_extra = serde_json::Map::new();

@@ -1,9 +1,6 @@
 --- a/elastos/crates/elastos-runtime/src/provider/registry.rs
 +++ b/elastos/crates/elastos-runtime/src/provider/registry.rs
-@@ -194,12 +194,28 @@
-     // to the reserved set (or replaces the hardcoded list with a capability-
-     // /manifest-driven scheme model). Pairs with patch 0003, whose gateway
-     // provider-proxy arm already authorizes hey-social/hey-messenger for the
+@@ -494,6 +494,22 @@ const RESERVED_SUB_NAMES: &[&str] = &[
      // `identity` scheme.
      "identity",
      // ── END HEY-CAPSULE-PACK PATCH 0004 ──────────────────────────────────
@@ -26,15 +23,9 @@
  ];
  
  /// Registry of providers
- pub struct ProviderRegistry {
-     /// Map of scheme -> provider
-     providers: RwLock<HashMap<String, Arc<dyn Provider>>>,
 --- a/elastos/crates/elastos-server/src/server_infra.rs
 +++ b/elastos/crates/elastos-server/src/server_infra.rs
-@@ -222,12 +222,69 @@
-                     }
-                 }
-             }
+@@ -418,6 +418,64 @@ async fn setup_server_infrastructure_impl(
          }
          // ── END HEY-CAPSULE-PACK PATCH 0005 ──────────────────────────────
  
@@ -95,9 +86,7 @@
 +            }
 +        }
 +        // ── END HEY-CAPSULE-PACK PATCH 0021 ──────────────────────────────
-         if let Some(path) = crate::find_installed_provider_binary("webspace-provider") {
-             if let Err(e) = verify_provider_binary("webspace-provider", &path) {
-                 tracing::warn!(
-                     "Skipping webspace-provider due to verification failure: {}",
-                     e
-                 );
++
+         let mut llama_endpoint: Option<String> = None;
+         if let Some(path) = crate::find_installed_provider_binary("llama-provider") {
+             let mut llama_extra = serde_json::Map::new();

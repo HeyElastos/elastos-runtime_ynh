@@ -1,30 +1,38 @@
 --- a/elastos/crates/elastos-server/Cargo.toml
 +++ b/elastos/crates/elastos-server/Cargo.toml
-@@ -77,7 +77,7 @@
+@@ -83,7 +83,8 @@ base64 = "0.22"
  ed25519-dalek = { version = "2.1", features = ["rand_core"] }
  # ed25519-dalek 3.x needed by distributed-topic-tracker for DHT record signing.
  # Cargo resolves both versions; we convert between them via raw key bytes.
 -ed25519-dalek3 = { package = "ed25519-dalek", version = "=3.0.0-pre.1" }
-+ed25519-dalek3 = { package = "ed25519-dalek", version = "=3.0.0-pre.7" }
++# Pinned to what iroh 1.0.2 resolves — see the iroh note below before changing.
++ed25519-dalek3 = { package = "ed25519-dalek", version = "=3.0.0-rc.0" }
  
  # Directory helpers
  dirs = "5.0"
-@@ -94,9 +94,9 @@
+@@ -101,9 +102,16 @@ zip = { version = "2.4.2", default-features = false, features = ["deflate-flate2
  libc = "0.2"
  
  # Built-in Carrier transport (P2P for updates, gossip messaging, DHT discovery)
 -iroh = { version = "0.97", features = ["address-lookup-mdns"] }
 -iroh-gossip = "0.97"
 -distributed-topic-tracker = "0.3.0"
-+iroh = { version = "1.0.0-rc.1" }
-+iroh-gossip = "0.100"
-+distributed-topic-tracker = "0.3.4"
++# EXACT pin, not "1": a caret req floats to whatever 1.x is newest on the day an
++# operator installs, so two installs a week apart would run different carriers.
++# 1.0.2 is also the version the Hey engine (hey-engine/vendor/iroh) vendors, so
++# the runtime carrier and the Hey capsules stay on one iroh generation.
++# Bumping this requires bumping ed25519-dalek3 in lockstep — iroh 1.0.2 resolves
++# ed25519-dalek =3.0.0-rc.0 while 1.0.3 wants 3.0.0, and mixing them fails to
++# resolve at all.
++iroh = { version = "=1.0.2", features = ["unstable-net-report"] }
++iroh-gossip = "0.101"
++distributed-topic-tracker = "0.3.5"
  futures-lite = "2.6"
  getrandom = "0.2"
  tokio-util = "0.7"  # CancellationToken for dtt 0.3 GossipReceiver
 --- a/elastos/crates/elastos-server/src/carrier.rs
 +++ b/elastos/crates/elastos-server/src/carrier.rs
-@@ -850,10 +850,7 @@
+@@ -961,10 +961,7 @@ pub async fn start_carrier_node_with_registry(
                  }
                  s.parse::<url::Url>().ok()
              })
@@ -36,20 +44,24 @@
              .collect();
          if !configs.is_empty() {
              let count = configs.len();
-@@ -892,12 +889,10 @@
+@@ -1003,13 +1000,14 @@ pub async fn start_carrier_node_with_registry(
              .context("Failed to bind Carrier endpoint")?,
      };
  
--    // Add mDNS for LAN discovery (supplements the default pkarr/DNS)
--    if let Ok(mdns) = iroh::address_lookup::MdnsAddressLookup::builder().build(endpoint.id()) {
--        if let Ok(al) = endpoint.address_lookup() {
--            al.add(mdns);
--        }
--    }
+-    // Add mDNS for LAN discovery (supplements the default pkarr/DNS).
 +    // iroh 1.0 moved mDNS address-lookup out of the core crate. LAN discovery
 +    // (same-wifi direct, no relay) can be re-added via the `swarm-discovery` crate.
 +    // Not load-bearing — relay/DHT discovery still works. TODO(0018): re-add LAN mDNS
-+    // for the mobile same-network case.
- 
-     // Add MemoryLookup for explicit peer addresses (--connect tickets)
-     let memory_lookup = MemoryLookup::new();
++    // for the mobile same-network case. Upstream 0.6's ELASTOS_CARRIER_MDNS toggle is
++    // still honoured for the log line, so operators aren't told mDNS is on when the
++    // iroh 1.0 build has no mDNS at all.
+     if carrier_mdns_enabled() {
+-        if let Ok(mdns) = iroh::address_lookup::MdnsAddressLookup::builder().build(endpoint.id()) {
+-            if let Ok(al) = endpoint.address_lookup() {
+-                al.add(mdns);
+-            }
+-        }
++        info!("carrier: mDNS discovery unavailable on iroh 1.0 (moved out of iroh core)");
+     } else {
+         info!("carrier: mDNS discovery disabled by ELASTOS_CARRIER_MDNS");
+     }

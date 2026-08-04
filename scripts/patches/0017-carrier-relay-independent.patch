@@ -1,6 +1,6 @@
 --- a/elastos/crates/elastos-server/src/carrier.rs
 +++ b/elastos/crates/elastos-server/src/carrier.rs
-@@ -403,6 +403,10 @@
+@@ -495,6 +495,10 @@ async fn join_gossip_topic(
      topic_name: &str,
      force_direct: bool,
  ) -> Result<()> {
@@ -11,7 +11,7 @@
      let bootstrap_peers = state.bootstrap_peers.clone();
      if force_direct {
          let topic = topic_hash(topic_name);
-@@ -497,6 +501,265 @@
+@@ -599,6 +603,265 @@ async fn join_gossip_topic(
      Ok(())
  }
  
@@ -277,7 +277,7 @@
  pub fn source_carrier_addrs(source: &TrustedSource) -> Vec<String> {
      let mut addrs = Vec::new();
  
-@@ -542,7 +805,29 @@
+@@ -653,7 +916,29 @@ pub async fn start_carrier_node_with_registry(
      // Build endpoint. Uses iroh default relays unless ELASTOS_RELAY_URL is set.
      // Don't override address_lookup — the default includes pkarr for DHT discovery.
      let mut builder = Endpoint::builder(iroh::endpoint::presets::N0).secret_key(secret_key.clone());
@@ -308,7 +308,7 @@
          // HEY-CAPSULE-PACK PATCH 0009 (REMOVABLE): accept a COMMA/whitespace-
          // separated LIST of relay URLs and build a MULTI-entry RelayMap (upstream
          // reads exactly one). This lets the YNH installer bake in every known
-@@ -678,6 +963,44 @@
+@@ -795,6 +1080,44 @@ pub async fn start_carrier_node_with_registry(
          }
      }
  
@@ -352,8 +352,8 @@
 +
      if is_trusted_source_runtime(&data_dir) {
          let mut state = gossip_state.lock().await;
-         match join_gossip_topic(&mut state, CHAT_DISCOVERY_TOPIC_GENERAL, true).await {
-@@ -730,6 +1053,23 @@
+         for topic in [CHAT_DISCOVERY_TOPIC_GENERAL, CHAT_ROOM_SYNC_TOPIC] {
+@@ -846,6 +1169,23 @@ pub async fn start_carrier_node_with_registry(
          }
      }
  

@@ -5,19 +5,19 @@
 #  handlers only fire while shellState.selectedDesktopTargetId is set). The close
 #  button additionally stops click propagation (belt-and-suspenders).
 # Kill condition: drop if upstream Home clears desktop selection on launch itself.
---- a/capsules/home/browser/shell-windows.js
-+++ b/capsules/home/browser/shell-windows.js
-@@ -29,6 +29,9 @@
+--- a/capsules/home-gui/browser/shell-windows.js
++++ b/capsules/home-gui/browser/shell-windows.js
+@@ -30,6 +30,9 @@ import {
    attachWindowDrag,
    attachWindowResize,
- } from "./shell-window-geometry.js?v=home-20260526d";
+ } from "./shell-window-geometry.js?v=home-20260725a";
 +import {
 +  clearDesktopSelection,
-+} from "./shell-surface.js?v=home-20260526d";
++} from "./shell-surface.js?v=home-20260725a";
  
  let windowHooks = null;
  const REQUIRED_WINDOW_HOOKS = [
-@@ -539,6 +542,15 @@
+@@ -909,6 +912,15 @@ function createWindow({
      if (shouldIgnoreWindowControl(node, "close", event)) {
        return;
      }
@@ -33,7 +33,7 @@
      clearWindowCloseGuard(node);
      closeWindow(id);
    });
-@@ -596,6 +608,12 @@
+@@ -966,6 +978,12 @@ function launchActionKey(targetId, query) {
  }
  
  export function openTarget(targetId, options = {}) {

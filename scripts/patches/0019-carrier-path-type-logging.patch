@@ -2,7 +2,7 @@
 # KILL CONDITION: drop when upstream exposes a per-peer path-type/transport-badge API.
 --- a/elastos/crates/elastos-server/src/carrier.rs
 +++ b/elastos/crates/elastos-server/src/carrier.rs
-@@ -602,6 +602,71 @@
+@@ -704,6 +704,71 @@ fn cache_peer(data_dir: &std::path::Path, addr: &iroh::EndpointAddr) {
      }
  }
  
@@ -74,7 +74,7 @@
  async fn direct_addr_announce_loop(
      endpoint: Endpoint,
      gossip: Gossip,
-@@ -1065,6 +1130,13 @@
+@@ -1184,6 +1249,13 @@ pub async fn start_carrier_node_with_registry(
          ));
      }
  
@@ -88,7 +88,7 @@
      Ok(CarrierNode {
          endpoint,
          gossip,
-@@ -1544,6 +1616,25 @@
+@@ -5728,6 +5800,25 @@ impl Provider for CarrierGossipProvider {
                  Ok(serde_json::json!({"status":"ok","data":{"peers": peers}}))
              }
  

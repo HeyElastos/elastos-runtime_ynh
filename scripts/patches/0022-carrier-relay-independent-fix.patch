@@ -39,7 +39,7 @@
 # stands on its own.
 --- a/elastos/crates/elastos-server/src/carrier.rs
 +++ b/elastos/crates/elastos-server/src/carrier.rs
-@@ -150,6 +150,12 @@ pub struct GossipState {
+@@ -225,6 +225,12 @@ pub struct GossipState {
      signing_key: Option<ed25519_dalek::SigningKey>,
      joined_topics: std::collections::HashSet<String>,
      bootstrap_peers: Vec<iroh::EndpointId>,
@@ -52,7 +52,7 @@
      senders: HashMap<String, distributed_topic_tracker::GossipSender>,
      receiver_tasks: HashMap<String, tokio::task::JoinHandle<()>>,
      buffers: Arc<Mutex<HashMap<String, TopicBuffer>>>,
-@@ -176,6 +181,7 @@ impl GossipState {
+@@ -251,6 +257,7 @@ impl GossipState {
              signing_key,
              joined_topics: std::collections::HashSet::new(),
              bootstrap_peers: Vec::new(),
@@ -60,27 +60,24 @@
              senders: HashMap::new(),
              receiver_tasks: HashMap::new(),
              buffers: Arc::new(Mutex::new(HashMap::new())),
-@@ -403,10 +409,15 @@ async fn join_gossip_topic(
+@@ -495,9 +502,14 @@ async fn join_gossip_topic(
      topic_name: &str,
      force_direct: bool,
  ) -> Result<()> {
 -    // HEY PATCH 0017: in relay-independent mode there is no relay to auto-discover
 -    // through, so ALWAYS join in direct mode (bootstrap = the seeded/cached peers).
--    let force_direct = force_direct
--        || std::env::var("ELASTOS_RELAY_INDEPENDENT").ok().as_deref() == Some("1");
 +    // HEY PATCH 0017 + 0022 (#6): in relay-independent mode there is no relay to
 +    // auto-discover through, so ALWAYS join in direct mode (bootstrap = the
 +    // seeded/cached peers). The env var only covers the FORCED case; state
 +    // .relay_independent additionally covers the AUTO-graduated case (publicly
 +    // reachable + non-empty peer cache), which the env-only check missed — so the
 +    // 0015 boot-rejoin / 0016 global-mesh joins stop falling into the dead DHT branch.
-+    let force_direct = force_direct
+     let force_direct = force_direct
 +        || state.relay_independent
-+        || std::env::var("ELASTOS_RELAY_INDEPENDENT").ok().as_deref() == Some("1");
+         || std::env::var("ELASTOS_RELAY_INDEPENDENT").ok().as_deref() == Some("1");
      let bootstrap_peers = state.bootstrap_peers.clone();
      if force_direct {
-         let topic = topic_hash(topic_name);
-@@ -967,6 +976,11 @@ pub async fn start_carrier_node(
+@@ -1093,6 +1105,11 @@ pub async fn start_carrier_node_with_registry(
          Some(did.to_string()),
          data_dir.clone(),
      )));
@@ -89,11 +86,10 @@
 +    // global-mesh joins, which pass force_direct=false) goes force-direct on an
 +    // auto-graduated host instead of the DHT branch that cannot bootstrap here.
 +    gossip_state.lock().await.relay_independent = relay_independent;
-
+ 
      let file_handler = FileHandler {
          data_dir: data_dir.clone(),
-@@ -1742,13 +1759,22 @@ async fn handle_gossip_event(
-                 .or_default()
+@@ -5933,11 +5950,20 @@ async fn handle_gossip_event(
                  .insert(peer_str);
          }
          iroh_gossip::api::Event::NeighborDown(peer) => {
@@ -102,7 +98,6 @@
 -            drop(p);
 -            if let Some(topic_set) = topic_peers.lock().await.get_mut(topic) {
 -                topic_set.remove(&peer.to_string());
--            }
 +            // HEY PATCH 0022 (#10): the `peers` vec is shared across ALL topics, so a
 +            // NeighborDown on ONE topic must not evict a peer still meshed on others
 +            // (the presence badge flickered). Drop the peer from THIS topic's set
@@ -117,7 +112,6 @@
 +            drop(tp);
 +            if !still_meshed {
 +                peers.lock().await.retain(|x| x != &peer_str);
-+            }
+             }
          }
          _ => {}
-     }

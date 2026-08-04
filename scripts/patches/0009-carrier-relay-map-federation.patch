@@ -1,6 +1,7 @@
 --- a/elastos/crates/elastos-server/src/carrier.rs
 +++ b/elastos/crates/elastos-server/src/carrier.rs
-@@ -488,13 +488,37 @@
+@@ -611,15 +611,39 @@ pub async fn start_carrier_node_with_registry(
+     // Build endpoint. Uses iroh default relays unless ELASTOS_RELAY_URL is set.
      // Don't override address_lookup — the default includes pkarr for DHT discovery.
      let mut builder = Endpoint::builder().secret_key(secret_key.clone());
 -    if let Ok(relay_url) = std::env::var("ELASTOS_RELAY_URL") {
@@ -45,3 +46,4 @@
 +            info!("carrier: using {} custom relay(s): {}", count, relay_env);
          }
      }
+     // HEY-CAPSULE-PACK PATCH 0007 (REMOVABLE) — bind IPv4 on :4433, and ALSO

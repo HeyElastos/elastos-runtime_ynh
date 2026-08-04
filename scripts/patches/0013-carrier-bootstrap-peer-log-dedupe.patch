@@ -7,7 +7,7 @@
 # Kill condition: drop if upstream dedups this log itself.
 --- a/elastos/crates/elastos-server/src/carrier.rs
 +++ b/elastos/crates/elastos-server/src/carrier.rs
-@@ -224,20 +224,27 @@
+@@ -298,20 +298,27 @@ fn add_ticket_endpoints(
          let endpoint_id = addr.id;
          let peer_id = endpoint_id.to_string();
          memory_lookup.add_endpoint_info(addr.clone());
@@ -27,7 +27,7 @@
 -                &peer_id[..12]
 -            );
 -        } else {
--            info!(
+-            debug!(
 -                "carrier: remembered peer {} for DHT rendezvous",
 -                &peer_id[..12]
 -            );
@@ -38,7 +38,7 @@
 +                    &peer_id[..12]
 +                );
 +            } else {
-+                info!(
++                debug!(
 +                    "carrier: remembered peer {} for DHT rendezvous",
 +                    &peer_id[..12]
 +                );

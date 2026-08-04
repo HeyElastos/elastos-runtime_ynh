@@ -23,8 +23,8 @@
 # paths (i.e. send_raw wraps its inner await in a timeout itself).
 --- a/elastos/crates/elastos-runtime/src/provider/bridge.rs
 +++ b/elastos/crates/elastos-runtime/src/provider/bridge.rs
-@@ -255,10 +255,18 @@ impl ProviderBridge {
-
+@@ -255,11 +255,19 @@ impl ProviderBridge {
+ 
      /// Send arbitrary JSON to the provider (bypasses typed ProviderRequest enum).
      /// Used by the generic provider proxy to forward custom ops.
 +    ///
@@ -43,4 +43,4 @@
 +            .map_err(|_| BridgeError::Timeout)??;
          serde_json::from_str(line.trim()).map_err(BridgeError::Serde)
      }
-
+ 

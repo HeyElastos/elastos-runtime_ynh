@@ -2,10 +2,10 @@
 # KILL CONDITION: drop when upstream makes the gateway provider-proxy allowlist configurable.
 --- a/elastos/crates/elastos-server/src/api/gateway.rs
 +++ b/elastos/crates/elastos-server/src/api/gateway.rs
-@@ -518,6 +518,19 @@
-         )
-         .route("/api/apps/home/runtime/ensure", post(home_runtime_ensure))
-         .route("/api/apps/home/launch", post(home_launch))
+@@ -907,6 +907,19 @@ fn gateway_router_with_api_url(state: GatewayState, gateway_api_url: String) ->
+         .route("/api/apps/marketplace/catalog", get(marketplace_catalog))
+         .route("/api/apps/services/summary", get(services_summary))
+         .route("/api/apps/services/offers", post(services_offer_update))
 +        // HEY-CAPSULE-PACK PATCH: bearer mint for third-party capsules.
 +        // Trades a valid x-elastos-home-token header (the launch envelope
 +        // home_launch puts in the iframe URL) for a real session bearer
@@ -21,11 +21,12 @@
 +        )
          .route("/api/apps/inbox/summary", get(inbox_summary))
          .route("/api/apps/inbox/actions", post(inbox_action))
-         .route("/api/apps/chat-room/summary", get(chat_room_summary))
-@@ -868,6 +881,90 @@
+         .route("/api/apps/people/summary", get(people_summary))
+@@ -1359,6 +1372,92 @@ fn home_error_response(err: anyhow::Error) -> Response {
+     (status, text).into_response()
  }
  
- // ---------------------------------------------------------------------------
++// ---------------------------------------------------------------------------
 +// HEY-CAPSULE-PACK PATCH — capsule_runtime_token endpoint
 +// ---------------------------------------------------------------------------
 +
@@ -64,7 +65,9 @@
 +
 +    // Validate the launch envelope binds to the URL-named capsule.
 +    let capsule_ref: &str = capsule.as_str();
-+    if let Err(err) = require_home_launch_token_for_any(&state.data_dir, &headers, &[capsule_ref]) {
++    if let Err(err) =
++        require_home_launch_token_for_any_context(&state.data_dir, &headers, &[capsule_ref])
++    {
 +        return Err((
 +            StatusCode::FORBIDDEN,
 +            Json(serde_json::json!({ "error": err.to_string() })),
@@ -109,7 +112,6 @@
 +    Ok(Json(HeyCapsuleRuntimeTokenResponse { token }))
 +}
 +
-+// ---------------------------------------------------------------------------
+ // ---------------------------------------------------------------------------
  // Tests
  // ---------------------------------------------------------------------------
- 

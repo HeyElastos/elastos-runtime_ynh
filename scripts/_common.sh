@@ -268,33 +268,53 @@ build_hey_app_capsules() {
 # portable: they install on any Elastos Runtime without the theme.
 # The theme is purely a visual decision of THIS YunoHost package.
 # Anyone forking the package can ship a different overlay file.
+#
+# Target (upstream 0.6): capsules/home-gui/browser/style.css. 0.3 kept the
+# whole shell in the `home` capsule; 0.6 split the desktop out into `home-gui`
+# and the .window / .window-head selectors this overlay styles moved with it.
+# home/browser/style.css no longer defines them at all, so appending there
+# would be a silent no-op. Both paths are tried so the overlay keeps working
+# if upstream moves them again.
 apply_hey_theme_overlay() {
     local data_root="$1"
-    local target_style="$data_root/capsules/home/browser/style.css"
     local overlay="$install_dir/conf/home-overlay.css"
+    local marker="/* === HEY_THEME_OVERLAY_BEGIN === */"
+    local applied=0
+    local target_style
 
-    if [ ! -f "$target_style" ]; then
-        ynh_print_warn --message="hey-theme: $target_style missing — skipping overlay."
-        return 0
-    fi
     if [ ! -f "$overlay" ]; then
         ynh_print_warn --message="hey-theme: $overlay missing — skipping overlay."
         return 0
     fi
 
-    # Idempotent: strip any prior overlay first, then append. The
-    # marker comment makes the boundary deterministic so re-running
-    # this on an upgrade replaces the previous overlay cleanly
-    # instead of stacking copies.
-    local marker="/* === HEY_THEME_OVERLAY_BEGIN === */"
-    if grep -qF "$marker" "$target_style"; then
-        sed -i "/$(echo "$marker" | sed 's/[][\.*^$(){}?+|/]/\\&/g')/,\$d" "$target_style"
+    for target_style in \
+        "$data_root/capsules/home-gui/browser/style.css" \
+        "$data_root/capsules/home/browser/style.css"
+    do
+        [ -f "$target_style" ] || continue
+        # Only style a sheet that actually defines the window chrome we
+        # override — appending to the wrong one looks applied but renders
+        # nothing.
+        grep -q "window-head" "$target_style" || continue
+
+        # Idempotent: strip any prior overlay first, then append. The
+        # marker comment makes the boundary deterministic so re-running
+        # this on an upgrade replaces the previous overlay cleanly
+        # instead of stacking copies.
+        if grep -qF "$marker" "$target_style"; then
+            sed -i "/$(echo "$marker" | sed 's/[][\.*^$(){}?+|/]/\\&/g')/,\$d" "$target_style"
+        fi
+        {
+            printf '\n%s\n' "$marker"
+            cat "$overlay"
+            printf '%s\n' "/* === HEY_THEME_OVERLAY_END === */"
+        } >> "$target_style"
+        applied=1
+    done
+
+    if [ "$applied" -eq 0 ]; then
+        ynh_print_warn --message="hey-theme: no home style.css defining .window-head found under $data_root — skipping overlay."
     fi
-    {
-        printf '\n%s\n' "$marker"
-        cat "$overlay"
-        printf '%s\n' "/* === HEY_THEME_OVERLAY_END === */"
-    } >> "$target_style"
 }
 
 # Generate (idempotently) a 32-byte AES-256 key for the localhost-provider's
@@ -844,15 +864,12 @@ build_runtime_and_capsules() {
         "$install_dir/elastos/target/wasm32-wasip1/release/home-cli.wasm" \
         "$install_dir/capsules/home-cli/home-cli.wasm"
 
-    # home, system: home-profile browser capsules. home's browser/ tree
-    # carries the Hey-themed shell (frosted launcher, taskbar, welcome).
-    # chat-room: only added so `elastos room open` (the /apps/<X>/ gateway)
-    # can start — otherwise serve refuses with "Room browser capsule is not
-    # installed". chat-room is the minimum extra beyond home profile.
-    for crate in home system chat-room; do
-        cargo_as_app build --release --target wasm32-wasip1 \
-            --manifest-path "$install_dir/capsules/$crate/Cargo.toml"
-    done
+    # NOTE (upstream 0.6): home / home-gui / system / chat-room are no longer
+    # Rust crates. They ship as pure web-projection capsules — capsule.json +
+    # browser/, entrypoint "browser/index.html", no Cargo.toml and no
+    # <name>.wasm. There is nothing left to cargo-build for them; scripts/install
+    # tars their browser/ tree directly. home-cli above is still a real wasm
+    # crate, which is why it keeps its build step.
 }
 
 # ────────────────────────────────────────────────────────────────────

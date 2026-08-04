@@ -70,7 +70,7 @@ ensure_localhost_encryption_key
 # Re-run the same explicit component list the install used; idempotent
 # on already-installed pieces. Keep this synced with scripts/install's
 # ELASTOS_COMPONENTS list.
-UPGRADE_COMPONENTS="shell,localhost-provider,did-provider,webspace-provider,ipfs-provider,blobs-provider,identity-projection-provider,peer-provider,kubo,home,system,chat-room,inbox,library,documents,hey-social,hey-chat"
+UPGRADE_COMPONENTS="shell,localhost-provider,did-provider,webspace-provider,ipfs-provider,blobs-provider,identity-projection-provider,peer-provider,kubo,home,home-gui,system,chat-room,inbox,library,documents,hey-social,hey-chat"
 ynh_script_progression --message="Ensuring components ($UPGRADE_COMPONENTS) are installed..." --weight=2
 sudo -u "$app" \
     HOME="$(elastos_home)" \

@@ -1,6 +1,6 @@
 --- a/elastos/crates/elastos-server/src/carrier.rs
 +++ b/elastos/crates/elastos-server/src/carrier.rs
-@@ -152,6 +152,7 @@
+@@ -226,6 +226,7 @@ pub struct GossipState {
      peers: Arc<Mutex<Vec<String>>>,
      topic_peers: Arc<Mutex<HashMap<String, HashSet<String>>>>,
      did: Option<String>,
@@ -8,7 +8,7 @@
  }
  
  impl GossipState {
-@@ -161,6 +162,7 @@
+@@ -235,6 +236,7 @@ impl GossipState {
          memory_lookup: MemoryLookup,
          signing_key: Option<ed25519_dalek::SigningKey>,
          did: Option<String>,
@@ -16,7 +16,7 @@
      ) -> Self {
          Self {
              endpoint,
-@@ -176,6 +178,7 @@
+@@ -250,6 +252,7 @@ impl GossipState {
              peers: Arc::new(Mutex::new(Vec::new())),
              topic_peers: Arc::new(Mutex::new(HashMap::new())),
              did,
@@ -24,7 +24,7 @@
          }
      }
  }
-@@ -349,6 +352,29 @@
+@@ -441,6 +444,29 @@ fn is_trusted_source_runtime(data_dir: &std::path::Path) -> bool {
          || publisher_artifacts_path(data_dir).exists()
  }
  
@@ -54,7 +54,7 @@
  fn register_topic_state(
      state: &mut GossipState,
      topic_name: &str,
-@@ -363,6 +389,7 @@
+@@ -455,6 +481,7 @@ fn register_topic_state(
      {
          existing.abort();
      }
@@ -62,7 +62,7 @@
  }
  
  async fn join_gossip_topic(
-@@ -595,6 +622,7 @@
+@@ -710,6 +737,7 @@ pub async fn start_carrier_node_with_registry(
          memory_lookup.clone(),
          Some(signing_key.clone()),
          Some(did.to_string()),
@@ -70,11 +70,10 @@
      )));
  
      let file_handler = FileHandler {
-@@ -662,6 +690,26 @@
-             }
+@@ -779,6 +807,26 @@ pub async fn start_carrier_node_with_registry(
          }
      }
-+
+ 
 +    // ── HEY PATCH 0015: autonomous boot-join — rejoin previously-joined topics
 +    // via DHT auto-discovery so the mesh re-forms after a restart with no app open.
 +    {
@@ -94,6 +93,7 @@
 +            }
 +        }
 +    }
- 
++
      Ok(CarrierNode {
          endpoint,
+         gossip,

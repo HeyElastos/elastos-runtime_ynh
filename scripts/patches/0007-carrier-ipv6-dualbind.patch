@@ -1,6 +1,7 @@
 --- a/elastos/crates/elastos-server/src/carrier.rs
 +++ b/elastos/crates/elastos-server/src/carrier.rs
-@@ -499,7 +499,18 @@
+@@ -604,9 +604,20 @@ pub async fn start_carrier_node_with_registry(
+             info!("carrier: using custom relay {}", relay_url);
          }
      }
 -    let endpoint = match builder
@@ -22,3 +23,4 @@
 +    let endpoint = match bound.map_err(|e| anyhow::anyhow!("{}", e))
      {
          Ok(builder) => match builder.bind().await {
+             Ok(ep) => ep,
