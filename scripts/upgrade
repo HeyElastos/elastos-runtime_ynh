@@ -71,11 +71,19 @@ ensure_localhost_encryption_key
 # on already-installed pieces. Keep this synced with scripts/install's
 # ELASTOS_COMPONENTS list.
 UPGRADE_COMPONENTS="shell,localhost-provider,did-provider,webspace-provider,ipfs-provider,blobs-provider,identity-projection-provider,peer-provider,kubo,home,home-gui,system,chat-room,inbox,library,documents,hey-social,hey-chat"
+# ELASTOS_COMPONENTS_MANIFEST pins which components.json `elastos setup` reads;
+# see the long note in scripts/install. Short version: we run
+# $install_dir/elastos/target/debug/elastos, which 0.6's load_manifest() treats
+# as a source checkout and resolves to $install_dir/components.json — the raw
+# upstream+additions merge, whose every "checksum" is "". 0.6 made that fatal
+# ("component 'shell' release artifact is missing checksum"). The stamped
+# manifest is the one in the client's XDG dir, written at install time.
 ynh_script_progression --message="Ensuring components ($UPGRADE_COMPONENTS) are installed..." --weight=2
 sudo -u "$app" \
     HOME="$(elastos_home)" \
     XDG_DATA_HOME="$(elastos_home)/xdg-data" \
     XDG_CONFIG_HOME="$(elastos_home)/.config" \
+    ELASTOS_COMPONENTS_MANIFEST="$(elastos_home)/xdg-data/elastos/components.json" \
     "$install_dir/elastos/target/debug/elastos" setup --with "$UPGRADE_COMPONENTS" \
     || ynh_print_warn --message="elastos setup --with $UPGRADE_COMPONENTS failed (continuing — installed directly below)."
 
@@ -119,6 +127,10 @@ done
 # capsule's own directory.
 ynh_script_progression --message="Refreshing data_dir capsule files from install_dir..." --weight=2
 CAPSULES_DATA_DIR="$(elastos_home)/xdg-data/elastos/capsules"
+# Capsules that are pure static assets — the ones the install stages and the
+# runtime serves straight from $data_dir. Kept in sync with the capsule members
+# of ELASTOS_COMPONENTS in scripts/install.
+STATIC_CAPSULES="home home-gui system chat-room inbox library documents hey-social hey-chat"
 if [ -d "$install_dir/capsules" ] && [ -d "$CAPSULES_DATA_DIR" ]; then
     for capsule_src in "$install_dir/capsules"/*/; do
         [ -d "$capsule_src" ] || continue
@@ -126,7 +138,23 @@ if [ -d "$install_dir/capsules" ] && [ -d "$CAPSULES_DATA_DIR" ]; then
         capsule_dst="$CAPSULES_DATA_DIR/$capsule_name"
         if [ -d "$capsule_dst" ]; then
             cp -rf "$capsule_src". "$capsule_dst/"
+            continue
         fi
+        # NEW capsule this box has never had. The old code only refreshed dirs
+        # that already existed, so a capsule introduced by an upstream bump was
+        # silently skipped on every upgrade and only ever appeared on a fresh
+        # install. That bites hard on 0.6: it split `home` into `home` (sign in
+        # and pick a view) and `home-gui` (the actual desktop), so an upgraded
+        # box would refresh `home` into the chooser and never receive the
+        # desktop it points at. Only whitelisted static-asset capsules are
+        # created — provider source dirs and capsules/vendor/ must NOT be
+        # copied into the runtime's capsule tree.
+        case " $STATIC_CAPSULES " in
+            *" $capsule_name "*)
+                cp -rf "$capsule_src" "$capsule_dst"
+                echo "  added new capsule: $capsule_name"
+                ;;
+        esac
     done
     chown -R "$app:$app" "$CAPSULES_DATA_DIR"
 fi
