@@ -1,6 +1,6 @@
 --- a/elastos/crates/elastos-server/src/api/gateway_provider_proxy.rs
 +++ b/elastos/crates/elastos-server/src/api/gateway_provider_proxy.rs
-@@ -1425,7 +1425,24 @@ pub(super) async fn gateway_provider_proxy(
+@@ -1472,7 +1472,24 @@ pub(super) async fn gateway_provider_proxy(
              .into_response();
      }
      request["op"] = serde_json::Value::String(op.clone());

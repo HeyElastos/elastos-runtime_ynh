@@ -1,0 +1,76 @@
+# HEY-CAPSULE-PACK PATCH 0025 (REMOVABLE): make `cargo test` compile again.
+#
+# Patches 0010/0018 (iroh 0.96 -> 1.0.2) and 0023 (GossipState::new gained a
+# data_dir arg) updated every PRODUCTION call site and missed the two in-file
+# #[cfg(test)] ones. The install only ever runs `cargo build`, so nothing caught
+# it: `cargo test -p elastos-server` has not compiled since the iroh upgrade,
+# which means the upstream suite could not validate any of our patches.
+#
+# Three mechanical fixes, mirroring the production shapes exactly:
+#   Endpoint::builder()          -> Endpoint::builder(iroh::endpoint::presets::N0)
+#   endpoint.address_lookup().add(..) -> if let Ok(al) = .. { al.add(..) }
+#   GossipState::new(5 args)     -> + the data_dir arg
+#
+# After this, 50 of the 51 carrier tests pass. The one failure,
+# test_remote_carrier_browser_exit_stream_relays_bytes_between_runtimes, is a
+# two-runtime QUIC relay test that fails with "endpoint driver future was
+# dropped"; it is NOT touched by this patch and is either an iroh 1.0
+# behavioural change or an artifact of a sandbox with no real networking.
+# Unresolved on purpose rather than silently ignored.
+#
+# KILL CONDITION: drop when the iroh patches are dropped (upstream on 1.x), or
+# when upstream updates these call sites itself.
+--- a/elastos/crates/elastos-server/src/carrier.rs
++++ b/elastos/crates/elastos-server/src/carrier.rs
+@@ -9077,13 +9077,15 @@ mod tests {
+             1_700_000_000,
+         );
+         let (local_sk, local_did) = elastos_identity::derive_did(&[21u8; 32]);
+-        let endpoint = Endpoint::builder()
++        let endpoint = Endpoint::builder(iroh::endpoint::presets::N0)
+             .secret_key(iroh::SecretKey::from_bytes(&local_sk.to_bytes()))
+             .bind()
+             .await
+             .unwrap();
+         let memory_lookup = MemoryLookup::new();
+-        endpoint.address_lookup().add(memory_lookup.clone());
++        if let Ok(al) = endpoint.address_lookup() {
++            al.add(memory_lookup.clone());
++        }
+         let gossip = Gossip::builder().spawn(endpoint.clone());
+         let state = Arc::new(Mutex::new(GossipState::new(
+             endpoint.clone(),
+@@ -9091,6 +9093,7 @@ mod tests {
+             memory_lookup,
+             Some(local_sk),
+             Some(local_did),
++            std::path::PathBuf::from("."),
+         )));
+         {
+             let mut guard = state.lock().await;
+@@ -9285,13 +9288,15 @@ mod tests {
+             1_700_000_000,
+         );
+         let (local_sk, local_did) = elastos_identity::derive_did(&[24u8; 32]);
+-        let endpoint = Endpoint::builder()
++        let endpoint = Endpoint::builder(iroh::endpoint::presets::N0)
+             .secret_key(iroh::SecretKey::from_bytes(&local_sk.to_bytes()))
+             .bind()
+             .await
+             .unwrap();
+         let memory_lookup = MemoryLookup::new();
+-        endpoint.address_lookup().add(memory_lookup.clone());
++        if let Ok(al) = endpoint.address_lookup() {
++            al.add(memory_lookup.clone());
++        }
+         let gossip = Gossip::builder().spawn(endpoint.clone());
+         let state = Arc::new(Mutex::new(GossipState::new(
+             endpoint.clone(),
+@@ -9299,6 +9304,7 @@ mod tests {
+             memory_lookup,
+             Some(local_sk),
+             Some(local_did),
++            std::path::PathBuf::from("."),
+         )));
+         {
+             let mut guard = state.lock().await;

@@ -1,0 +1,57 @@
+# HEY-CAPSULE-PACK PATCH 0026 (REMOVABLE): pin the scheme-matching in patch 0003.
+#
+# 0003 authorizes a third-party capsule from its own permissions.messaging, so
+# `messaging_grant_covers_scheme` is the one place that patch can over-grant.
+# These four tests fix the semantics: exact scheme match only, no prefix leak
+# (peer must not satisfy peer-admin), a wildcard scheme grants NOTHING (or one
+# manifest line would claim documents/object/chain/net wholesale), and non
+# `elastos://` entries — a localhost:// storage grant, a bare word, an empty
+# string — authorize nothing.
+#
+# Kept as its own patch so it travels with 0003 upstream and so a reviewer can
+# read the guarantee without reading the implementation.
+#
+# KILL CONDITION: fold into 0003 when that goes upstream as a PR.
+--- a/elastos/crates/elastos-server/src/api/gateway_provider_proxy.rs
++++ b/elastos/crates/elastos-server/src/api/gateway_provider_proxy.rs
+@@ -1794,3 +1794,40 @@ fn library_events_sse_event(payload: serde_json::Value) -> SseEvent {
+     });
+     SseEvent::default().event("library-events").data(data)
+ }
++
++// ── HEY-CAPSULE-PACK PATCH 0003 (REMOVABLE) ──────────────────────────────────
++// Scheme matching is the only place this patch can over-grant, so it is pinned.
++#[cfg(test)]
++mod hey_manifest_authorization_tests {
++    use super::messaging_grant_covers_scheme;
++
++    #[test]
++    fn grants_the_scheme_it_names() {
++        assert!(messaging_grant_covers_scheme("elastos://peer/*", "peer"));
++        assert!(messaging_grant_covers_scheme("elastos://blobs/*", "blobs"));
++        assert!(messaging_grant_covers_scheme("elastos://identity", "identity"));
++        assert!(messaging_grant_covers_scheme("elastos://did/whoami", "did"));
++    }
++
++    #[test]
++    fn does_not_grant_a_different_scheme() {
++        assert!(!messaging_grant_covers_scheme("elastos://peer/*", "did"));
++        assert!(!messaging_grant_covers_scheme("elastos://peer/*", "peer-admin"));
++        assert!(!messaging_grant_covers_scheme("elastos://peer-admin/*", "peer"));
++    }
++
++    #[test]
++    fn a_wildcard_scheme_grants_nothing() {
++        assert!(!messaging_grant_covers_scheme("elastos://*", "peer"));
++        assert!(!messaging_grant_covers_scheme("elastos://*/*", "documents"));
++    }
++
++    #[test]
++    fn non_elastos_grants_are_ignored() {
++        assert!(!messaging_grant_covers_scheme("localhost://Users/*/App/*", "peer"));
++        assert!(!messaging_grant_covers_scheme("peer", "peer"));
++        assert!(!messaging_grant_covers_scheme("", "peer"));
++        assert!(!messaging_grant_covers_scheme("elastos://", "peer"));
++    }
++}
++

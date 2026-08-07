@@ -1,42 +1,95 @@
 --- a/elastos/crates/elastos-server/src/api/gateway_provider_proxy.rs
 +++ b/elastos/crates/elastos-server/src/api/gateway_provider_proxy.rs
-@@ -1276,6 +1276,13 @@ pub(super) async fn gateway_library_events_stream(
-     );
+@@ -1277,12 +1277,60 @@ pub(super) async fn gateway_library_events_stream(
      response
  }
-+// HEY-CAPSULE-PACK PATCH 0003 (REMOVABLE) — see the match arm below for the
-+// full rationale and kill condition. These ids are matched against the
-+// verified home-launch-token `app` field. Kept local to this file so the
-+// entire bridge lifts out in one delete when upstream lands a manifest-/
-+// capability-driven provider allowlist.
-+const HEY_SOCIAL_CAPSULE_ID: &str = "hey-social";
-+const HEY_CHAT_CAPSULE_ID: &str = "hey-chat";
  
++/// Capsule ids that DECLARE `elastos://<scheme>/*` in their own manifest.
++///
++/// The runtime already parses `permissions.messaging` into `CapsuleManifest`
++/// and then never consults it for provider access, so a third-party capsule
++/// whose manifest correctly asks for a scheme is still refused. This reads the
++/// field that is already there.
++///
++/// Only ACTIVE, INSTALLED capsules are considered — `list_active_capsule_manifests`
++/// cross-checks the on-disk manifest against components.json, so dropping a
++/// crafted capsule.json into the data dir grants nothing on its own.
++///
++/// This does not widen authority by itself: the caller still has to present a
++/// valid, signed, non-delegatable, unexpired home-launch token whose
++/// `executable_actor` is one of these ids, and the scheme's provider still has
++/// to be registered. It replaces WHO is on the list, not what a token means.
++fn capsules_declaring_scheme(data_dir: &std::path::Path, scheme: &str) -> Vec<String> {
++    crate::api::capsule_inventory::list_active_capsule_manifests(data_dir)
++        .into_iter()
++        .filter(|manifest| {
++            manifest
++                .permissions
++                .messaging
++                .iter()
++                .any(|grant| messaging_grant_covers_scheme(grant, scheme))
++        })
++        .map(|manifest| manifest.name)
++        .collect()
++}
++
++/// Does a `permissions.messaging` entry grant this provider scheme?
++///
++/// Entries are `elastos://<scheme>/...` — `elastos://peer/*` being the common
++/// shape. Compared scheme-level only: ops are not narrowed here. A bare
++/// `elastos://peer` counts. A wildcard scheme grants nothing, or one manifest
++/// line would claim every provider at once.
++fn messaging_grant_covers_scheme(grant: &str, scheme: &str) -> bool {
++    let Some(rest) = grant.strip_prefix("elastos://") else {
++        return false;
++    };
++    let granted = rest.split('/').next().unwrap_or("");
++    !granted.is_empty() && granted != "*" && granted == scheme
++}
++
  pub(super) async fn gateway_provider_proxy(
      State(state): State<GatewayState>,
-@@ -1357,6 +1364,26 @@ pub(super) async fn gateway_provider_proxy(
+     Path((scheme, op)): Path<(String, String)>,
+     headers: HeaderMap,
+     body: Bytes,
+ ) -> Response {
++    // PATCH 0003: capsule ids whose own manifest declares this scheme. Computed
++    // before the match so the fallback arm can borrow it; empty for every
++    // scheme upstream already handles, so those arms are reached unchanged.
++    let manifest_allowed = capsules_declaring_scheme(&state.data_dir, &scheme);
++    let manifest_allowed_refs: Vec<&str> = manifest_allowed.iter().map(String::as_str).collect();
+     let allowed_apps: &[&str] = match scheme.as_str() {
+         "documents" => match op.as_str() {
+             "summary" | "get" => &[DOCUMENTS_CAPSULE_ID, LIBRARY_CAPSULE_ID],
+@@ -1357,6 +1405,32 @@ pub(super) async fn gateway_provider_proxy(
                      .into_response()
              }
          },
 +        // ── HEY-CAPSULE-PACK PATCH 0003 (REMOVABLE) ──────────────────────
-+        // Authorize the hey-capsule-pack's app capsules (hey-social,
-+        // hey-chat) through the public gateway provider proxy. v0.3
-+        // hardcodes the (scheme, op) → allowed_apps map to built-in capsules
-+        // only, so additive third-party apps get 404/403 on every
-+        // /api/provider/<scheme>/<op> their manifests legitimately declare
-+        // under permissions.messaging. This arm is AUTHORIZATION ONLY — the
-+        // per-scheme provider must still be registered (content and did are
-+        // built-in; peer/identity/social-feed/hey-transcoder/elacity/blobs/
-+        // docs come from the pack's own providers). Scheme-level, matching
-+        // the manifest's `elastos://<scheme>/*` grants; ops are not narrowed.
++        // Third-party capsules authorize from THEIR OWN MANIFEST.
 +        //
-+        // KILL CONDITION: delete this arm and the two consts above the moment
-+        // upstream replaces the hardcoded allowed_apps map with a manifest- or
-+        // capability-token-driven check. Hey then authorizes via its manifest
-+        // permissions.messaging and this becomes dead code. Pairs with 0001
-+        // (runtime-token) and 0002 (principal storage); same removal discipline.
-+        "peer" | "content" | "did" | "identity" | "social-feed" | "hey-transcoder" | "elacity"
-+        | "blobs" | "docs" => &[HEY_SOCIAL_CAPSULE_ID, HEY_CHAT_CAPSULE_ID],
++        // Every arm above is a hardcoded (scheme, op) -> built-in-capsule-id
++        // table, so an additive capsule gets 404/403 on every
++        // /api/provider/<scheme>/<op> its manifest legitimately declares under
++        // permissions.messaging — a field the runtime already parses into
++        // CapsuleManifest and then ignores. This arm honours it.
++        //
++        // Deliberately a FALLBACK, placed last: every scheme upstream handles
++        // (documents, object, chain, net, inspect) is matched earlier and keeps
++        // upstream's exact behaviour. Only schemes upstream does not claim reach
++        // this, so built-in authority is unchanged and cannot be widened by a
++        // manifest.
++        //
++        // AUTHORIZATION ONLY. The caller still needs a valid signed
++        // non-delegatable unexpired launch token whose executable_actor is one
++        // of these ids (checked immediately below), and the scheme's provider
++        // still has to be registered — peer/identity/blobs/docs come from the
++        // pack's own providers. Scheme-level; ops are not narrowed.
++        //
++        // KILL CONDITION: delete this arm and the two helpers above when
++        // upstream authorizes provider access from the manifest itself. This
++        // patch IS that change, kept minimal so it can go upstream as-is.
++        _ if !manifest_allowed_refs.is_empty() => &manifest_allowed_refs,
 +        // ── END HEY-CAPSULE-PACK PATCH 0003 ──────────────────────────────
          _ => return (StatusCode::NOT_FOUND, "Gateway provider not found").into_response(),
      };
