@@ -16,6 +16,8 @@ ynh_secure_remove --file="/etc/sudoers.d/$app"
 
 ynh_script_progression --message="Removing Rust toolchain..."
 ynh_secure_remove --file="$(rustup_root)"
+# Keep /var/cache/$app-prebuilt — that is the compiled runtime for the next
+# install. Delete it by hand if you want a guaranteed source rebuild.
 
 ynh_script_progression --message="Removing logs..."
 ynh_secure_remove --file="/var/log/$app"

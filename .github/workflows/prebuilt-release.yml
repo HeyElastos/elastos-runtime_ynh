@@ -70,12 +70,11 @@ jobs:
             build-essential pkg-config libssl-dev libclang-dev clang cmake \
             jq curl git python3 ca-certificates
 
-      - name: Rust toolchains (1.89 + 1.91)
+      - name: Rust toolchain (1.91)
         run: |
-          curl -fsSL https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.89.0 --profile minimal
+          curl -fsSL https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.91 --profile minimal
           . "$HOME/.cargo/env"
-          rustup target add --toolchain 1.89.0 wasm32-wasip1
-          rustup toolchain install 1.91 --profile minimal   # iroh providers pin 1.91 via rust-toolchain.toml
+          rustup target add --toolchain 1.91 wasm32-wasip1
 
       - name: Fetch upstream runtime + apply patches + merge components
         run: |
@@ -127,30 +126,32 @@ jobs:
           for c in blobs-provider identity-projection-provider peer-provider; do
             ( cd "capsules/$c" && cargo build --release )
           done
-          # wasm capsules (wasm32-wasip1)
-          for c in home-cli home system chat-room; do
-            cargo build --release --target wasm32-wasip1 --manifest-path "capsules/$c/Cargo.toml"
-          done
+          # home-cli is still a wasm crate. home / home-gui / system / chat-room
+          # are web-projection capsules in 0.6 (no Cargo.toml).
+          cargo build --release --target wasm32-wasip1 \
+            --manifest-path capsules/home-cli/Cargo.toml
+          install -m 0644 elastos/target/wasm32-wasip1/release/home-cli.wasm \
+            capsules/home-cli/home-cli.wasm
 
       - name: Package the target/ subset
         run: |
           set -euxo pipefail
           cd "$WORK"
           OUT="prebuilt-linux-${{ matrix.arch }}.tar.gz"
-          tar -czf "$OUT" \
-            elastos/target/debug/elastos \
-            elastos/target/release/shell \
-            elastos/target/release/localhost-provider \
-            elastos/target/release/did-provider \
-            elastos/target/release/webspace-provider \
-            elastos/target/release/ipfs-provider \
-            elastos/target/release/blobs-provider \
-            elastos/target/release/identity-projection-provider \
-            elastos/target/release/peer-provider \
-            elastos/target/wasm32-wasip1/release/home-cli.wasm \
-            elastos/target/wasm32-wasip1/release/home.wasm \
-            elastos/target/wasm32-wasip1/release/system.wasm \
-            elastos/target/wasm32-wasip1/release/chat-room.wasm
+          # Members are relative to elastos/ — maybe_download_prebuilt extracts
+          # with tar -C $install_dir/elastos. A leading elastos/ prefix would
+          # land at elastos/elastos/target and miss the binary check.
+          tar -C elastos -czf "$OUT" \
+            target/debug/elastos \
+            target/release/shell \
+            target/release/localhost-provider \
+            target/release/did-provider \
+            target/release/webspace-provider \
+            target/release/ipfs-provider \
+            target/release/blobs-provider \
+            target/release/identity-projection-provider \
+            target/release/peer-provider \
+            target/wasm32-wasip1/release/home-cli.wasm
           sha256sum "$OUT" | awk '{print $1}' > "$OUT.sha256"
           ls -lh "$OUT" "$OUT.sha256"
 

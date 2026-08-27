@@ -76,12 +76,14 @@ install_rust_toolchain
 # BUILD
 #=================================================
 
-# Prefer prebuilt binaries (zero compile). Falls back to a source build if no
-# prebuilt release exists for this arch (or ELASTOS_FORCE_BUILD=1). Cold source
-# build is 20-40 min, ~4 GB RAM.
+# Prefer prebuilt binaries (zero compile): on-box cache, package-tree tarball,
+# ELASTOS_PREBUILT_URL, or a pinned GitHub tag. Falls back to a source build
+# (20-40 min, ~4 GB RAM). A successful source build is cached so the next
+# install/upgrade with the same patches skips cargo.
 if ! maybe_download_prebuilt "$install_dir"; then
     ynh_script_progression --message="No prebuilt — building elastos + capsules from source (20-40 min)..." --weight=300
     build_runtime_and_capsules
+    cache_prebuilt "$install_dir"
 fi
 
 #=================================================

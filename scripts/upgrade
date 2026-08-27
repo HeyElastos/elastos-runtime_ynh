@@ -34,10 +34,12 @@ if [ ! -x "$(rustup_root)/cargo/bin/cargo" ]; then
     install_rust_toolchain
 fi
 
-# Prefer prebuilt binaries (zero compile); fall back to a source rebuild.
+# Prefer prebuilt binaries (zero compile); fall back to a source rebuild
+# and refresh the on-box cache so the next upgrade is a download, not cargo.
 if ! maybe_download_prebuilt "$install_dir"; then
     ynh_script_progression --message="No prebuilt — rebuilding elastos + capsules from source..." --weight=300
     build_runtime_and_capsules
+    cache_prebuilt "$install_dir"
 fi
 
 # Replace the binary in the client home with the freshly-built one. State

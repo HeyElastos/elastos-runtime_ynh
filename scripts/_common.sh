@@ -683,6 +683,25 @@ install_rust_toolchain() {
     local root
     root="$(rustup_root)"
 
+    # Reuse a live 1.91 install. Wiping this on every upgrade was 5+ minutes of
+    # rustup plus a cold cargo cache, which is why reinstall always felt like a
+    # from-scratch compile even when only capsules changed.
+    if [ -x "$root/cargo/bin/rustc" ] && [ -x "$root/cargo/bin/rustup" ]; then
+        if ynh_exec_as "$app" \
+            env RUSTUP_HOME="$root/rustup" \
+                CARGO_HOME="$root/cargo" \
+                PATH="$root/cargo/bin:/usr/bin:/bin" \
+            rustup run 1.91 rustc --version 2>/dev/null | grep -q '1\.91'; then
+            ynh_script_progression --message="Reusing Rust 1.91 at $root" --weight=1
+            ynh_exec_warn_less ynh_exec_as "$app" \
+                env RUSTUP_HOME="$root/rustup" \
+                    CARGO_HOME="$root/cargo" \
+                    PATH="$root/cargo/bin:/usr/bin:/bin" \
+                bash -c "rustup default 1.91 && rustup target add --toolchain 1.91 wasm32-wasip1"
+            return 0
+        fi
+    fi
+
     # Clean any stale rustup state from previous failed installs — old
     # settings.toml with default-toolchain=none would block `rustup target add`.
     ynh_exec_warn_less rm -rf "$root"
@@ -741,59 +760,221 @@ cargo_as_app() {
 # ELASTOS_FORCE_BUILD=1.
 #
 # The prebuilt is PINNED to an explicit release tag ($PREBUILT_TAG), never
-# 'latest'. EMPTY (the default) means "no prebuilt published for the current
-# patch set" → always source-build, so new carrier patches in scripts/patches/
-# actually get compiled. This is deliberate: a stale 'latest' prebuilt MUST NOT
-# be able to shadow newer patches (that bug shipped an unpatched carrier and
-# silently dropped patches 0007/0008/0009). After cutting a prebuilt that
-# INCLUDES the current patches, set PREBUILT_TAG to its release tag (here, or via
-# $ELASTOS_PREBUILT_TAG) and installs are fast again — until the next patch bump.
-PREBUILT_TAG="${ELASTOS_PREBUILT_TAG:-}"
+# 'latest'. EMPTY (the default) means "no GitHub prebuilt published for the
+# current patch set". A stale 'latest' prebuilt MUST NOT shadow newer patches
+# (that bug shipped an unpatched carrier and silently dropped 0007/0008/0009).
+#
+# Local cache is different: after a successful source build we pack the same
+# target/ subset into /var/cache/$app-prebuilt/ keyed by a fingerprint of
+# UPSTREAM_VERSION + patches + the Hey-capsule pin. The next install/upgrade
+# with the same fingerprint skips cargo. `ynh remove` does not delete that
+# cache. Override with $ELASTOS_PREBUILT_URL (http(s), file://, or a local
+# path). Force a source build with ELASTOS_FORCE_BUILD=1.
+PREBUILT_TAG="${ELASTOS_PREBUILT_TAG:-prebuilt-0.6.0-ynh4}"
+
+prebuilt_arch() {
+    case "$(uname -m)" in
+        x86_64|amd64)  echo amd64 ;;
+        aarch64|arm64) echo arm64 ;;
+        *) return 1 ;;
+    esac
+}
+
+prebuilt_cache_dir() {
+    echo "${ELASTOS_PREBUILT_CACHE:-/var/cache/${app}-prebuilt}"
+}
+
+# Hash of everything that must be compiled into the runtime binary. A cache
+# hit is only valid when this matches the tree about to be installed.
+prebuilt_fingerprint() {
+    local root="${1:-$install_dir}"
+    {
+        printf 'upstream:%s\n' "$(tr -d '[:space:]' < "$root/UPSTREAM_VERSION" 2>/dev/null || true)"
+        if [ -f "$root/manifest.toml" ]; then
+            awk '
+                /^\[resources\.sources\.hey_capsules\]/ { f=1; next }
+                f && /^url[[:space:]]*=/ {
+                    gsub(/^url[[:space:]]*=[[:space:]]*"?/, "")
+                    gsub(/"?[[:space:]]*$/, "")
+                    print "hey:" $0
+                    exit
+                }
+            ' "$root/manifest.toml"
+        fi
+        if [ -d "$root/scripts/patches" ]; then
+            find "$root/scripts/patches" -name '*.patch' -type f | sort | xargs -r sha256sum
+        fi
+    } | sha256sum | awk '{print $1}'
+}
+
+# Archive members are relative to elastos/ so extract -C $install_dir/elastos
+# lands target/debug/elastos. Do NOT prefix with elastos/.
+prebuilt_member_list() {
+    cat <<'EOF'
+target/debug/elastos
+target/release/shell
+target/release/localhost-provider
+target/release/did-provider
+target/release/webspace-provider
+target/release/ipfs-provider
+target/release/blobs-provider
+target/release/identity-projection-provider
+target/release/peer-provider
+target/wasm32-wasip1/release/home-cli.wasm
+EOF
+}
+
+pack_prebuilt_tarball() {
+    local elastos_dir="$1"
+    local dest="$2"
+    local missing=0
+    local f
+    while IFS= read -r f; do
+        [ -n "$f" ] || continue
+        if [ ! -e "$elastos_dir/$f" ]; then
+            echo "prebuilt: missing $elastos_dir/$f" >&2
+            missing=1
+        fi
+    done < <(prebuilt_member_list)
+    [ "$missing" = 0 ] || return 1
+    mkdir -p "$(dirname "$dest")"
+    # shellcheck disable=SC2046
+    tar -C "$elastos_dir" -czf "$dest" $(prebuilt_member_list)
+    sha256sum "$dest" | awk '{print $1}' > "$dest.sha256"
+}
+
+cache_prebuilt() {
+    local target_dir="$1"
+    local arch dest fp cache
+    arch="$(prebuilt_arch)" || return 0
+    cache="$(prebuilt_cache_dir)"
+    dest="$cache/prebuilt-linux-$arch.tar.gz"
+    fp="$(prebuilt_fingerprint "$target_dir")"
+    ynh_script_progression --message="Caching prebuilt binaries at $dest (next install skips cargo)..." --weight=2
+    mkdir -p "$cache"
+    if pack_prebuilt_tarball "$target_dir/elastos" "$dest"; then
+        printf '%s\n' "$fp" > "$cache/fingerprint"
+        chmod 0644 "$dest" "$dest.sha256" "$cache/fingerprint" 2>/dev/null || true
+    else
+        ynh_print_warn --message="prebuilt: pack failed — cache not updated"
+    fi
+}
+
+prebuilt_copy_home_cli_wasm() {
+    local target_dir="$1"
+    local wasm="$target_dir/elastos/target/wasm32-wasip1/release/home-cli.wasm"
+    if [ -f "$wasm" ] && [ -d "$target_dir/capsules/home-cli" ]; then
+        install -m 0644 -o "$app" -g "$app" "$wasm" "$target_dir/capsules/home-cli/home-cli.wasm"
+    fi
+}
+
+prebuilt_extract_tarball() {
+    local target_dir="$1"
+    local tarball="$2"
+    local sha_file="${3:-}"
+    if [ -n "$sha_file" ] && [ -s "$sha_file" ]; then
+        local want got
+        want="$(awk '{print $1}' "$sha_file")"
+        got="$(sha256sum "$tarball" | awk '{print $1}')"
+        if [ -n "$want" ] && [ "$want" != "$got" ]; then
+            ynh_print_warn --message="prebuilt: sha256 mismatch (want $want, got $got)"
+            return 1
+        fi
+    fi
+    mkdir -p "$target_dir/elastos"
+    tar -xzf "$tarball" -C "$target_dir/elastos" || return 1
+    if [ ! -x "$target_dir/elastos/target/debug/elastos" ]; then
+        ynh_print_warn --message="prebuilt: archive missing target/debug/elastos"
+        return 1
+    fi
+    prebuilt_copy_home_cli_wasm "$target_dir"
+    chown -R "$app:$app" "$target_dir/elastos/target" 2>/dev/null || true
+    return 0
+}
+
 maybe_download_prebuilt() {
     local target_dir="$1"
     if [ "${ELASTOS_FORCE_BUILD:-0}" = "1" ]; then
         return 1
     fi
-    if [ -z "$PREBUILT_TAG" ]; then
-        ynh_script_progression --message="No prebuilt pinned for this version (PREBUILT_TAG empty) — building from source so patches apply." --weight=1
+    local arch
+    arch="$(prebuilt_arch)" || {
+        ynh_print_warn --message="prebuilt: unsupported arch $(uname -m); building from source"
+        return 1
+    }
+
+    # 1. Operator override: URL, file://, or absolute path.
+    if [ -n "${ELASTOS_PREBUILT_URL:-}" ]; then
+        local url="$ELASTOS_PREBUILT_URL"
+        local tmp; tmp="$(mktemp -d)"
+        ynh_script_progression --message="Using ELASTOS_PREBUILT_URL..." --weight=4
+        if [ -f "$url" ]; then
+            cp -f "$url" "$tmp/p.tar.gz"
+            [ -f "$url.sha256" ] && cp -f "$url.sha256" "$tmp/p.sha256" || true
+        elif [[ "$url" == file://* ]]; then
+            cp -f "${url#file://}" "$tmp/p.tar.gz"
+        elif curl -fsSL "$url" -o "$tmp/p.tar.gz"; then
+            curl -fsSL "$url.sha256" -o "$tmp/p.sha256" 2>/dev/null || true
+        else
+            ynh_print_warn --message="prebuilt: not available ($url); building from source"
+            rm -rf "$tmp"; return 1
+        fi
+        if prebuilt_extract_tarball "$target_dir" "$tmp/p.tar.gz" "$tmp/p.sha256"; then
+            rm -rf "$tmp"
+            ynh_script_progression --message="Prebuilt binaries installed — skipping the source build." --weight=1
+            return 0
+        fi
+        rm -rf "$tmp"
         return 1
     fi
-    local arch
-    case "$(uname -m)" in
-        x86_64|amd64)  arch=amd64 ;;
-        aarch64|arm64) arch=arm64 ;;
-        *) ynh_print_warn --message="prebuilt: unsupported arch $(uname -m); building from source"; return 1 ;;
-    esac
-    local url="${ELASTOS_PREBUILT_URL:-https://github.com/HeyElastos/elastos-runtime_ynh/releases/download/$PREBUILT_TAG/prebuilt-linux-$arch.tar.gz}"
+
+    local fp cache packaged
+    fp="$(prebuilt_fingerprint "$target_dir")"
+    cache="$(prebuilt_cache_dir)"
+
+    # 2. On-box cache from a previous install of THIS exact patch set.
+    if [ -f "$cache/prebuilt-linux-$arch.tar.gz" ] && [ -f "$cache/fingerprint" ]; then
+        if [ "$(tr -d '[:space:]' < "$cache/fingerprint")" = "$fp" ]; then
+            ynh_script_progression --message="Reusing cached prebuilt ($arch, fingerprint $fp)..." --weight=4
+            if prebuilt_extract_tarball "$target_dir" "$cache/prebuilt-linux-$arch.tar.gz" "$cache/prebuilt-linux-$arch.tar.gz.sha256"; then
+                ynh_script_progression --message="Prebuilt binaries installed — skipping the source build." --weight=1
+                return 0
+            fi
+        else
+            ynh_print_warn --message="prebuilt cache fingerprint mismatch — patches or pins changed, rebuilding"
+        fi
+    fi
+
+    # 3. Tarball shipped inside the package tree (optional).
+    packaged="$target_dir/prebuilt/prebuilt-linux-$arch.tar.gz"
+    if [ -f "$packaged" ]; then
+        ynh_script_progression --message="Using package-tree prebuilt ($arch)..." --weight=4
+        if prebuilt_extract_tarball "$target_dir" "$packaged" "$packaged.sha256"; then
+            ynh_script_progression --message="Prebuilt binaries installed — skipping the source build." --weight=1
+            return 0
+        fi
+    fi
+
+    # 4. Pinned GitHub release. Empty PREBUILT_TAG = no remote pin (on purpose).
+    if [ -z "$PREBUILT_TAG" ]; then
+        ynh_script_progression --message="No prebuilt cache or GitHub pin — building from source." --weight=1
+        return 1
+    fi
+    local url="https://github.com/HeyElastos/elastos-runtime_ynh/releases/download/$PREBUILT_TAG/prebuilt-linux-$arch.tar.gz"
     local tmp; tmp="$(mktemp -d)"
-    ynh_script_progression --message="Fetching prebuilt binaries ($arch)..." --weight=10
+    ynh_script_progression --message="Fetching prebuilt binaries ($arch) from $PREBUILT_TAG..." --weight=10
     if ! curl -fsSL "$url" -o "$tmp/p.tar.gz"; then
         ynh_print_warn --message="prebuilt: not available ($url); building from source"
         rm -rf "$tmp"; return 1
     fi
-    # Integrity: verify against the sibling .sha256 if the release ships one.
-    if curl -fsSL "$url.sha256" -o "$tmp/p.sha256" 2>/dev/null && [ -s "$tmp/p.sha256" ]; then
-        local want got
-        want="$(awk '{print $1}' "$tmp/p.sha256")"
-        got="$(sha256sum "$tmp/p.tar.gz" | awk '{print $1}')"
-        if [ -n "$want" ] && [ "$want" != "$got" ]; then
-            ynh_print_warn --message="prebuilt: sha256 mismatch (want $want, got $got); building from source"
-            rm -rf "$tmp"; return 1
-        fi
-    fi
-    mkdir -p "$target_dir/elastos"
-    if ! tar -xzf "$tmp/p.tar.gz" -C "$target_dir/elastos"; then
-        ynh_print_warn --message="prebuilt: extract failed; building from source"
-        rm -rf "$tmp"; return 1
+    curl -fsSL "$url.sha256" -o "$tmp/p.sha256" 2>/dev/null || true
+    if prebuilt_extract_tarball "$target_dir" "$tmp/p.tar.gz" "$tmp/p.sha256"; then
+        rm -rf "$tmp"
+        ynh_script_progression --message="Prebuilt binaries installed — skipping the source build." --weight=1
+        return 0
     fi
     rm -rf "$tmp"
-    if [ ! -x "$target_dir/elastos/target/debug/elastos" ]; then
-        ynh_print_warn --message="prebuilt: archive missing target/debug/elastos; building from source"
-        return 1
-    fi
-    chown -R "$app:$app" "$target_dir/elastos/target" 2>/dev/null || true
-    ynh_script_progression --message="Prebuilt binaries installed — skipping the source build." --weight=1
-    return 0
+    return 1
 }
 
 # ────────────────────────────────────────────────────────────────────

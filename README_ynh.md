@@ -26,7 +26,12 @@ End state: you depend on no upstream infrastructure. Updates come from `git pull
 
 - ✅ Fully sovereign — works even when Elacity's publisher is offline
 - ✅ Runs the binary built from THIS fork, not upstream's signed one — modifications you make are actually used
-- ❌ Install is slow: ~20–40 min cold build (Rust + cargo workspace + WASM)
+- ❌ First install is slow: ~20–40 min cold cargo build. After that the
+  binaries are cached at `/var/cache/<app>-prebuilt/` (survives `ynh remove`).
+  The next install/upgrade with the same `UPSTREAM_VERSION` + patches + Hey
+  pack pin skips cargo. Force a rebuild with `ELASTOS_FORCE_BUILD=1`.
+  Cut a GitHub release with `git tag prebuilt-YYYY-MM-DD && git push --tags`
+  (workflow `prebuilt-release.yml`), then set `PREBUILT_TAG` in `_common.sh`.
 - ❌ Install is fat: needs ~4 GB RAM during build, ~5 GB disk for cargo cache (target/ is cleaned post-build but the toolchain in `/opt/elastos_runtime/rust/` is ~1.5 GB)
 - ❌ Currently only installs the `home` profile (no chat-room demo surfaces yet — see below)
 
