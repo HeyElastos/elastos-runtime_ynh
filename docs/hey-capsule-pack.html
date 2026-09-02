@@ -1,0 +1,853 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Hey Capsule Pack — Architecture Brief</title>
+<style>
+  :root {
+    --bg-grad: radial-gradient(ellipse at top, #2a2f38 0%, #15171c 45%, #0a0b0e 100%);
+    --text: #f5f5f7;
+    --muted: #9aa0a8;
+    --soft: #c0c5cc;
+    --accent: #d4b84b;
+    --accent-soft: rgba(212, 184, 75, 0.18);
+    --taupe: #beac8d;
+    --rose: #d8b0bd;
+    --emerald: #6ee7a2;
+    --indigo: #9aa9ff;
+    --glass-bg: rgba(255, 255, 255, 0.045);
+    --glass-bg-strong: rgba(255, 255, 255, 0.08);
+    --glass-border: rgba(255, 255, 255, 0.10);
+    --shadow-deep: 0 32px 80px rgba(0, 0, 0, 0.6);
+    --shadow-mid: 0 18px 48px rgba(0, 0, 0, 0.45);
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    background: #0a0b0e;
+    color: var(--text);
+    font-family: -apple-system, "Segoe UI", "Inter", sans-serif;
+    line-height: 1.6;
+    scroll-behavior: smooth;
+  }
+  body::before {
+    content: ""; position: fixed; inset: 0; z-index: -2;
+    background: var(--bg-grad);
+  }
+  body::after {
+    content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none;
+    background:
+      radial-gradient(600px circle at 18% 22%, rgba(212, 184, 75, 0.10) 0%, transparent 60%),
+      radial-gradient(700px circle at 82% 78%, rgba(190, 168, 140, 0.10) 0%, transparent 60%),
+      radial-gradient(500px circle at 50% 50%, rgba(110, 231, 162, 0.04) 0%, transparent 65%);
+  }
+
+  nav.rail {
+    position: fixed; left: 28px; top: 50%; transform: translateY(-50%);
+    z-index: 100; display: flex; flex-direction: column; gap: 10px;
+  }
+  nav.rail a {
+    display: block; width: 10px; height: 10px; border-radius: 50%;
+    background: rgba(255, 255, 255, 0.18);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    transition: all 0.25s ease; position: relative;
+  }
+  nav.rail a:hover { transform: scale(1.4); background: var(--accent); }
+  nav.rail a::after {
+    content: attr(data-title); position: absolute; left: 22px; top: 50%;
+    transform: translateY(-50%);
+    background: rgba(20, 22, 28, 0.9);
+    padding: 4px 10px; border-radius: 6px; border: 1px solid var(--glass-border);
+    font-size: 11px; color: var(--soft); white-space: nowrap;
+    opacity: 0; pointer-events: none; transition: opacity 0.2s ease;
+    backdrop-filter: blur(10px);
+  }
+  nav.rail a:hover::after { opacity: 1; }
+
+  section.slide {
+    min-height: 100vh;
+    padding: 80px 40px;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    position: relative;
+  }
+  .container { width: 100%; max-width: 1100px; margin: 0 auto; }
+
+  .hero { text-align: center; }
+  .hero h1 {
+    font-size: clamp(48px, 6vw, 96px);
+    font-weight: 200; letter-spacing: -0.03em;
+    margin: 0 0 12px; line-height: 1.05;
+    background: linear-gradient(180deg, #ffffff 0%, #c9c9d1 100%);
+    -webkit-background-clip: text; background-clip: text;
+    color: transparent;
+  }
+  .hero .accent {
+    color: var(--accent); font-family: "Dancing Script", "Brush Script MT", cursive;
+    font-weight: 600; -webkit-text-fill-color: var(--accent);
+  }
+  .hero p.lead {
+    font-size: 20px; color: var(--muted);
+    max-width: 660px; margin: 22px auto 0;
+  }
+  .hero .crumbs {
+    margin-top: 48px; display: flex; gap: 28px;
+    justify-content: center; flex-wrap: wrap;
+    font-size: 13px; color: var(--soft);
+    letter-spacing: 0.08em; text-transform: uppercase;
+  }
+  .hero .crumbs span::before {
+    content: "·"; margin-right: 10px; color: var(--accent);
+  }
+
+  h2.section-title {
+    font-size: clamp(36px, 4vw, 56px);
+    font-weight: 300; letter-spacing: -0.02em;
+    margin: 0 0 12px; line-height: 1.1;
+  }
+  h2.section-title .num {
+    color: var(--accent); font-weight: 200;
+    margin-right: 18px; font-feature-settings: "tnum";
+  }
+  p.section-lede {
+    color: var(--muted); font-size: 17px;
+    max-width: 760px; margin: 0 0 48px;
+  }
+
+  .glass {
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    border-radius: 18px;
+    backdrop-filter: blur(22px); -webkit-backdrop-filter: blur(22px);
+    box-shadow: var(--shadow-mid);
+    padding: 28px;
+  }
+  .glass.tight { padding: 18px; }
+
+  .grid {
+    display: grid; gap: 20px;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  }
+  .grid-2 { grid-template-columns: 1fr 1fr; }
+  .grid-3 { grid-template-columns: repeat(3, 1fr); }
+  @media (max-width: 800px) {
+    .grid-2, .grid-3 { grid-template-columns: 1fr; }
+  }
+  .grid h3 { font-size: 17px; margin: 0 0 10px; color: var(--text); }
+  .grid p { color: var(--soft); font-size: 14px; margin: 0; }
+
+  table.spec {
+    width: 100%; border-collapse: separate; border-spacing: 0;
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    border-radius: 16px; overflow: hidden;
+    backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+    box-shadow: var(--shadow-mid);
+  }
+  table.spec th, table.spec td {
+    text-align: left; padding: 16px 20px;
+    border-bottom: 1px solid var(--glass-border);
+    font-size: 14px; vertical-align: top;
+  }
+  table.spec th {
+    color: var(--accent); font-weight: 600;
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em;
+    background: rgba(212, 184, 75, 0.04);
+  }
+  table.spec tr:last-child td { border-bottom: 0; }
+  table.spec td code { color: var(--accent); }
+
+  pre.code, code.inline {
+    font-family: "JetBrains Mono", "Menlo", monospace;
+    font-size: 13px;
+  }
+  pre.code {
+    background: rgba(8, 9, 12, 0.7);
+    border: 1px solid var(--glass-border);
+    border-radius: 12px;
+    padding: 18px 22px; color: var(--soft);
+    overflow-x: auto; margin: 0; line-height: 1.6;
+  }
+  pre.code .k { color: var(--accent); }
+  pre.code .s { color: var(--emerald); }
+  pre.code .c { color: var(--muted); font-style: italic; }
+  pre.code .n { color: var(--rose); }
+  code.inline {
+    background: rgba(8, 9, 12, 0.6);
+    padding: 2px 7px; border-radius: 4px;
+    color: var(--accent);
+    border: 1px solid var(--glass-border);
+    font-size: 12px;
+  }
+
+  .illus { margin: 36px 0 32px; text-align: center; }
+  .illus svg {
+    max-width: 100%; height: auto;
+    filter: drop-shadow(0 18px 40px rgba(0,0,0,0.4));
+  }
+
+  .pill {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 4px 12px; border-radius: 999px;
+    background: var(--accent-soft);
+    border: 1px solid rgba(212, 184, 75, 0.32);
+    color: var(--accent);
+    font-size: 11px; font-weight: 600;
+    letter-spacing: 0.06em; text-transform: uppercase;
+  }
+  .pill.green { background: rgba(110,231,162,0.12); border-color: rgba(110,231,162,0.4); color: var(--emerald); }
+  .pill.neutral {
+    background: rgba(255, 255, 255, 0.04);
+    border-color: var(--glass-border);
+    color: var(--soft);
+  }
+
+  ul.bullets { list-style: none; padding: 0; margin: 0; }
+  ul.bullets li {
+    position: relative; padding-left: 24px;
+    margin-bottom: 12px;
+    color: var(--soft); font-size: 15px; line-height: 1.6;
+  }
+  ul.bullets li::before {
+    content: ""; position: absolute;
+    left: 4px; top: 10px;
+    width: 8px; height: 8px;
+    border: 1.5px solid var(--accent);
+    border-radius: 50%;
+  }
+  ul.bullets strong { color: var(--text); font-weight: 600; }
+
+  .sequence { display: flex; flex-direction: column; gap: 12px; counter-reset: step; }
+  .sequence .step {
+    display: flex; gap: 18px; align-items: flex-start;
+    padding: 16px 20px;
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    border-radius: 14px;
+    backdrop-filter: blur(14px);
+  }
+  .sequence .step::before {
+    counter-increment: step; content: counter(step);
+    flex: 0 0 32px; width: 32px; height: 32px;
+    border-radius: 50%;
+    background: var(--accent-soft);
+    color: var(--accent);
+    border: 1px solid rgba(212, 184, 75, 0.4);
+    display: grid; place-items: center;
+    font-weight: 600; font-size: 13px; font-feature-settings: "tnum";
+  }
+  .sequence .step .body { flex: 1; }
+  .sequence .step h4 {
+    margin: 0 0 4px; font-size: 14px; font-weight: 600; color: var(--text);
+  }
+  .sequence .step p { margin: 0; font-size: 13px; color: var(--muted); }
+  .sequence .step code { color: var(--accent); font-size: 12px; }
+
+  .divider {
+    width: 100%; max-width: 1100px;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--glass-border), transparent);
+    margin: 0 auto;
+  }
+
+  footer {
+    padding: 80px 40px 60px;
+    text-align: center;
+    color: var(--muted);
+    font-size: 13px;
+    border-top: 1px solid var(--glass-border);
+  }
+  footer .mark {
+    font-family: "Dancing Script", "Brush Script MT", cursive;
+    font-size: 32px; color: var(--accent); font-weight: 600;
+    display: block; margin-bottom: 8px;
+  }
+
+  .reveal {
+    opacity: 0; transform: translateY(20px);
+    transition: opacity 0.7s ease, transform 0.7s ease;
+  }
+  .reveal.visible { opacity: 1; transform: translateY(0); }
+</style>
+</head>
+<body>
+
+<nav class="rail">
+  <a href="#hero" data-title="Overview"></a>
+  <a href="#what" data-title="What's in the pack"></a>
+  <a href="#contract" data-title="Contract with upstream"></a>
+  <a href="#crypto" data-title="Encryption"></a>
+  <a href="#topics" data-title="Topics"></a>
+  <a href="#files" data-title="Files"></a>
+  <a href="#distribute" data-title="Distribution"></a>
+  <a href="#future" data-title="Roadmap"></a>
+</nav>
+
+<!-- HERO -->
+<section id="hero" class="slide hero">
+  <div class="container">
+    <p style="font-size:11px; letter-spacing:0.3em; text-transform:uppercase; color:var(--accent); margin-bottom:24px;">
+      Architecture Brief · 2026-05-28
+    </p>
+    <h1>Hey<br/><span class="accent">Capsule Pack</span></h1>
+    <p class="lead">
+      Two browser apps + one native provider. Speaks only stable upstream
+      contracts. Installs on any Elastos Runtime ≥ v0.3.0. Survives every
+      future upstream release unchanged.
+    </p>
+    <div class="crumbs">
+      <span>hey-social</span>
+      <span>hey-messenger</span>
+      <span>blobs-provider</span>
+      <span>X25519 + ML-KEM-768</span>
+      <span>iroh-blobs</span>
+    </div>
+  </div>
+</section>
+
+<!-- 1. WHAT'S IN THE PACK -->
+<section id="what" class="slide reveal">
+  <div class="container">
+    <h2 class="section-title"><span class="num">01</span>What's in the pack</h2>
+    <p class="section-lede">
+      Three artifacts. The entire surface of Hey on top of an Elastos
+      Runtime. Everything else — auth, storage, transport, content
+      addressing — is upstream's job.
+    </p>
+
+    <div class="grid grid-3">
+      <div class="glass">
+        <p style="margin:0 0 12px;"><span class="pill">SPA</span></p>
+        <h3>hey-social</h3>
+        <p style="color:var(--soft);">
+          Vite-built React SPA. Photo + video posts over Carrier gossip,
+          IPFS-CID media, Ed25519-signed records. Per-account profile
+          state lives at <code class="inline">localhost://Users/self/.AppData/LocalHost/Hey/</code>.
+        </p>
+        <p style="margin-top:12px; color:var(--muted); font-size:12px;">
+          ~800 KB bundle · ~80 source files
+        </p>
+      </div>
+
+      <div class="glass">
+        <p style="margin:0 0 12px;"><span class="pill">SPA</span></p>
+        <h3>hey-messenger</h3>
+        <p style="color:var(--soft);">
+          Teams-shaped P2P messenger. Hybrid post-quantum E2E for DMs
+          (X25519 + ML-KEM-768). Iroh-blobs file share. Workspace +
+          channel + DM hierarchy on Carrier topics.
+        </p>
+        <p style="margin-top:12px; color:var(--muted); font-size:12px;">
+          ~250 KB bundle · client-side crypto · zero server logic
+        </p>
+      </div>
+
+      <div class="glass">
+        <p style="margin:0 0 12px;"><span class="pill green">native</span></p>
+        <h3>blobs-provider</h3>
+        <p style="color:var(--soft);">
+          Native Rust binary. Wraps <code class="inline">iroh-blobs</code> for
+          unlimited-size P2P file transfer. Exposes
+          <code class="inline">/api/provider/blobs/{add_bytes,fetch,share,drop}</code>.
+          Upstream doesn't ship this — we wrote it.
+        </p>
+        <p style="margin-top:12px; color:var(--muted); font-size:12px;">
+          ~1 MB binary · holepunched QUIC · no size cap
+        </p>
+      </div>
+    </div>
+
+    <div class="glass" style="margin-top: 28px;">
+      <p style="margin:0; font-size:14px; color:var(--soft);">
+        <strong style="color:var(--text);">Total Hey surface:</strong> two static SPA
+        bundles + one native binary + their <code class="inline">capsule.json</code>
+        manifests. That's everything Hey is. Mounting them onto an Elastos
+        Runtime install is a directory copy.
+      </p>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- 2. CONTRACT WITH UPSTREAM -->
+<section id="contract" class="slide reveal">
+  <div class="container">
+    <h2 class="section-title"><span class="num">02</span>Contract with upstream</h2>
+    <p class="section-lede">
+      Hey calls only HTTP contracts upstream owns. The contracts are
+      stable across releases — vN to vN+1 means a YunoHost-side version
+      bump, not a Hey rewrite.
+    </p>
+
+    <div class="illus">
+      <svg viewBox="0 0 980 520" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <linearGradient id="heyG" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stop-color="rgba(212,184,75,0.20)"/>
+            <stop offset="1" stop-color="rgba(212,184,75,0.04)"/>
+          </linearGradient>
+          <linearGradient id="upG" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stop-color="rgba(190,168,140,0.18)"/>
+            <stop offset="1" stop-color="rgba(190,168,140,0.04)"/>
+          </linearGradient>
+          <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+            <path d="M0,0 L10,5 L0,10 z" fill="#d4b84b"/>
+          </marker>
+        </defs>
+
+        <!-- Hey layer -->
+        <rect x="40" y="30" width="900" height="160" rx="14" fill="url(#heyG)" stroke="rgba(212,184,75,0.5)"/>
+        <text x="60" y="56" font-size="11" fill="#d4b84b" letter-spacing="0.2em">HEY CAPSULE PACK</text>
+        <g font-size="14" fill="#f5f5f7">
+          <rect x="60"  y="76" width="270" height="100" rx="10" fill="rgba(8,9,12,0.5)" stroke="rgba(255,255,255,0.08)"/>
+          <text x="80" y="100" font-weight="600">hey-social</text>
+          <text x="80" y="125" fill="#9aa0a8" font-size="11">Posts + media + reactions</text>
+          <text x="80" y="143" fill="#9aa0a8" font-size="11">Ed25519 signatures on records</text>
+          <text x="80" y="161" fill="#9aa0a8" font-size="11">IPFS CIDs for photos / video</text>
+
+          <rect x="345" y="76" width="270" height="100" rx="10" fill="rgba(8,9,12,0.5)" stroke="rgba(255,255,255,0.08)"/>
+          <text x="365" y="100" font-weight="600">hey-messenger</text>
+          <text x="365" y="125" fill="#9aa0a8" font-size="11">DMs + channels + workspaces</text>
+          <text x="365" y="143" fill="#9aa0a8" font-size="11">PQ-hybrid E2E (X25519 + ML-KEM)</text>
+          <text x="365" y="161" fill="#9aa0a8" font-size="11">iroh-blobs attachments</text>
+
+          <rect x="630" y="76" width="290" height="100" rx="10" fill="rgba(110,231,162,0.10)" stroke="rgba(110,231,162,0.4)"/>
+          <text x="650" y="100" font-weight="600" fill="#6ee7a2">blobs-provider</text>
+          <text x="650" y="125" fill="#9aa0a8" font-size="11">iroh-blobs P2P file transfer</text>
+          <text x="650" y="143" fill="#9aa0a8" font-size="11">No size cap, no third-party</text>
+          <text x="650" y="161" fill="#9aa0a8" font-size="11">Direct QUIC, content-addressed</text>
+        </g>
+
+        <!-- Down arrows -->
+        <line x1="195" y1="190" x2="195" y2="235" stroke="#d4b84b" stroke-width="2" marker-end="url(#ar)" opacity="0.7"/>
+        <line x1="480" y1="190" x2="480" y2="235" stroke="#d4b84b" stroke-width="2" marker-end="url(#ar)" opacity="0.7"/>
+        <line x1="770" y1="190" x2="770" y2="235" stroke="#d4b84b" stroke-width="2" marker-end="url(#ar)" opacity="0.7"/>
+
+        <!-- Contract labels in middle band -->
+        <rect x="40" y="240" width="900" height="36" rx="6" fill="rgba(8,9,12,0.5)" stroke="rgba(212,184,75,0.3)"/>
+        <text x="490" y="263" text-anchor="middle" font-size="12" fill="#d4b84b" font-family="Menlo, monospace" letter-spacing="0.05em">
+          stable HTTP contracts only — never internals
+        </text>
+
+        <!-- Upstream layer -->
+        <rect x="40" y="296" width="900" height="180" rx="14" fill="url(#upG)" stroke="rgba(190,168,140,0.5)"/>
+        <text x="60" y="322" font-size="11" fill="#beac8d" letter-spacing="0.2em">ELASTOS RUNTIME · UPSTREAM (Elacity)</text>
+
+        <g font-family="Menlo, monospace" font-size="11">
+          <rect x="60"  y="340" width="265" height="32" rx="6" fill="rgba(8,9,12,0.5)" stroke="rgba(255,255,255,0.08)"/>
+          <text x="72" y="360" fill="#d4b84b">/api/auth/passkey/*</text>
+
+          <rect x="335" y="340" width="265" height="32" rx="6" fill="rgba(8,9,12,0.5)" stroke="rgba(255,255,255,0.08)"/>
+          <text x="347" y="360" fill="#d4b84b">/api/provider/peer/*</text>
+
+          <rect x="610" y="340" width="310" height="32" rx="6" fill="rgba(8,9,12,0.5)" stroke="rgba(255,255,255,0.08)"/>
+          <text x="622" y="360" fill="#d4b84b">/api/provider/ipfs/* &nbsp; /api/provider/did/*</text>
+
+          <rect x="60"  y="380" width="265" height="32" rx="6" fill="rgba(8,9,12,0.5)" stroke="rgba(255,255,255,0.08)"/>
+          <text x="72" y="400" fill="#d4b84b">/api/localhost/*</text>
+
+          <rect x="335" y="380" width="265" height="32" rx="6" fill="rgba(8,9,12,0.5)" stroke="rgba(255,255,255,0.08)"/>
+          <text x="347" y="400" fill="#d4b84b">/api/capability/request</text>
+
+          <rect x="610" y="380" width="310" height="32" rx="6" fill="rgba(8,9,12,0.5)" stroke="rgba(255,255,255,0.08)"/>
+          <text x="622" y="400" fill="#d4b84b">/api/apps/&lt;capsule&gt;/runtime-token</text>
+        </g>
+
+        <text x="60" y="440" font-size="11" fill="#9aa0a8" letter-spacing="0.15em">SHIPS NATIVELY WITH UPSTREAM</text>
+        <text x="60" y="460" font-size="13" fill="#c0c5cc">localhost-provider · did-provider · ipfs-provider · webspace · peer (built-in)</text>
+      </svg>
+    </div>
+
+    <div class="grid grid-2">
+      <div class="glass tight">
+        <h3 style="font-size:14px; color:var(--accent); text-transform:uppercase; letter-spacing:0.08em;">What Hey calls</h3>
+        <ul class="bullets" style="margin-top:10px;">
+          <li><code class="inline">/api/auth/passkey/*</code> — passkey signup + signin (v0.3+ stable)</li>
+          <li><code class="inline">/api/provider/peer/*</code> — Carrier gossip + DHT</li>
+          <li><code class="inline">/api/provider/blobs/*</code> — our own provider, deterministic</li>
+          <li><code class="inline">/api/provider/ipfs/*</code> — Kubo bridge</li>
+          <li><code class="inline">/api/provider/did/*</code> — DID sign / verify / resolve</li>
+          <li><code class="inline">/api/localhost/*</code> — sandboxed encrypted storage</li>
+          <li><code class="inline">/api/capability/request</code> — manifest auto-grant</li>
+        </ul>
+      </div>
+      <div class="glass tight">
+        <h3 style="font-size:14px; color:var(--accent); text-transform:uppercase; letter-spacing:0.08em;">What Hey doesn't touch</h3>
+        <ul class="bullets" style="margin-top:10px;">
+          <li>Session registry internals</li>
+          <li>Capability token format</li>
+          <li>At-rest encryption envelope schema</li>
+          <li>Principal data model</li>
+          <li>Recovery Kit format</li>
+          <li>Wallet / browser / chain-provider APIs</li>
+          <li><strong>Anything subject to vN→vN+1 churn</strong></li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- 3. HYBRID PQ ENCRYPTION -->
+<section id="crypto" class="slide reveal">
+  <div class="container">
+    <p style="margin-bottom:16px;"><span class="pill">just shipped</span></p>
+    <h2 class="section-title"><span class="num">03</span>Hybrid post-quantum E2E</h2>
+    <p class="section-lede">
+      Hey Chat DMs are encrypted with X25519 <em>and</em> ML-KEM-768
+      (NIST FIPS 203). Breaking the message requires breaking
+      <strong>both</strong> primitives. Same hybrid pattern as Signal PQXDH.
+    </p>
+
+    <div class="illus">
+      <svg viewBox="0 0 980 560" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <linearGradient id="aliceG" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stop-color="rgba(216,176,189,0.20)"/>
+            <stop offset="1" stop-color="rgba(216,176,189,0.04)"/>
+          </linearGradient>
+          <linearGradient id="bobG" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stop-color="rgba(190,168,140,0.20)"/>
+            <stop offset="1" stop-color="rgba(190,168,140,0.04)"/>
+          </linearGradient>
+          <marker id="ar2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+            <path d="M0,0 L10,5 L0,10 z" fill="#d4b84b"/>
+          </marker>
+        </defs>
+
+        <!-- Alice -->
+        <rect x="20" y="20" width="280" height="520" rx="14" fill="url(#aliceG)" stroke="rgba(216,176,189,0.5)"/>
+        <text x="160" y="46" text-anchor="middle" font-size="11" fill="#d8b0bd" letter-spacing="0.2em">ALICE — ENCRYPT</text>
+
+        <g font-family="Menlo, monospace" font-size="11" fill="#c0c5cc">
+          <rect x="40" y="68"  width="240" height="56" rx="8" fill="rgba(8,9,12,0.5)" stroke="rgba(255,255,255,0.08)"/>
+          <text x="50" y="88"  fill="#d4b84b" font-size="10">1 · fresh X25519 ephemeral</text>
+          <text x="50" y="108">(eph_sk, eph_pk) ← X25519()</text>
+
+          <rect x="40" y="136" width="240" height="68" rx="8" fill="rgba(8,9,12,0.5)" stroke="rgba(255,255,255,0.08)"/>
+          <text x="50" y="156" fill="#d4b84b" font-size="10">2 · classical DH</text>
+          <text x="50" y="176">dh_secret ←</text>
+          <text x="50" y="192">  X25519_DH(eph_sk, bob_x25519)</text>
+
+          <rect x="40" y="216" width="240" height="68" rx="8" fill="rgba(8,9,12,0.5)" stroke="rgba(255,255,255,0.08)"/>
+          <text x="50" y="236" fill="#d4b84b" font-size="10">3 · post-quantum encapsulation</text>
+          <text x="50" y="256">(kem_ct, kem_sec) ←</text>
+          <text x="50" y="272">  ML-KEM-768.encap(bob_kem)</text>
+
+          <rect x="40" y="296" width="240" height="68" rx="8" fill="rgba(8,9,12,0.5)" stroke="rgba(110,231,162,0.4)"/>
+          <text x="50" y="316" fill="#6ee7a2" font-size="10">4 · combine via HKDF</text>
+          <text x="50" y="336">key ← HKDF-SHA256(</text>
+          <text x="50" y="352">  dh_secret ‖ kem_sec)</text>
+
+          <rect x="40" y="376" width="240" height="68" rx="8" fill="rgba(8,9,12,0.5)" stroke="rgba(255,255,255,0.08)"/>
+          <text x="50" y="396" fill="#d4b84b" font-size="10">5 · symmetric encrypt</text>
+          <text x="50" y="416">ct ← ChaCha20-Poly1305(</text>
+          <text x="50" y="432">  key, nonce, msg)</text>
+
+          <rect x="40" y="456" width="240" height="56" rx="8" fill="rgba(8,9,12,0.5)" stroke="rgba(255,255,255,0.08)"/>
+          <text x="50" y="476" fill="#d4b84b" font-size="10">6 · wipe + send</text>
+          <text x="50" y="496">{eph_pk, kem_ct, nonce, ct}</text>
+        </g>
+
+        <!-- Arrow -->
+        <line x1="320" y1="280" x2="660" y2="280" stroke="#d4b84b" stroke-width="2.5" marker-end="url(#ar2)"/>
+        <text x="490" y="270" text-anchor="middle" font-size="11" fill="#d4b84b" font-family="Menlo, monospace">over Carrier</text>
+        <text x="490" y="300" text-anchor="middle" font-size="10" fill="#9aa0a8">a "harvest now, decrypt later" attacker gets nothing in 2040</text>
+
+        <g transform="translate(440, 220)">
+          <circle cx="50" cy="20" r="18" fill="rgba(212,184,75,0.18)" stroke="#d4b84b" stroke-width="1.5"/>
+          <text x="50" y="25" text-anchor="middle" font-size="10" fill="#d4b84b">iroh</text>
+        </g>
+
+        <!-- Bob -->
+        <rect x="680" y="20" width="280" height="520" rx="14" fill="url(#bobG)" stroke="rgba(190,168,140,0.5)"/>
+        <text x="820" y="46" text-anchor="middle" font-size="11" fill="#beac8d" letter-spacing="0.2em">BOB — DECRYPT</text>
+
+        <g font-family="Menlo, monospace" font-size="11" fill="#c0c5cc">
+          <rect x="700" y="68"  width="240" height="56" rx="8" fill="rgba(8,9,12,0.5)" stroke="rgba(255,255,255,0.08)"/>
+          <text x="710" y="88"  fill="#d4b84b" font-size="10">1 · recover X25519 secret</text>
+          <text x="710" y="108" font-size="10">dh_secret ← X25519_DH(bob_sk, eph_pk)</text>
+
+          <rect x="700" y="136" width="240" height="68" rx="8" fill="rgba(8,9,12,0.5)" stroke="rgba(255,255,255,0.08)"/>
+          <text x="710" y="156" fill="#d4b84b" font-size="10">2 · decapsulate PQ secret</text>
+          <text x="710" y="176">kem_sec ←</text>
+          <text x="710" y="192">  ML-KEM.decap(bob_kem_sk, kem_ct)</text>
+
+          <rect x="700" y="216" width="240" height="68" rx="8" fill="rgba(8,9,12,0.5)" stroke="rgba(110,231,162,0.4)"/>
+          <text x="710" y="236" fill="#6ee7a2" font-size="10">3 · derive shared key (same HKDF)</text>
+          <text x="710" y="256">key ← HKDF-SHA256(</text>
+          <text x="710" y="272">  dh_secret ‖ kem_sec)</text>
+
+          <rect x="700" y="296" width="240" height="68" rx="8" fill="rgba(8,9,12,0.5)" stroke="rgba(255,255,255,0.08)"/>
+          <text x="710" y="316" fill="#d4b84b" font-size="10">4 · decrypt</text>
+          <text x="710" y="336">msg ← ChaCha20-Poly1305-Open(</text>
+          <text x="710" y="352">  key, nonce, ct)</text>
+
+          <rect x="700" y="376" width="240" height="68" rx="8" fill="rgba(8,9,12,0.5)" stroke="rgba(216,176,189,0.4)"/>
+          <text x="710" y="396" fill="#d8b0bd" font-size="10">security</text>
+          <text x="710" y="416" font-size="10">break X25519 only → need ML-KEM</text>
+          <text x="710" y="432" font-size="10">break ML-KEM only → need X25519</text>
+
+          <rect x="700" y="456" width="240" height="56" rx="8" fill="rgba(8,9,12,0.5)" stroke="rgba(212,184,75,0.4)"/>
+          <text x="710" y="476" fill="#d4b84b" font-size="10">forward secrecy</text>
+          <text x="710" y="496" font-size="10">eph_sk is fresh per message</text>
+        </g>
+      </svg>
+    </div>
+
+    <div class="grid grid-2">
+      <div class="glass tight">
+        <h3 style="font-size:14px; color:var(--accent); text-transform:uppercase; letter-spacing:0.08em;">Where the keys come from</h3>
+        <p style="color:var(--soft); font-size:13px; margin-top:6px;">
+          From the user's passkey via the WebAuthn PRF extension. Same 32-byte
+          PRF output deterministically derives the X25519 keypair AND the
+          ML-KEM-768 keypair AND the Ed25519 signing keypair. One passkey
+          tap → three keypairs. Lose the passkey, keep the recovery key, get
+          the same three again.
+        </p>
+      </div>
+      <div class="glass tight">
+        <h3 style="font-size:14px; color:var(--accent); text-transform:uppercase; letter-spacing:0.08em;">Public-key discovery</h3>
+        <p style="color:var(--soft); font-size:13px; margin-top:6px;">
+          Each peer publishes a self-signed bundle to a profile topic
+          <code class="inline">hey-msg/v0/profile/&lt;did&gt;</code> with
+          their X25519 + KEM pubkeys. Recipients fetch + verify the
+          Ed25519 signature, then cache. First DM to someone takes
+          ~250 ms; subsequent ones use the cache.
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- 4. TOPICS -->
+<section id="topics" class="slide reveal">
+  <div class="container">
+    <h2 class="section-title"><span class="num">04</span>Topic addressing</h2>
+    <p class="section-lede">
+      Carrier delivers pubsub on opaque topic ids. Hey decides how those
+      ids encode messaging semantics — DM pairs, channels, profiles. The
+      runtime never sees the structure.
+    </p>
+
+    <table class="spec">
+      <thead>
+        <tr><th style="width:30%">Purpose</th><th>Topic string</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>DM between two peers</strong></td>
+          <td><code class="inline">hey-msg/v0/dm/&lt;sorted-didA&gt;::&lt;sorted-didB&gt;</code><br/>
+            <span style="color:var(--muted); font-size:12px;">DIDs are sorted lexicographically so order doesn't matter — both peers compute the same string deterministically.</span></td>
+        </tr>
+        <tr>
+          <td><strong>Channel message</strong></td>
+          <td><code class="inline">hey-msg/v0/ws/&lt;workspaceId&gt;/ch/&lt;channelId&gt;/msg</code></td>
+        </tr>
+        <tr>
+          <td><strong>Profile bundle</strong></td>
+          <td><code class="inline">hey-msg/v0/profile/&lt;did&gt;</code><br/>
+            <span style="color:var(--muted); font-size:12px;">Self-signed X25519 + KEM pubkey advertisement. Subscribed-to by anyone who wants to DM that DID.</span></td>
+        </tr>
+        <tr>
+          <td><strong>Global feed (Hey Social)</strong></td>
+          <td><code class="inline">hey-v0/posts/global</code><br/>
+            <span style="color:var(--muted); font-size:12px;">Public posts, signed by author's didKey.</span></td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="glass" style="margin-top:24px;">
+      <h3 style="font-size:14px; color:var(--accent); text-transform:uppercase; letter-spacing:0.08em;">Metadata vs content</h3>
+      <p style="color:var(--soft); font-size:14px;">
+        Topic strings are visible to anyone joined to them. A Carrier-mesh
+        observer can see <em>that two specific DIDs are messaging each
+        other</em> and <em>when</em>. They <strong>cannot</strong> read content
+        — that's hybrid-PQ encrypted inside the message payload. This is
+        the same metadata trade-off Signal makes ("we know A is talking to
+        B but not what they said"). Full metadata privacy would need onion
+        routing layered on Carrier — not built.
+      </p>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- 5. FILE TRANSFER -->
+<section id="files" class="slide reveal">
+  <div class="container">
+    <h2 class="section-title"><span class="num">05</span>File share — iroh-blobs</h2>
+    <p class="section-lede">
+      Direct P2P transfer over holepunched QUIC. No upload step, no size
+      cap, no third-party storage. The recipient stays offline until they
+      tap the attachment — at which point Alice's box streams the bytes
+      to Bob's box.
+    </p>
+
+    <div class="sequence">
+      <div class="step"><div class="body">
+        <h4>Alice attaches a file in the composer</h4>
+        <p>Client reads the file as <code>Uint8Array</code>.</p>
+      </div></div>
+      <div class="step"><div class="body">
+        <h4>Stage locally via blobs-provider</h4>
+        <p><code>POST /api/provider/blobs/add_bytes</code> → blobs-provider hashes the bytes (BLAKE3), stores them under <code>$data_dir/blobs/</code>, returns <code>{ hash, ticket }</code>.</p>
+      </div></div>
+      <div class="step"><div class="body">
+        <h4>Encode the ticket inside the encrypted message</h4>
+        <p>Payload becomes <code>{ content: "📎 photo.jpg", attachments: [{ name, size, mime, ticket }] }</code> — the ticket is wrapped by the PQ-hybrid encryption together with the message text, so no third party can synthesize a fetch.</p>
+      </div></div>
+      <div class="step"><div class="body">
+        <h4>Send over Carrier</h4>
+        <p><code>gossip_send</code> on the DM topic. Bob's inbox poller picks it up; ChaCha20-Poly1305 decrypt; ticket recovered.</p>
+      </div></div>
+      <div class="step"><div class="body">
+        <h4>Bob taps "download"</h4>
+        <p><code>POST /api/provider/blobs/fetch { ticket, dest }</code> → blobs-provider dials Alice's iroh node using the ticket's bootstrap hints, holepunched QUIC connects, bytes flow direct Alice→Bob, write to <code>$data_dir/blobs/</code>.</p>
+      </div></div>
+      <div class="step"><div class="body">
+        <h4>Render</h4>
+        <p>UI streams the bytes from local disk — image preview / video player / opens with the OS handler.</p>
+      </div></div>
+    </div>
+
+    <div class="glass" style="margin-top:24px;">
+      <h3 style="font-size:14px; color:var(--accent); text-transform:uppercase; letter-spacing:0.08em;">Why we own this provider</h3>
+      <p style="color:var(--soft); font-size:14px;">
+        Upstream ships <code class="inline">ipfs-provider</code> but no
+        iroh-blobs provider. IPFS works for public content (photos, posts)
+        but is wrong for E2E DM attachments — IPFS bytes are content-
+        addressed-but-public, so anyone holding the CID can fetch.
+        iroh-blobs is gated by the ticket (a self-contained dial string)
+        which we embed inside the encrypted payload — only the recipient
+        ever sees it.
+      </p>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- 6. DISTRIBUTION -->
+<section id="distribute" class="slide reveal">
+  <div class="container">
+    <h2 class="section-title"><span class="num">06</span>Distribution paths</h2>
+    <p class="section-lede">
+      The pack ships as a standalone unit. Three installation paths cover
+      every operator scenario.
+    </p>
+
+    <div class="grid grid-3">
+      <div class="glass">
+        <p style="margin:0 0 12px;"><span class="pill">primary</span></p>
+        <h3>YunoHost package</h3>
+        <p style="color:var(--soft);">
+          <code class="inline">yunohost app install elastos-runtime_ynh</code> bundles
+          the upstream runtime + Hey capsule pack + frosted-glass theme +
+          systemd glue + nginx config. One command, full setup.
+        </p>
+      </div>
+      <div class="glass">
+        <p style="margin:0 0 12px;"><span class="pill neutral">standalone</span></p>
+        <h3>Drop on bare runtime</h3>
+        <p style="color:var(--soft);">
+          Operators running upstream Elastos Runtime directly can install
+          the pack with <code class="inline">install-into-runtime.sh</code> —
+          verifies upstream deps (ipfs, did, peer), builds blobs-provider,
+          copies SPA bundles, registers in components.json, restarts.
+          No YunoHost required.
+        </p>
+      </div>
+      <div class="glass">
+        <p style="margin:0 0 12px;"><span class="pill neutral">fork</span></p>
+        <h3>Custom packaging</h3>
+        <p style="color:var(--soft);">
+          The pack lives in its own git repo with no YunoHost-specific
+          code. Any operator can fork and re-package — different branding
+          (via a different theme overlay), different deployment target,
+          different SSO. Hey itself is unchanged.
+        </p>
+      </div>
+    </div>
+
+    <div class="glass" style="margin-top:24px;">
+      <h3 style="font-size:14px; color:var(--accent); text-transform:uppercase; letter-spacing:0.08em;">Frosted-glass theme</h3>
+      <p style="color:var(--soft); font-size:14px; margin-top:6px;">
+        The theme overlay is <strong>not part of the capsule pack</strong> —
+        it lives in the YunoHost package's <code class="inline">conf/</code>
+        directory and gets appended to upstream's home capsule
+        <code class="inline">style.css</code> at install time. This keeps the pack
+        100% portable: any Elastos Runtime install — themed or not, YunoHost
+        or not — accepts the pack unchanged.
+      </p>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- 7. ROADMAP -->
+<section id="future" class="slide reveal">
+  <div class="container">
+    <h2 class="section-title"><span class="num">07</span>What's next</h2>
+    <p class="section-lede">
+      Real features only — no dead UI. Each item below has a defined
+      backend hook or a stable upstream contract behind it.
+    </p>
+
+    <div class="grid">
+      <div class="glass">
+        <p><span class="pill">near-term</span></p>
+        <h3 style="margin:14px 0 8px;">Threaded replies</h3>
+        <p style="color:var(--soft); font-size:13px;">Message schema gets a <code class="inline">reply_to_id</code> field. Threads collapse under their parent. Carrier message kind unchanged.</p>
+      </div>
+      <div class="glass">
+        <p><span class="pill">near-term</span></p>
+        <h3 style="margin:14px 0 8px;">Reactions</h3>
+        <p style="color:var(--soft); font-size:13px;">New Carrier event type <code class="inline">reaction</code>, signed by reactor. UI surfaces emoji aggregation under each message.</p>
+      </div>
+      <div class="glass">
+        <p><span class="pill">mid-term</span></p>
+        <h3 style="margin:14px 0 8px;">ML-DSA-65 signatures</h3>
+        <p style="color:var(--soft); font-size:13px;">Layer Dilithium-3 alongside Ed25519 for full PQ identity (currently only encryption is PQ).</p>
+      </div>
+      <div class="glass">
+        <p><span class="pill neutral">on the table</span></p>
+        <h3 style="margin:14px 0 8px;">Voice / video DMs</h3>
+        <p style="color:var(--soft); font-size:13px;">Needs upstream's webrtc-signal-provider (in flight for v0.4+). Hey gets a thin call UI once the provider lands.</p>
+      </div>
+      <div class="glass">
+        <p><span class="pill neutral">on the table</span></p>
+        <h3 style="margin:14px 0 8px;">Workspace docs (CRDT)</h3>
+        <p style="color:var(--soft); font-size:13px;">Needs upstream's docs-provider. Hey gets a shared-doc capsule once the provider lands.</p>
+      </div>
+      <div class="glass">
+        <p><span class="pill neutral">on the table</span></p>
+        <h3 style="margin:14px 0 8px;">Pinning relays</h3>
+        <p style="color:var(--soft); font-size:13px;">Optional always-on iroh-blobs relay so attachments survive sender-offline windows. Important for group chats.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <span class="mark">Hey · Capsule Pack</span>
+  <p>Additive · portable · upstream-independent.</p>
+  <p style="margin-top:24px; opacity:0.6;">Architecture brief · 2026-05-28 · runtime pin <code class="inline">7a10d82</code></p>
+</footer>
+
+<script>
+  const io = new IntersectionObserver((entries) => {
+    entries.forEach(e => { if (e.isIntersecting) e.target.classList.add("visible"); });
+  }, { threshold: 0.15 });
+  document.querySelectorAll(".reveal").forEach(el => io.observe(el));
+</script>
+
+</body>
+</html>

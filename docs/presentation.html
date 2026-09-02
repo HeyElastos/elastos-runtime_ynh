@@ -1,0 +1,1640 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Elastos Runtime + Hey — Architecture</title>
+<style>
+  :root {
+    --bg-grad: radial-gradient(ellipse at top, #2a2f38 0%, #15171c 45%, #0a0b0e 100%);
+    --text: #f5f5f7;
+    --muted: #9aa0a8;
+    --soft: #c0c5cc;
+    --accent: #d4b84b;
+    --accent-strong: #e3cb52;
+    --accent-soft: rgba(212, 184, 75, 0.18);
+    --taupe: #beac8d;
+    --rose: #d8b0bd;
+    --emerald: #6ee7a2;
+    --danger: #f87171;
+    --glass-bg: rgba(255, 255, 255, 0.045);
+    --glass-bg-strong: rgba(255, 255, 255, 0.08);
+    --glass-border: rgba(255, 255, 255, 0.08);
+    --glass-border-strong: rgba(255, 255, 255, 0.14);
+    --shadow-deep: 0 32px 80px rgba(0, 0, 0, 0.6);
+    --shadow-mid: 0 18px 48px rgba(0, 0, 0, 0.45);
+  }
+
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    background: #0a0b0e;
+    color: var(--text);
+    font-family: -apple-system, "Segoe UI", "Inter", "Helvetica Neue", sans-serif;
+    font-weight: 400;
+    line-height: 1.6;
+    scroll-behavior: smooth;
+  }
+
+  /* Global animated backdrop */
+  body::before {
+    content: "";
+    position: fixed; inset: 0;
+    background: var(--bg-grad);
+    z-index: -2;
+  }
+  body::after {
+    content: "";
+    position: fixed; inset: 0;
+    background:
+      radial-gradient(600px circle at 18% 22%, rgba(212, 184, 75, 0.10) 0%, transparent 60%),
+      radial-gradient(700px circle at 82% 78%, rgba(190, 168, 140, 0.10) 0%, transparent 60%),
+      radial-gradient(500px circle at 50% 50%, rgba(220, 178, 192, 0.04) 0%, transparent 65%);
+    z-index: -1;
+    pointer-events: none;
+  }
+
+  /* Nav rail */
+  nav.rail {
+    position: fixed; left: 28px; top: 50%;
+    transform: translateY(-50%);
+    z-index: 100;
+    display: flex; flex-direction: column;
+    gap: 10px;
+  }
+  nav.rail a {
+    display: block;
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.18);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    transition: all 0.25s ease;
+    position: relative;
+  }
+  nav.rail a:hover { transform: scale(1.4); background: var(--accent); }
+  nav.rail a::after {
+    content: attr(data-title);
+    position: absolute;
+    left: 22px; top: 50%;
+    transform: translateY(-50%);
+    background: rgba(20, 22, 28, 0.9);
+    padding: 4px 10px;
+    border-radius: 6px;
+    border: 1px solid var(--glass-border);
+    font-size: 11px;
+    color: var(--soft);
+    white-space: nowrap;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease;
+    backdrop-filter: blur(10px);
+  }
+  nav.rail a:hover::after { opacity: 1; }
+
+  /* Slide sections */
+  section.slide {
+    min-height: 100vh;
+    padding: 80px 40px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+  }
+  section.slide.wide-content { padding: 80px 60px; }
+  .container {
+    width: 100%;
+    max-width: 1100px;
+    margin: 0 auto;
+  }
+
+  /* Hero */
+  .hero {
+    text-align: center;
+  }
+  .hero h1 {
+    font-size: clamp(48px, 6vw, 96px);
+    font-weight: 200;
+    letter-spacing: -0.03em;
+    margin: 0 0 8px;
+    line-height: 1.05;
+    background: linear-gradient(180deg, #ffffff 0%, #c9c9d1 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .hero .accent {
+    color: var(--accent);
+    font-family: "Dancing Script", "Brush Script MT", cursive;
+    font-weight: 600;
+    -webkit-text-fill-color: var(--accent);
+  }
+  .hero p.lead {
+    font-size: 20px;
+    color: var(--muted);
+    max-width: 640px;
+    margin: 20px auto 0;
+  }
+  .hero .crumbs {
+    margin-top: 56px;
+    display: flex; gap: 28px;
+    justify-content: center;
+    flex-wrap: wrap;
+    font-size: 13px;
+    color: var(--soft);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  .hero .crumbs span::before {
+    content: "·";
+    margin-right: 10px;
+    color: var(--accent);
+  }
+
+  /* Section heading */
+  h2.section-title {
+    font-size: clamp(36px, 4vw, 56px);
+    font-weight: 300;
+    letter-spacing: -0.02em;
+    margin: 0 0 12px;
+    line-height: 1.1;
+  }
+  h2.section-title .num {
+    color: var(--accent);
+    font-weight: 200;
+    margin-right: 18px;
+    font-feature-settings: "tnum";
+  }
+  p.section-lede {
+    color: var(--muted);
+    font-size: 17px;
+    max-width: 760px;
+    margin: 0 0 48px;
+  }
+
+  /* Glass card */
+  .glass {
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    border-radius: 18px;
+    backdrop-filter: blur(22px);
+    -webkit-backdrop-filter: blur(22px);
+    box-shadow: var(--shadow-mid);
+    padding: 28px;
+  }
+  .glass.tight { padding: 18px; }
+  .glass.deep { box-shadow: var(--shadow-deep); }
+
+  /* Tables (provider zoo, upgrade state) */
+  table.spec {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    border-radius: 16px;
+    overflow: hidden;
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    box-shadow: var(--shadow-mid);
+  }
+  table.spec th, table.spec td {
+    text-align: left;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--glass-border);
+    font-size: 14px;
+    vertical-align: top;
+  }
+  table.spec th {
+    color: var(--accent);
+    font-weight: 600;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    background: rgba(212, 184, 75, 0.04);
+  }
+  table.spec tr:last-child td { border-bottom: 0; }
+  table.spec tr:hover td { background: rgba(255, 255, 255, 0.02); }
+  table.spec td code { color: var(--accent); }
+
+  /* Code blocks */
+  pre.code, code.inline {
+    font-family: "JetBrains Mono", "Menlo", monospace;
+    font-size: 13px;
+  }
+  pre.code {
+    background: rgba(8, 9, 12, 0.7);
+    border: 1px solid var(--glass-border);
+    border-radius: 12px;
+    padding: 18px 22px;
+    color: var(--soft);
+    overflow-x: auto;
+    margin: 0;
+    line-height: 1.6;
+  }
+  pre.code .k { color: var(--accent); }
+  pre.code .s { color: var(--emerald); }
+  pre.code .c { color: var(--muted); font-style: italic; }
+  pre.code .n { color: var(--rose); }
+  code.inline {
+    background: rgba(8, 9, 12, 0.6);
+    padding: 2px 7px;
+    border-radius: 4px;
+    color: var(--accent);
+    border: 1px solid var(--glass-border);
+    font-size: 12px;
+  }
+
+  /* Grids */
+  .grid {
+    display: grid;
+    gap: 20px;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  }
+  .grid-2 { grid-template-columns: 1fr 1fr; }
+  @media (max-width: 720px) {
+    .grid-2 { grid-template-columns: 1fr; }
+  }
+  .grid h3 {
+    font-size: 16px;
+    margin: 0 0 8px;
+    color: var(--text);
+  }
+  .grid p {
+    color: var(--soft);
+    font-size: 14px;
+    margin: 0;
+  }
+
+  /* Big illustration container */
+  .illus {
+    margin: 36px 0 32px;
+    text-align: center;
+  }
+  .illus svg {
+    max-width: 100%;
+    height: auto;
+    filter: drop-shadow(0 18px 40px rgba(0,0,0,0.4));
+  }
+
+  /* Highlight pill */
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 12px;
+    border-radius: 999px;
+    background: var(--accent-soft);
+    border: 1px solid rgba(212, 184, 75, 0.32);
+    color: var(--accent);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+  .pill.new::before {
+    content: "";
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 8px var(--accent);
+  }
+  .pill.neutral {
+    background: rgba(255, 255, 255, 0.04);
+    border-color: var(--glass-border-strong);
+    color: var(--soft);
+  }
+
+  /* Lists in slides */
+  ul.bullets {
+    list-style: none;
+    padding: 0; margin: 0;
+  }
+  ul.bullets li {
+    position: relative;
+    padding-left: 24px;
+    margin-bottom: 12px;
+    color: var(--soft);
+    font-size: 15px;
+    line-height: 1.6;
+  }
+  ul.bullets li::before {
+    content: "";
+    position: absolute;
+    left: 4px; top: 10px;
+    width: 8px; height: 8px;
+    border: 1.5px solid var(--accent);
+    border-radius: 50%;
+  }
+  ul.bullets strong { color: var(--text); font-weight: 600; }
+
+  /* Sequence diagram styling (for crypto + signup flow) */
+  .sequence {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    counter-reset: step;
+  }
+  .sequence .step {
+    display: flex;
+    gap: 18px;
+    align-items: flex-start;
+    padding: 16px 20px;
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    border-radius: 14px;
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+  }
+  .sequence .step::before {
+    counter-increment: step;
+    content: counter(step);
+    flex: 0 0 32px;
+    width: 32px; height: 32px;
+    border-radius: 50%;
+    background: var(--accent-soft);
+    color: var(--accent);
+    border: 1px solid rgba(212, 184, 75, 0.4);
+    display: grid; place-items: center;
+    font-weight: 600;
+    font-size: 13px;
+    font-feature-settings: "tnum";
+  }
+  .sequence .step .body { flex: 1; }
+  .sequence .step h4 {
+    margin: 0 0 4px;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text);
+  }
+  .sequence .step p {
+    margin: 0;
+    font-size: 13px;
+    color: var(--muted);
+  }
+  .sequence .step code {
+    font-family: "JetBrains Mono", "Menlo", monospace;
+    color: var(--accent);
+    font-size: 12px;
+  }
+
+  /* ────────────────────────────────────────────────────────
+     App mockups — frosted "screenshot" of the real UI.
+     Used inside .illus to give each app slide a visual anchor.
+     ──────────────────────────────────────────────────────── */
+  .app-mock {
+    display: inline-flex;
+    background: rgba(8, 9, 12, 0.55);
+    border: 1px solid var(--glass-border-strong);
+    border-radius: 18px;
+    overflow: hidden;
+    box-shadow: var(--shadow-deep);
+    backdrop-filter: blur(12px);
+    text-align: left;
+    margin: 0 auto;
+    max-width: 100%;
+  }
+  .app-mock .pane {
+    padding: 14px 14px;
+    font-size: 12px;
+    color: var(--soft);
+  }
+  .app-mock .pane + .pane {
+    border-left: 1px solid var(--glass-border);
+  }
+
+  /* Messenger mockup (slide 8) — 4-pane shell */
+  .app-mock.messenger { width: 920px; min-height: 420px; }
+  .messenger .rail {
+    width: 60px;
+    padding: 18px 8px;
+    display: flex; flex-direction: column;
+    align-items: center; gap: 10px;
+    background: rgba(255,255,255,0.025);
+  }
+  .messenger .ws-tile {
+    width: 36px; height: 36px;
+    border-radius: 10px;
+    display: grid; place-items: center;
+    font-size: 13px; font-weight: 700; color: #fff;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+  }
+  .messenger .ws-tile.active {
+    box-shadow: 0 0 0 2px rgba(212,184,75,0.7), 0 4px 10px rgba(0,0,0,0.3);
+    transform: scale(1.04);
+  }
+  .messenger .ws-add {
+    width: 36px; height: 36px;
+    border: 1px dashed rgba(255,255,255,0.25);
+    border-radius: 10px;
+    display: grid; place-items: center;
+    color: var(--muted);
+  }
+  .messenger .chans {
+    width: 200px;
+    background: rgba(255,255,255,0.02);
+  }
+  .messenger .chans .head {
+    font-size: 13px; font-weight: 600; color: var(--text);
+    padding-bottom: 4px;
+    border-bottom: 1px solid var(--glass-border);
+    margin-bottom: 10px;
+  }
+  .messenger .chans .head .sub {
+    font-size: 10px; color: var(--muted); font-weight: 400;
+    margin-top: 2px;
+  }
+  .messenger .chans .label {
+    font-size: 9px; color: var(--muted);
+    letter-spacing: 0.15em; text-transform: uppercase;
+    margin: 12px 0 4px;
+  }
+  .messenger .chans .row {
+    display: flex; align-items: center; gap: 6px;
+    padding: 4px 8px;
+    border-radius: 6px;
+    font-size: 12px; color: var(--soft);
+  }
+  .messenger .chans .row.active {
+    background: rgba(212,184,75,0.12);
+    color: var(--text);
+  }
+  .messenger .chans .row .badge {
+    margin-left: auto;
+    background: var(--accent);
+    color: #1a1c20;
+    font-size: 9px; font-weight: 700;
+    padding: 1px 6px; border-radius: 999px;
+  }
+  .messenger .chans .dot {
+    width: 6px; height: 6px; border-radius: 50%;
+  }
+  .messenger .chans .dot.on  { background: #6ee7a2; }
+  .messenger .chans .dot.idle{ background: var(--accent); }
+  .messenger .chans .dot.off { background: #555; }
+  .messenger .conv {
+    flex: 1; min-width: 340px;
+    display: flex; flex-direction: column;
+    padding: 0;
+  }
+  .messenger .conv-head {
+    display: flex; align-items: center; gap: 10px;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--glass-border);
+  }
+  .messenger .conv-head .title { font-size: 14px; font-weight: 600; color: var(--text); }
+  .messenger .conv-head .sub   { font-size: 10px; color: var(--muted); }
+  .messenger .e2e-badge {
+    margin-left: auto;
+    display: inline-flex; align-items: center; gap: 4px;
+    background: rgba(110,231,162,0.14);
+    border: 1px solid rgba(110,231,162,0.4);
+    color: var(--emerald);
+    font-size: 9px; font-weight: 700;
+    letter-spacing: 0.12em; text-transform: uppercase;
+    padding: 3px 8px; border-radius: 999px;
+    animation: e2ePulse 3s ease-in-out infinite;
+  }
+  @keyframes e2ePulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(110,231,162, 0.35); }
+    50%      { box-shadow: 0 0 0 6px rgba(110,231,162, 0); }
+  }
+  .messenger .thread {
+    flex: 1;
+    padding: 14px 16px;
+    display: flex; flex-direction: column; gap: 14px;
+  }
+  .messenger .msg { display: flex; gap: 10px; }
+  .messenger .msg .avatar {
+    width: 28px; height: 28px; border-radius: 50%;
+    display: grid; place-items: center;
+    font-size: 11px; font-weight: 700; color: #fff;
+    flex-shrink: 0;
+  }
+  .messenger .msg .bubble { flex: 1; }
+  .messenger .msg .meta {
+    font-size: 11px;
+    color: var(--text);
+    margin-bottom: 2px;
+  }
+  .messenger .msg .meta .ts { color: var(--muted); margin-left: 8px; font-weight: 400; }
+  .messenger .msg .text { font-size: 12px; color: var(--soft); line-height: 1.5; }
+  .messenger .attach-pill {
+    display: inline-flex; align-items: center; gap: 8px;
+    background: rgba(255,255,255,0.05);
+    border: 1px solid var(--glass-border);
+    border-radius: 12px;
+    padding: 6px 10px;
+    margin-top: 6px;
+    font-size: 11px; color: var(--soft);
+  }
+  .messenger .attach-pill .name { color: var(--text); font-weight: 500; }
+  .messenger .attach-pill .copy {
+    border: 1px solid var(--glass-border);
+    padding: 2px 6px; border-radius: 6px;
+    font-size: 9px; color: var(--accent);
+  }
+  .messenger .msg.bob-reply { animation: bobIn 0.6s 0.4s ease-out both; }
+  @keyframes bobIn {
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .messenger .composer {
+    border-top: 1px solid var(--glass-border);
+    padding: 10px 14px;
+    display: flex; align-items: center; gap: 10px;
+    background: rgba(255,255,255,0.02);
+  }
+  .messenger .composer .clip { color: var(--muted); font-size: 14px; }
+  .messenger .composer .input {
+    flex: 1; color: var(--muted);
+    font-size: 12px;
+  }
+  .messenger .composer .send {
+    background: var(--accent); color: #1a1c20;
+    font-weight: 600; font-size: 11px;
+    padding: 4px 10px; border-radius: 6px;
+  }
+  .messenger .inspect {
+    width: 200px;
+    background: rgba(255,255,255,0.02);
+  }
+  .messenger .inspect .label {
+    font-size: 9px; color: var(--muted);
+    letter-spacing: 0.15em; text-transform: uppercase;
+    margin: 4px 0 6px;
+  }
+  .messenger .inspect .file {
+    display: flex; gap: 8px; align-items: flex-start;
+    padding: 6px 4px;
+    font-size: 11px;
+    border-radius: 6px;
+  }
+  .messenger .inspect .file .icon { font-size: 14px; }
+  .messenger .inspect .file .dim { color: var(--muted); font-size: 10px; }
+  .messenger .inspect .transport { font-size: 10px; color: var(--muted); line-height: 1.7; }
+
+  /* Hey Social mockup (slide 7) — vertical phone-frame card */
+  .app-mock.social {
+    width: 360px; min-height: 480px;
+    flex-direction: column;
+    background: rgba(8, 9, 12, 0.75);
+  }
+  .social .pane { padding: 14px 16px; }
+  .social .top {
+    display: flex; align-items: center; gap: 10px;
+    border-bottom: 1px solid var(--glass-border);
+  }
+  .social .top .brand {
+    font-family: "Dancing Script", cursive;
+    font-size: 20px; color: var(--accent);
+  }
+  .social .top .grow { flex: 1; }
+  .social .top .who { font-size: 11px; color: var(--muted); }
+  .social .composer-card {
+    margin: 12px 0;
+    padding: 14px;
+    border: 1px solid var(--glass-border-strong);
+    border-radius: 14px;
+    background: rgba(255,255,255,0.025);
+  }
+  .social .composer-card .label {
+    font-size: 10px; color: var(--muted);
+    letter-spacing: 0.12em; text-transform: uppercase;
+    margin-bottom: 8px;
+  }
+  .social .composer-card .caption {
+    font-size: 13px; color: var(--text);
+    line-height: 1.5;
+  }
+  .social .composer-card .photo {
+    aspect-ratio: 4/3;
+    border-radius: 10px;
+    margin: 10px 0;
+    background:
+      linear-gradient(135deg, rgba(212,184,75,0.55), rgba(216,176,189,0.45) 50%, rgba(190,168,140,0.55)),
+      radial-gradient(circle at 30% 40%, rgba(255,255,255,0.2), transparent 50%);
+    position: relative;
+    overflow: hidden;
+    border: 1px solid var(--glass-border);
+  }
+  .social .composer-card .photo .pin {
+    position: absolute; top: 8px; right: 8px;
+    background: rgba(8,9,12,0.7); color: var(--emerald);
+    border: 1px solid rgba(110,231,162,0.35);
+    border-radius: 999px;
+    padding: 3px 8px;
+    font-size: 9px; font-weight: 600;
+    letter-spacing: 0.1em; text-transform: uppercase;
+  }
+  .social .composer-card .cid {
+    font-family: "JetBrains Mono", "Menlo", monospace;
+    font-size: 10px; color: var(--muted);
+    background: rgba(0,0,0,0.3);
+    border-radius: 6px;
+    padding: 6px 8px;
+    margin-top: 6px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .social .composer-card .row {
+    display: flex; align-items: center; gap: 8px;
+    margin-top: 12px;
+  }
+  .social .composer-card .row .grow { flex: 1; font-size: 11px; color: var(--muted); }
+  .social .composer-card .post-btn {
+    background: var(--accent); color: #1a1c20;
+    font-weight: 600; font-size: 12px;
+    padding: 6px 14px; border-radius: 8px;
+  }
+  .social .arrow-down {
+    text-align: center;
+    color: var(--accent);
+    font-size: 18px;
+    margin: -4px 0;
+  }
+  .social .feed-card {
+    border: 1px solid var(--glass-border);
+    border-radius: 14px;
+    padding: 12px;
+    background: rgba(255,255,255,0.03);
+    animation: feedIn 0.8s 0.6s ease-out both;
+  }
+  @keyframes feedIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .social .feed-card .head-row { display: flex; gap: 8px; align-items: center; }
+  .social .feed-card .av {
+    width: 28px; height: 28px; border-radius: 50%;
+    background: linear-gradient(135deg, #d4b84b, #ea580c);
+    display: grid; place-items: center;
+    font-size: 12px; font-weight: 700; color: #fff;
+  }
+  .social .feed-card .name { font-size: 12px; font-weight: 600; color: var(--text); }
+  .social .feed-card .when { font-size: 10px; color: var(--muted); }
+  .social .feed-card .label { font-size: 9px; color: var(--emerald); margin-left: auto; }
+  .social .feed-card .thumb {
+    aspect-ratio: 4/3;
+    border-radius: 10px;
+    margin: 10px 0 6px;
+    background:
+      linear-gradient(135deg, rgba(212,184,75,0.55), rgba(216,176,189,0.45) 50%, rgba(190,168,140,0.55)),
+      radial-gradient(circle at 30% 40%, rgba(255,255,255,0.2), transparent 50%);
+    border: 1px solid var(--glass-border);
+  }
+  .social .feed-card .cap { font-size: 11px; color: var(--soft); }
+
+  /* Section divider */
+  .divider {
+    width: 100%; max-width: 1100px;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--glass-border-strong), transparent);
+    margin: 0 auto;
+  }
+
+  /* Footer */
+  footer {
+    padding: 80px 40px 60px;
+    text-align: center;
+    color: var(--muted);
+    font-size: 13px;
+    border-top: 1px solid var(--glass-border);
+  }
+  footer .mark {
+    font-family: "Dancing Script", "Brush Script MT", cursive;
+    font-size: 32px;
+    color: var(--accent);
+    font-weight: 600;
+    display: block;
+    margin-bottom: 8px;
+  }
+
+  /* Fade-in on scroll */
+  .reveal {
+    opacity: 0;
+    transform: translateY(20px);
+    transition: opacity 0.7s ease, transform 0.7s ease;
+  }
+  .reveal.visible {
+    opacity: 1;
+    transform: translateY(0);
+  }
+</style>
+</head>
+<body>
+
+<nav class="rail">
+  <a href="#hero" data-title="Overview"></a>
+  <a href="#arch" data-title="Architecture"></a>
+  <a href="#providers" data-title="Providers"></a>
+  <a href="#namespaces" data-title="Namespaces"></a>
+  <a href="#security" data-title="Security"></a>
+  <a href="#carrier" data-title="Carrier"></a>
+  <a href="#pq" data-title="Post-Quantum"></a>
+  <a href="#hey-social" data-title="Hey Social"></a>
+  <a href="#hey-chat" data-title="Hey Chat"></a>
+  <a href="#upgrade" data-title="Persistence"></a>
+  <a href="#future" data-title="Roadmap"></a>
+</nav>
+
+<!-- ============================================================
+     SLIDE 0 — HERO
+============================================================ -->
+<section id="hero" class="slide hero">
+  <div class="container">
+    <p style="font-size:11px; letter-spacing:0.3em; text-transform:uppercase; color:var(--accent); margin-bottom:24px;">
+      Architecture Brief · 2026-05-27
+    </p>
+    <h1>Elastos Runtime<br/>+ <span class="accent">Hey</span></h1>
+    <p class="lead">
+      A sovereign-by-default browser runtime. Signed capsules, explicit
+      capabilities, post-quantum E2E, peer-to-peer transport.
+      Your data lives on your box. Your identity is a passkey.
+    </p>
+    <div class="crumbs">
+      <span>Rust + axum</span>
+      <span>iroh + iroh-blobs</span>
+      <span>ML-KEM-768 hybrid</span>
+      <span>WebAuthn PRF</span>
+      <span>AES-256-GCM at rest</span>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     SLIDE 1 — ARCHITECTURE
+============================================================ -->
+<section id="arch" class="slide reveal">
+  <div class="container">
+    <h2 class="section-title"><span class="num">01</span>The runtime</h2>
+    <p class="section-lede">
+      One Rust binary, sovereign and local, brokers every sensitive operation.
+      Capsules can't open sockets, can't read disk directly, can't reach the network.
+      They ask the runtime; the runtime checks capabilities; the runtime acts.
+    </p>
+
+    <div class="illus">
+      <svg viewBox="0 0 980 540" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <linearGradient id="srvGrad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stop-color="rgba(212,184,75,0.20)"/>
+            <stop offset="1" stop-color="rgba(212,184,75,0.04)"/>
+          </linearGradient>
+          <linearGradient id="provGrad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stop-color="rgba(190,168,140,0.18)"/>
+            <stop offset="1" stop-color="rgba(190,168,140,0.04)"/>
+          </linearGradient>
+          <linearGradient id="capGrad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stop-color="rgba(216,176,189,0.18)"/>
+            <stop offset="1" stop-color="rgba(216,176,189,0.04)"/>
+          </linearGradient>
+          <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+            <path d="M0,0 L10,5 L0,10 z" fill="#d4b84b"/>
+          </marker>
+        </defs>
+
+        <!-- Browser -->
+        <rect x="40" y="40" width="900" height="80" rx="14" fill="url(#capGrad)" stroke="rgba(216,176,189,0.5)"/>
+        <text x="60" y="70" font-size="11" fill="#d8b0bd" letter-spacing="0.15em">BROWSER · NGINX (TLS) · SESSION COOKIE</text>
+        <text x="60" y="100" font-size="15" fill="#f5f5f7">User on their device</text>
+        <rect x="700" y="58" width="220" height="44" rx="8" fill="rgba(255,255,255,0.06)" stroke="rgba(255,255,255,0.14)"/>
+        <text x="710" y="85" font-size="12" fill="#c0c5cc" font-family="Menlo, monospace">/apps/&lt;capsule&gt;/</text>
+
+        <!-- Arrow down -->
+        <line x1="490" y1="120" x2="490" y2="158" stroke="#d4b84b" stroke-width="2" marker-end="url(#arrow)" opacity="0.7"/>
+        <text x="500" y="145" font-size="11" fill="#9aa0a8" font-family="Menlo, monospace">Bearer + cookie</text>
+
+        <!-- Server -->
+        <rect x="40" y="170" width="900" height="180" rx="14" fill="url(#srvGrad)" stroke="rgba(212,184,75,0.5)"/>
+        <text x="60" y="200" font-size="11" fill="#d4b84b" letter-spacing="0.15em">ELASTOS-SERVER · RUST · AXUM</text>
+        <text x="60" y="225" font-size="17" fill="#f5f5f7" font-weight="600">Auth middleware · Capability gate · Handler</text>
+
+        <!-- Server route blocks -->
+        <g font-family="Menlo, monospace" font-size="11">
+          <rect x="60"  y="248" width="200" height="34" rx="6" fill="rgba(8,9,12,0.5)" stroke="rgba(255,255,255,0.08)"/>
+          <text x="72" y="269" fill="#d4b84b">/api/localhost/*</text>
+
+          <rect x="280" y="248" width="200" height="34" rx="6" fill="rgba(8,9,12,0.5)" stroke="rgba(255,255,255,0.08)"/>
+          <text x="292" y="269" fill="#d4b84b">/api/provider/peer/*</text>
+
+          <rect x="500" y="248" width="200" height="34" rx="6" fill="rgba(8,9,12,0.5)" stroke="rgba(255,255,255,0.08)"/>
+          <text x="512" y="269" fill="#d4b84b">/api/provider/blobs/*</text>
+
+          <rect x="720" y="248" width="200" height="34" rx="6" fill="rgba(8,9,12,0.5)" stroke="rgba(255,255,255,0.08)"/>
+          <text x="732" y="269" fill="#d4b84b">/api/auth/*</text>
+
+          <rect x="60"  y="290" width="200" height="34" rx="6" fill="rgba(8,9,12,0.5)" stroke="rgba(255,255,255,0.08)"/>
+          <text x="72" y="311" fill="#d4b84b">/api/provider/ipfs/*</text>
+
+          <rect x="280" y="290" width="200" height="34" rx="6" fill="rgba(8,9,12,0.5)" stroke="rgba(255,255,255,0.08)"/>
+          <text x="292" y="311" fill="#d4b84b">/api/provider/did/*</text>
+
+          <rect x="500" y="290" width="200" height="34" rx="6" fill="rgba(8,9,12,0.5)" stroke="rgba(255,255,255,0.08)"/>
+          <text x="512" y="311" fill="#d4b84b">/api/capability/*</text>
+
+          <rect x="720" y="290" width="200" height="34" rx="6" fill="rgba(8,9,12,0.5)" stroke="rgba(255,255,255,0.08)"/>
+          <text x="732" y="311" fill="#d4b84b">/api/apps/*</text>
+        </g>
+
+        <!-- Arrow down -->
+        <line x1="280" y1="350" x2="280" y2="388" stroke="#d4b84b" stroke-width="2" marker-end="url(#arrow)" opacity="0.7"/>
+        <line x1="700" y1="350" x2="700" y2="388" stroke="#d4b84b" stroke-width="2" marker-end="url(#arrow)" opacity="0.7"/>
+
+        <!-- Providers -->
+        <rect x="40" y="400" width="430" height="120" rx="14" fill="url(#provGrad)" stroke="rgba(190,168,140,0.5)"/>
+        <text x="60" y="428" font-size="11" fill="#beac8d" letter-spacing="0.15em">PROVIDERS · NATIVE BINARIES</text>
+        <g font-size="13" fill="#f5f5f7">
+          <text x="60" y="455">localhost-provider</text>
+          <text x="60" y="478">blobs-provider</text>
+          <text x="60" y="501">ipfs-provider</text>
+          <text x="260" y="455">did-provider</text>
+          <text x="260" y="478">webspace-provider</text>
+          <text x="260" y="501">+ in-proc peer (iroh)</text>
+        </g>
+
+        <!-- Disk -->
+        <rect x="510" y="400" width="430" height="120" rx="14" fill="rgba(110,231,162,0.08)" stroke="rgba(110,231,162,0.35)"/>
+        <text x="530" y="428" font-size="11" fill="#6ee7a2" letter-spacing="0.15em">DISK · $DATA_DIR</text>
+        <g font-size="13" fill="#f5f5f7" font-family="Menlo, monospace">
+          <text x="530" y="455">capsules/</text>
+          <text x="530" y="478">blobs/        <tspan font-family="sans-serif" fill="#9aa0a8" font-size="11">iroh-blobs store</tspan></text>
+          <text x="530" y="501">xdg-data/    <tspan font-family="sans-serif" fill="#9aa0a8" font-size="11">AES-256-GCM at rest</tspan></text>
+        </g>
+      </svg>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ============================================================
+     SLIDE 2 — PROVIDERS
+============================================================ -->
+<section id="providers" class="slide reveal">
+  <div class="container">
+    <h2 class="section-title"><span class="num">02</span>The provider zoo</h2>
+    <p class="section-lede">
+      Each provider owns a slice of capability — storage, identity,
+      networking — and exposes operations the runtime brokers to capsules.
+      Some are in-process Rust modules; the rest run as separate native
+      binaries supervised by systemd.
+    </p>
+
+    <table class="spec">
+      <thead>
+        <tr><th style="width: 22%">Provider</th><th style="width: 14%">Type</th><th>What it does</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>localhost</strong><br/><span style="color:var(--muted); font-size:12px">capsules/localhost-provider</span></td>
+          <td><span class="pill neutral">binary</span></td>
+          <td>Sandboxed filesystem under <code class="inline">Users/&lt;account&gt;/.AppData/*</code>. AES-256-GCM at rest with a key generated once at install (<code class="inline">.localhost-key</code>) and never overwritten.</td>
+        </tr>
+        <tr>
+          <td><strong>did</strong><br/><span style="color:var(--muted); font-size:12px">capsules/did-provider</span></td>
+          <td><span class="pill neutral">binary</span></td>
+          <td>Ed25519 sign / verify, did:key resolution, did:web remote lookup over Carrier. Backs <code class="inline">elastos://did/*</code>.</td>
+        </tr>
+        <tr>
+          <td><strong>webspace</strong><br/><span style="color:var(--muted); font-size:12px">capsules/webspace-provider</span></td>
+          <td><span class="pill neutral">binary</span></td>
+          <td>Per-user static site hosting at <code class="inline">Users/&lt;account&gt;/MyWebSite</code>. Plaintext on purpose — served raw to the public web.</td>
+        </tr>
+        <tr>
+          <td><strong>ipfs</strong><br/><span style="color:var(--muted); font-size:12px">capsules/ipfs-provider</span></td>
+          <td><span class="pill neutral">binary</span></td>
+          <td>Bridge to a local Kubo daemon. Hey Social uses it for photo/video CIDs — content-addressed media share.</td>
+        </tr>
+        <tr>
+          <td><strong>blobs</strong><br/><span style="color:var(--muted); font-size:12px">capsules/blobs-provider</span></td>
+          <td><span class="pill new">new</span></td>
+          <td>iroh-blobs direct P2P file transfer. Holepunched QUIC, no size cap, no third-party servers. Backs Hey Chat attachments.</td>
+        </tr>
+        <tr>
+          <td><strong>peer</strong> <span style="color:var(--muted); font-size:11px">(in-process)</span></td>
+          <td><span class="pill neutral">in-proc</span></td>
+          <td>Carrier — iroh-gossip topics, mDNS + DHT discovery, holepunching + relay fallback. <code class="inline">gossip_send / recv / join / leave</code> + <code class="inline">list_peers</code>.</td>
+        </tr>
+        <tr>
+          <td><strong>shell</strong><br/><span style="color:var(--muted); font-size:12px">elastos/capsules/shell</span></td>
+          <td><span class="pill neutral">wasm</span></td>
+          <td>Always-on orchestrator capsule. Coordinates capsule launches, never user-facing.</td>
+        </tr>
+        <tr>
+          <td><strong>notepad</strong><br/><span style="color:var(--muted); font-size:12px">elastos/capsules/notepad</span></td>
+          <td><span class="pill neutral">binary</span></td>
+          <td>Reference data capsule. Demonstrates the provider IPC surface — useful for new capsule authors.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ============================================================
+     SLIDE 3 — NAMESPACES
+============================================================ -->
+<section id="namespaces" class="slide reveal">
+  <div class="container">
+    <h2 class="section-title"><span class="num">03</span>Namespaces &mdash; the URI dialect</h2>
+    <p class="section-lede">
+      Two schemes, both first-class. Every capability is scoped by a URI pattern;
+      every resource the runtime knows about has a canonical URI name.
+    </p>
+
+    <div class="grid grid-2">
+      <div class="glass">
+        <p style="margin:0 0 8px;"><span class="pill" style="background:rgba(110,231,162,0.12);border-color:rgba(110,231,162,0.4);color:var(--emerald)">localhost://</span></p>
+        <h3 style="margin: 12px 0 12px; font-size:18px;">Storage paths</h3>
+        <pre class="code"><span class="k">localhost://</span>Users/self/.AppData/<span class="n">Identity</span>/profile.json
+<span class="k">localhost://</span>Users/self/.AppData/<span class="n">LocalHost</span>/Hey/posts/&lt;id&gt;.json
+<span class="k">localhost://</span>Users/self/.AppData/<span class="n">SystemServices</span>/Shell/active.json
+<span class="k">localhost://</span>Users/self/<span class="n">MyWebSite</span>/index.html
+<span class="k">localhost://</span>Users/self/<span class="n">Public</span>/*</pre>
+        <p style="color:var(--muted); font-size:13px; margin-top:14px;">
+          Identity is shared across capsules. LocalHost is per-capsule private.
+          MyWebSite + Public are plaintext on purpose (public web hosting).
+          Everything else is encrypted at rest.
+        </p>
+      </div>
+
+      <div class="glass">
+        <p style="margin:0 0 8px;"><span class="pill" style="background:rgba(212,184,75,0.18);border-color:rgba(212,184,75,0.4);color:var(--accent)">elastos://</span></p>
+        <h3 style="margin: 12px 0 12px; font-size:18px;">Provider operations</h3>
+        <pre class="code"><span class="k">elastos://</span>peer/*              <span class="c">// Carrier gossip + DHT</span>
+<span class="k">elastos://</span>peer/hey-v0/*       <span class="c">// app-scoped topics</span>
+<span class="k">elastos://</span>blobs/*             <span class="c">// iroh-blobs transfer</span>
+<span class="k">elastos://</span>ipfs/*              <span class="c">// Kubo bridge</span>
+<span class="k">elastos://</span>did/*               <span class="c">// resolve/sign/verify</span>
+<span class="k">elastos://</span>hey-transcoder/*    <span class="c">// avif/h264 worker</span></pre>
+        <p style="color:var(--muted); font-size:13px; margin-top:14px;">
+          Token may cover a whole scheme or narrow to a specific topic.
+          The validator does bidirectional pattern matching — a manifest
+          declaring the broad pattern auto-grants the narrow request.
+        </p>
+      </div>
+    </div>
+
+    <div class="glass" style="margin-top: 24px;">
+      <h3 style="margin: 0 0 16px; font-size:16px; color:var(--accent); text-transform:uppercase; letter-spacing:0.1em; font-size:11px;">How a capsule gets access</h3>
+      <ul class="bullets">
+        <li><strong>Manifest declaration</strong> at install time — <code class="inline">capsule.json</code> lists every <code class="inline">localhost://</code> and <code class="inline">elastos://</code> pattern the capsule needs.</li>
+        <li><strong>Capability request</strong> at runtime — capsule POSTs <code class="inline">{ resource, action }</code>; runtime checks against manifest; auto-mints a token bound to <code class="inline">(session.id, resource, action)</code>.</li>
+        <li><strong>No <code class="inline">chmod 777</code> shortcut.</strong> A capsule cannot reach storage or messaging it didn't declare at install. Tokens are bearer-style with exact-action matching (read ≠ write ≠ execute).</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ============================================================
+     SLIDE 4 — SECURITY (4 perimeters)
+============================================================ -->
+<section id="security" class="slide reveal">
+  <div class="container">
+    <h2 class="section-title"><span class="num">04</span>Four security perimeters</h2>
+    <p class="section-lede">
+      Defense in depth. Each layer holds independently — break one and the
+      next still protects the user's data.
+    </p>
+
+    <div class="illus">
+      <svg viewBox="0 0 980 520" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <radialGradient id="coreGlow" cx="50%" cy="50%" r="50%">
+            <stop offset="0" stop-color="rgba(212,184,75,0.4)"/>
+            <stop offset="1" stop-color="rgba(212,184,75,0)"/>
+          </radialGradient>
+        </defs>
+        <!-- Outer ring: SSO -->
+        <circle cx="490" cy="260" r="240" fill="none" stroke="rgba(216,176,189,0.5)" stroke-width="2" stroke-dasharray="6 4"/>
+        <text x="490" y="40" text-anchor="middle" font-size="11" fill="#d8b0bd" letter-spacing="0.2em">PERIMETER 1 · NETWORK PERIMETER (TLS)</text>
+        <text x="490" y="62" text-anchor="middle" font-size="13" fill="#c0c5cc">nginx terminates TLS · the runtime decides who is allowed past</text>
+
+        <!-- Ring 2: Auth gate -->
+        <circle cx="490" cy="280" r="190" fill="none" stroke="rgba(190,168,140,0.55)" stroke-width="2" stroke-dasharray="6 4"/>
+        <text x="490" y="115" text-anchor="middle" font-size="11" fill="#beac8d" letter-spacing="0.2em">PERIMETER 2 · AUTH GATE (PreAuth → Authenticated)</text>
+        <text x="490" y="137" text-anchor="middle" font-size="13" fill="#c0c5cc">passkey signature OR PBKDF2 PIN · unlock-claim cookie</text>
+
+        <!-- Ring 3: capabilities -->
+        <circle cx="490" cy="300" r="140" fill="none" stroke="rgba(212,184,75,0.65)" stroke-width="2"/>
+        <text x="490" y="190" text-anchor="middle" font-size="11" fill="#d4b84b" letter-spacing="0.2em">PERIMETER 3 · CAPABILITY TOKENS</text>
+        <text x="490" y="212" text-anchor="middle" font-size="13" fill="#c0c5cc">(session, resource, action) — exact match · bearer-style</text>
+
+        <!-- Ring 4: encryption -->
+        <circle cx="490" cy="320" r="90" fill="url(#coreGlow)" stroke="rgba(110,231,162,0.7)" stroke-width="2"/>
+        <text x="490" y="285" text-anchor="middle" font-size="11" fill="#6ee7a2" letter-spacing="0.2em">PERIMETER 4 · AT REST</text>
+        <text x="490" y="307" text-anchor="middle" font-size="13" fill="#f5f5f7" font-weight="600">AES-256-GCM</text>
+        <text x="490" y="328" text-anchor="middle" font-size="11" fill="#c0c5cc">Users/*</text>
+
+        <!-- Labels for attack scenarios -->
+        <g font-size="11" fill="#9aa0a8">
+          <text x="40"  y="490">A stolen backup tarball: stops at #4 — ciphertext only.</text>
+          <text x="40"  y="508">A drive-by visitor (visitors mode): stops at #2 — no passkey, no unlock.</text>
+          <text x="560" y="490">A malicious capsule: stops at #3 — manifest declares the ceiling.</text>
+          <text x="560" y="508">A network sniffer: stops at #1 — TLS — and below at #4 if at rest.</text>
+        </g>
+      </svg>
+    </div>
+
+    <div class="grid">
+      <div class="glass tight">
+        <p style="margin:0 0 6px;"><span class="pill" style="background:rgba(216,176,189,0.12); border-color:rgba(216,176,189,0.4); color:var(--rose)">1 · transport</span></p>
+        <p style="color:var(--soft); font-size:13px; margin:8px 0 0;">nginx terminates TLS in front of the runtime · the daemon binds <code class="inline">127.0.0.1:3000</code> so no LAN request reaches it without going through the proxy.</p>
+      </div>
+      <div class="glass tight">
+        <p style="margin:0 0 6px;"><span class="pill" style="background:rgba(190,168,140,0.16); border-color:rgba(190,168,140,0.4); color:var(--taupe)">2 · auth gate</span></p>
+        <p style="color:var(--soft); font-size:13px; margin:8px 0 0;">Every session starts in PreAuth · storage/provider calls 401 · graduates only via passkey signature or PBKDF2 PIN · HMAC-signed cookie carries the proof across capsules.</p>
+      </div>
+      <div class="glass tight">
+        <p style="margin:0 0 6px;"><span class="pill">3 · capabilities</span></p>
+        <p style="color:var(--soft); font-size:13px; margin:8px 0 0;">Per-(session, resource, action) tokens · bounded by the capsule's declared manifest · exact-action match means a read token can't write.</p>
+      </div>
+      <div class="glass tight">
+        <p style="margin:0 0 6px;"><span class="pill" style="background:rgba(110,231,162,0.12); border-color:rgba(110,231,162,0.4); color:var(--emerald)">4 · at rest</span></p>
+        <p style="color:var(--soft); font-size:13px; margin:8px 0 0;">AES-256-GCM envelope under <code class="inline">Users/*</code> · key generated once, never overwritten · backup tarball alone gives an attacker ciphertext only.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ============================================================
+     SLIDE 5 — CARRIER
+============================================================ -->
+<section id="carrier" class="slide reveal">
+  <div class="container">
+    <h2 class="section-title"><span class="num">05</span>Carrier &mdash; how messages move</h2>
+    <p class="section-lede">
+      iroh under the hood. Holepunched QUIC, mDNS for LAN, Kademlia DHT
+      for global, iroh-gossip (HyParView + Plumtree) for epidemic broadcast.
+      No central server. Direct peer paths whenever possible; relay only as fallback.
+    </p>
+
+    <div class="illus">
+      <svg viewBox="0 0 980 460" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <radialGradient id="peerGlow" cx="50%" cy="50%" r="50%">
+            <stop offset="0" stop-color="rgba(212,184,75,0.6)"/>
+            <stop offset="1" stop-color="rgba(212,184,75,0)"/>
+          </radialGradient>
+        </defs>
+        <!-- Connecting mesh lines -->
+        <g stroke="rgba(212,184,75,0.35)" stroke-width="1.5">
+          <line x1="220" y1="160" x2="490" y2="80"/>
+          <line x1="220" y1="160" x2="760" y2="160"/>
+          <line x1="220" y1="160" x2="350" y2="300"/>
+          <line x1="490" y1="80"  x2="760" y2="160"/>
+          <line x1="490" y1="80"  x2="640" y2="300"/>
+          <line x1="760" y1="160" x2="640" y2="300"/>
+          <line x1="350" y1="300" x2="640" y2="300"/>
+          <line x1="350" y1="300" x2="490" y2="400"/>
+          <line x1="640" y1="300" x2="490" y2="400"/>
+          <line x1="220" y1="160" x2="490" y2="400" stroke-dasharray="4 3" stroke="rgba(216,176,189,0.4)"/>
+        </g>
+
+        <!-- Peers -->
+        <g font-family="Menlo, monospace" font-size="10">
+          <g><circle cx="220" cy="160" r="34" fill="url(#peerGlow)" stroke="#d4b84b" stroke-width="2"/><text x="220" y="164" text-anchor="middle" fill="#f5f5f7" font-size="12">Alice</text><text x="220" y="200" text-anchor="middle" fill="#9aa0a8">box-a.local</text></g>
+          <g><circle cx="490" cy="80"  r="34" fill="url(#peerGlow)" stroke="#d4b84b" stroke-width="2"/><text x="490" y="84"  text-anchor="middle" fill="#f5f5f7" font-size="12">Bob</text><text   x="490" y="50"  text-anchor="middle" fill="#9aa0a8">box-b.local</text></g>
+          <g><circle cx="760" cy="160" r="34" fill="url(#peerGlow)" stroke="#d4b84b" stroke-width="2"/><text x="760" y="164" text-anchor="middle" fill="#f5f5f7" font-size="12">Carol</text><text x="760" y="200" text-anchor="middle" fill="#9aa0a8">box-c.local</text></g>
+          <g><circle cx="350" cy="300" r="34" fill="url(#peerGlow)" stroke="#d4b84b" stroke-width="2"/><text x="350" y="304" text-anchor="middle" fill="#f5f5f7" font-size="12">Dan</text><text   x="350" y="340" text-anchor="middle" fill="#9aa0a8">box-d.local</text></g>
+          <g><circle cx="640" cy="300" r="34" fill="url(#peerGlow)" stroke="#d4b84b" stroke-width="2"/><text x="640" y="304" text-anchor="middle" fill="#f5f5f7" font-size="12">Eve</text><text   x="640" y="340" text-anchor="middle" fill="#9aa0a8">box-e.local</text></g>
+          <g><circle cx="490" cy="400" r="24" fill="rgba(216,176,189,0.18)" stroke="#d8b0bd" stroke-width="2" stroke-dasharray="3 3"/><text x="490" y="404" text-anchor="middle" fill="#f5f5f7" font-size="11">relay</text></g>
+        </g>
+
+        <!-- Topic label -->
+        <rect x="370" y="200" width="240" height="40" rx="20" fill="rgba(8,9,12,0.7)" stroke="rgba(212,184,75,0.5)"/>
+        <text x="490" y="217" text-anchor="middle" font-size="10" fill="#d4b84b" letter-spacing="0.18em">TOPIC · BLAKE3("hey-v0/posts/global")</text>
+        <text x="490" y="232" text-anchor="middle" font-size="11" fill="#9aa0a8" font-family="Menlo, monospace">iroh-gossip epidemic flood</text>
+      </svg>
+    </div>
+
+    <div class="grid">
+      <div class="glass tight">
+        <h3 style="font-size:14px; color:var(--accent); text-transform:uppercase; letter-spacing:0.08em;">Topics</h3>
+        <p style="color:var(--soft); font-size:13px; margin:6px 0 0;">
+          32-byte ids, usually <code class="inline">BLAKE3("&lt;app&gt;/&lt;purpose&gt;/&lt;scope&gt;")</code>.
+          No central registry. DMs use a deterministic topic id from the sorted DID pair.
+        </p>
+      </div>
+      <div class="glass tight">
+        <h3 style="font-size:14px; color:var(--accent); text-transform:uppercase; letter-spacing:0.08em;">Discovery</h3>
+        <p style="color:var(--soft); font-size:13px; margin:6px 0 0;">
+          mDNS on LAN (instant), Kademlia DHT globally, address-lookup-mdns
+          to bypass the DHT when you're on the same network.
+        </p>
+      </div>
+      <div class="glass tight">
+        <h3 style="font-size:14px; color:var(--accent); text-transform:uppercase; letter-spacing:0.08em;">Connectivity</h3>
+        <p style="color:var(--soft); font-size:13px; margin:6px 0 0;">
+          Direct UDP → STUN holepunching → iroh-relay fallback only when
+          symmetric / CGNAT blocks holepunching.
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ============================================================
+     SLIDE 6 — POST-QUANTUM CRYPTO
+============================================================ -->
+<section id="pq" class="slide reveal">
+  <div class="container">
+    <p style="margin-bottom:16px;"><span class="pill new">just shipped</span></p>
+    <h2 class="section-title"><span class="num">06</span>Hybrid post-quantum E2E</h2>
+    <p class="section-lede">
+      DMs in Hey Chat are encrypted with X25519 <em>and</em> ML-KEM-768 (NIST FIPS 203,
+      formerly Kyber-768). Breaking the message requires breaking
+      <strong>both</strong> primitives. Forward-secret per message.
+      Same hybrid pattern as Signal's PQXDH and the NIST transition guidance.
+    </p>
+
+    <div class="illus">
+      <svg viewBox="0 0 980 560" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <linearGradient id="aliceBox" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stop-color="rgba(216,176,189,0.20)"/>
+            <stop offset="1" stop-color="rgba(216,176,189,0.06)"/>
+          </linearGradient>
+          <linearGradient id="bobBox" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stop-color="rgba(190,168,140,0.20)"/>
+            <stop offset="1" stop-color="rgba(190,168,140,0.06)"/>
+          </linearGradient>
+          <marker id="arrow2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+            <path d="M0,0 L10,5 L0,10 z" fill="#d4b84b"/>
+          </marker>
+        </defs>
+
+        <!-- Alice -->
+        <rect x="20" y="20" width="280" height="520" rx="14" fill="url(#aliceBox)" stroke="rgba(216,176,189,0.5)"/>
+        <text x="160" y="46" text-anchor="middle" font-size="11" fill="#d8b0bd" letter-spacing="0.2em">ALICE — ENCRYPT</text>
+
+        <g font-family="Menlo, monospace" font-size="11" fill="#c0c5cc">
+          <rect x="40" y="68"  width="240" height="56" rx="8" fill="rgba(8,9,12,0.5)" stroke="rgba(255,255,255,0.08)"/>
+          <text x="50" y="88" fill="#d4b84b" font-size="10">1 · fresh X25519 ephemeral</text>
+          <text x="50" y="108">(eph_sk, eph_pk) ← X25519()</text>
+
+          <rect x="40" y="136" width="240" height="68" rx="8" fill="rgba(8,9,12,0.5)" stroke="rgba(255,255,255,0.08)"/>
+          <text x="50" y="156" fill="#d4b84b" font-size="10">2 · classical DH</text>
+          <text x="50" y="176">x25519_secret ←</text>
+          <text x="50" y="192">  X25519_DH(eph_sk, bob_x25519)</text>
+
+          <rect x="40" y="216" width="240" height="68" rx="8" fill="rgba(8,9,12,0.5)" stroke="rgba(255,255,255,0.08)"/>
+          <text x="50" y="236" fill="#d4b84b" font-size="10">3 · post-quantum encapsulation</text>
+          <text x="50" y="256">(kem_ct, kem_secret) ←</text>
+          <text x="50" y="272">  ML-KEM-768.encap(bob_kem)</text>
+
+          <rect x="40" y="296" width="240" height="68" rx="8" fill="rgba(8,9,12,0.5)" stroke="rgba(110,231,162,0.4)"/>
+          <text x="50" y="316" fill="#6ee7a2" font-size="10">4 · combine via HKDF</text>
+          <text x="50" y="336">key ← HKDF-SHA256(</text>
+          <text x="50" y="352">  x25519_secret ‖ kem_secret)</text>
+
+          <rect x="40" y="376" width="240" height="68" rx="8" fill="rgba(8,9,12,0.5)" stroke="rgba(255,255,255,0.08)"/>
+          <text x="50" y="396" fill="#d4b84b" font-size="10">5 · symmetric encrypt</text>
+          <text x="50" y="416">ct ← ChaCha20-Poly1305(</text>
+          <text x="50" y="432">  key, nonce, msg)</text>
+
+          <rect x="40" y="456" width="240" height="56" rx="8" fill="rgba(8,9,12,0.5)" stroke="rgba(255,255,255,0.08)"/>
+          <text x="50" y="476" fill="#d4b84b" font-size="10">6 · wipe + send</text>
+          <text x="50" y="496">{eph_pk, kem_ct, nonce, ct}</text>
+        </g>
+
+        <!-- Arrow -->
+        <line x1="320" y1="280" x2="660" y2="280" stroke="#d4b84b" stroke-width="2.5" marker-end="url(#arrow2)"/>
+        <text x="490" y="270" text-anchor="middle" font-size="11" fill="#d4b84b" font-family="Menlo, monospace">over Carrier</text>
+        <text x="490" y="300" text-anchor="middle" font-size="10" fill="#9aa0a8">an attacker who records this today, even with a quantum computer in 2040, cannot decrypt</text>
+
+        <!-- Carrier transport icon -->
+        <g transform="translate(440, 220)">
+          <circle cx="50" cy="20" r="18" fill="rgba(212,184,75,0.18)" stroke="#d4b84b" stroke-width="1.5"/>
+          <text x="50" y="25" text-anchor="middle" font-size="10" fill="#d4b84b">iroh</text>
+        </g>
+
+        <!-- Bob -->
+        <rect x="680" y="20" width="280" height="520" rx="14" fill="url(#bobBox)" stroke="rgba(190,168,140,0.5)"/>
+        <text x="820" y="46" text-anchor="middle" font-size="11" fill="#beac8d" letter-spacing="0.2em">BOB — DECRYPT</text>
+
+        <g font-family="Menlo, monospace" font-size="11" fill="#c0c5cc">
+          <rect x="700" y="68"  width="240" height="56" rx="8" fill="rgba(8,9,12,0.5)" stroke="rgba(255,255,255,0.08)"/>
+          <text x="710" y="88" fill="#d4b84b" font-size="10">1 · recover X25519 secret</text>
+          <text x="710" y="108">x25519_secret ←</text>
+          <text x="710" y="120" font-size="10">  X25519_DH(bob_x25519_sk, eph_pk)</text>
+
+          <rect x="700" y="136" width="240" height="68" rx="8" fill="rgba(8,9,12,0.5)" stroke="rgba(255,255,255,0.08)"/>
+          <text x="710" y="156" fill="#d4b84b" font-size="10">2 · decapsulate PQ secret</text>
+          <text x="710" y="176">kem_secret ←</text>
+          <text x="710" y="192">  ML-KEM.decap(bob_kem_sk, kem_ct)</text>
+
+          <rect x="700" y="216" width="240" height="68" rx="8" fill="rgba(8,9,12,0.5)" stroke="rgba(110,231,162,0.4)"/>
+          <text x="710" y="236" fill="#6ee7a2" font-size="10">3 · derive shared key (same HKDF)</text>
+          <text x="710" y="256">key ← HKDF-SHA256(</text>
+          <text x="710" y="272">  x25519_secret ‖ kem_secret)</text>
+
+          <rect x="700" y="296" width="240" height="68" rx="8" fill="rgba(8,9,12,0.5)" stroke="rgba(255,255,255,0.08)"/>
+          <text x="710" y="316" fill="#d4b84b" font-size="10">4 · decrypt</text>
+          <text x="710" y="336">msg ← ChaCha20-Poly1305-Open(</text>
+          <text x="710" y="352">  key, nonce, ct)</text>
+
+          <rect x="700" y="376" width="240" height="68" rx="8" fill="rgba(8,9,12,0.5)" stroke="rgba(216,176,189,0.4)"/>
+          <text x="710" y="396" fill="#d8b0bd" font-size="10">security</text>
+          <text x="710" y="416" font-size="10">break X25519 only → need ML-KEM</text>
+          <text x="710" y="432" font-size="10">break ML-KEM only → need X25519</text>
+
+          <rect x="700" y="456" width="240" height="56" rx="8" fill="rgba(8,9,12,0.5)" stroke="rgba(212,184,75,0.4)"/>
+          <text x="710" y="476" fill="#d4b84b" font-size="10">forward secrecy</text>
+          <text x="710" y="496" font-size="10">eph_sk is fresh per message</text>
+        </g>
+      </svg>
+    </div>
+
+    <div class="grid grid-2">
+      <div class="glass tight">
+        <h3 style="font-size:14px; color:var(--accent); text-transform:uppercase; letter-spacing:0.08em;">Why hybrid, not pure PQ?</h3>
+        <p style="color:var(--soft); font-size:13px; margin:6px 0 0;">
+          ML-KEM-768 in <code class="inline">@noble/post-quantum</code> is self-audited
+          only. Pure PQ would put us at the mercy of any flaw in the implementation
+          or in ML-KEM itself. Hybrid means a bug in either primitive still
+          leaves the message protected by the other.
+        </p>
+      </div>
+      <div class="glass tight">
+        <h3 style="font-size:14px; color:var(--accent); text-transform:uppercase; letter-spacing:0.08em;">What's NOT PQ yet</h3>
+        <p style="color:var(--soft); font-size:13px; margin:6px 0 0;">
+          Identity signatures (Ed25519 — for post authorship + DM auth) are still
+          classical. Future: layer ML-DSA-65 alongside. Carrier transport TLS
+          uses classical ECDH — but the PQ layer sits above it, so a transport
+          break just exposes ciphertext.
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ============================================================
+     SLIDE 7 — HEY SOCIAL FLOW
+============================================================ -->
+<section id="hey-social" class="slide reveal">
+  <div class="container">
+    <h2 class="section-title"><span class="num">07</span>Hey Social &mdash; posting a photo</h2>
+    <p class="section-lede">
+      The author's runtime is the only authoritative store. Other peers cache
+      by IPFS CID; the author can unpin to drop replication. No central
+      server ever sees the photo.
+    </p>
+
+    <div class="illus">
+      <div class="app-mock social">
+        <div class="pane top">
+          <span class="brand">Hey</span>
+          <span class="grow"></span>
+          <span class="who">@alice · did:key:z6MkA…</span>
+        </div>
+        <div class="pane" style="padding-top: 8px;">
+          <div class="composer-card">
+            <div class="label">New post</div>
+            <div class="caption">Morning light through the old window — finally got the angle right.</div>
+            <div class="photo">
+              <span class="pin">Pinned · local IPFS</span>
+            </div>
+            <div class="cid">bafybeih7y3xq2k…m4drx5ueokyfa</div>
+            <div class="row">
+              <span class="grow">Signed Ed25519 · ready to gossip</span>
+              <span class="post-btn">Post</span>
+            </div>
+          </div>
+          <div class="arrow-down">↓</div>
+          <div class="feed-card">
+            <div class="head-row">
+              <div class="av">A</div>
+              <div>
+                <div class="name">Alice</div>
+                <div class="when">just now · gossiped to 14 peers</div>
+              </div>
+              <div class="label">VERIFIED</div>
+            </div>
+            <div class="thumb"></div>
+            <div class="cap">Morning light through the old window — finally got the angle right.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="sequence">
+      <div class="step">
+        <div class="body">
+          <h4>User attaches photo in composer</h4>
+          <p>Hey Social client reads the file as <code>Uint8Array</code>.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="body">
+          <h4>Transcode to AVIF</h4>
+          <p><code>POST /api/provider/hey-transcoder/transcode_image</code> → returns size-optimised, browser-friendly bytes.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="body">
+          <h4>Pin to local IPFS</h4>
+          <p><code>POST /api/provider/ipfs/add_bytes</code> → Kubo returns CID · <code>POST /api/provider/ipfs/pin</code> · content-addressed, deduplicated globally.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="body">
+          <h4>Sign + persist record</h4>
+          <p>Build <code>{ id, author: didKey, content, mediaCids: [cid], createdAt, sig: Ed25519(seed, hash(record)) }</code> ·
+          <code>PUT /api/localhost/Users/self/.AppData/LocalHost/Hey/posts/&lt;id&gt;.json</code> · localhost-provider encrypts the envelope.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="body">
+          <h4>Broadcast over Carrier</h4>
+          <p><code>POST /api/provider/peer/gossip_send</code> on topic <code>BLAKE3("hey-v0/posts/global")</code> · iroh-gossip floods to every joined peer in seconds.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="body">
+          <h4>Other Hey instances receive</h4>
+          <p>Verify Ed25519 signature against the author's did:key · fetch photo by CID from IPFS · render in their feed.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ============================================================
+     SLIDE 8 — HEY CHAT FLOW
+============================================================ -->
+<section id="hey-chat" class="slide reveal">
+  <div class="container">
+    <p style="margin-bottom:16px;"><span class="pill new">just shipped</span></p>
+    <h2 class="section-title"><span class="num">08</span>Hey Chat &mdash; sending a DM</h2>
+    <p class="section-lede">
+      Text + file attachments. Hybrid post-quantum E2E for the text payload.
+      iroh-blobs holepunched transfer for files. Carrier routes the packet.
+    </p>
+
+    <div class="illus">
+      <div class="app-mock messenger">
+        <!-- Workspace rail -->
+        <div class="pane rail">
+          <div class="ws-tile active" style="background:linear-gradient(135deg,#f59e0b,#ea580c)">A</div>
+          <div class="ws-tile" style="background:linear-gradient(135deg,#f43f5e,#db2777)">D</div>
+          <div class="ws-tile" style="background:linear-gradient(135deg,#10b981,#0d9488)">P</div>
+          <div class="ws-add">+</div>
+        </div>
+
+        <!-- Channel list -->
+        <div class="pane chans">
+          <div class="head">
+            Acme
+            <div class="sub">5 channels · 3 DMs</div>
+          </div>
+          <div class="label">Channels</div>
+          <div class="row"><span style="color:var(--muted)">#</span> general</div>
+          <div class="row active"><span style="color:var(--muted)">#</span> engineering <span class="badge">3</span></div>
+          <div class="row"><span style="color:var(--muted)">#</span> design</div>
+          <div class="row"><span style="color:var(--muted)">#</span> random</div>
+          <div class="label">Direct messages</div>
+          <div class="row"><span class="dot on"></span> Alice Chen</div>
+          <div class="row"><span class="dot idle"></span> Bob Tanaka</div>
+          <div class="row"><span class="dot off"></span> Carol</div>
+        </div>
+
+        <!-- Conversation + composer -->
+        <div class="pane conv" style="padding: 0;">
+          <div class="conv-head">
+            <div>
+              <div class="title"># engineering</div>
+              <div class="sub">channel · 8 participants</div>
+            </div>
+            <span class="e2e-badge">🔒 E2E · PQ</span>
+          </div>
+
+          <div class="thread">
+            <div class="msg">
+              <div class="avatar" style="background:linear-gradient(135deg,#f59e0b,#ea580c)">A</div>
+              <div class="bubble">
+                <div class="meta">Alice Chen<span class="ts">10:42</span></div>
+                <div class="text">pushed the v3 spec — take a look when you get a sec</div>
+                <div class="attach-pill">
+                  <span style="font-size:14px">📄</span>
+                  <div>
+                    <div class="name">acme-v3-spec.pdf</div>
+                    <div style="font-size:10px;color:var(--muted)">240.4 MB · sent via iroh-blobs</div>
+                  </div>
+                  <span class="copy">copy ticket</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="msg bob-reply">
+              <div class="avatar" style="background:linear-gradient(135deg,#0ea5e9,#6366f1)">B</div>
+              <div class="bubble">
+                <div class="meta">Bob Tanaka<span class="ts">just now</span></div>
+                <div class="text">reading now — this kills the 100 MB upload ceiling, right?</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="composer">
+            <span class="clip">📎</span>
+            <span class="input">Message #engineering — drag files, paste, or click 📎 (no size limit)</span>
+            <span class="send">Send</span>
+          </div>
+        </div>
+
+        <!-- Inspector -->
+        <div class="pane inspect">
+          <div style="font-size:12px;font-weight:600;color:var(--text);">#engineering</div>
+          <div style="font-size:10px;color:var(--muted);margin-bottom:8px;">8 participants · 12 files</div>
+
+          <div class="label">Shared files</div>
+          <div class="file">
+            <span class="icon">📄</span>
+            <div>
+              <div style="color:var(--text);font-weight:500;font-size:11px;">acme-v3-spec.pdf</div>
+              <div class="dim">240.4 MB · from Alice</div>
+            </div>
+          </div>
+          <div class="file">
+            <span class="icon">🎬</span>
+            <div>
+              <div style="color:var(--text);font-weight:500;font-size:11px;">intro.mp4</div>
+              <div class="dim">1.2 GB · from Bob</div>
+            </div>
+          </div>
+
+          <div class="label" style="margin-top:14px;">Transport</div>
+          <div class="transport">
+            Text · Carrier gossip<br>
+            Files · iroh-blobs direct<br>
+            Calls · WebRTC + Carrier signal
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="sequence">
+      <div class="step">
+        <div class="body">
+          <h4>Resolve recipient's keys</h4>
+          <p>Look up Bob's <code>x25519_pk</code> + <code>kem_pk</code> from his published identity record · cached locally, refreshed via Carrier on miss.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="body">
+          <h4>Encrypt the text (hybrid PQ)</h4>
+          <p>X25519 ephemeral + ML-KEM-768 encapsulation → HKDF → ChaCha20-Poly1305 over the plaintext. Wire: <code>{ eph_pk, kem_ct, nonce, ct }</code>.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="body">
+          <h4>Optional: stage an attachment</h4>
+          <p>If the message carries a file: <code>POST /api/provider/blobs/add_bytes</code> · provider stores under <code>$DATA_DIR/blobs/</code> and returns an iroh-blobs ticket. Ticket goes into the encrypted payload.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="body">
+          <h4>Sign + send over Carrier</h4>
+          <p>Sign the ciphertext payload with Alice's Ed25519 seed · <code>gossip_send</code> on the deterministic DM topic <code>BLAKE3("hey-v0/dm/&lt;sortedDidPair&gt;")</code>.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="body">
+          <h4>Bob receives + decrypts</h4>
+          <p><code>gossip_recv</code> · verify signature · decrypt (hybrid PQ reverse) · render. The ciphertext on the wire is PQ-secure: a "harvest now, decrypt later" attacker gets nothing in 2040.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="body">
+          <h4>Fetch attachment (if present)</h4>
+          <p>UI shows "📎 photo.jpg · Tap to download". Tap → <code>POST /api/provider/blobs/fetch</code> with the ticket · bytes flow directly Alice→Bob over holepunched QUIC. No third-party storage, no upload step.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ============================================================
+     SLIDE 9 — UPGRADE / PERSISTENCE
+============================================================ -->
+<section id="upgrade" class="slide reveal">
+  <div class="container">
+    <h2 class="section-title"><span class="num">09</span>What survives an upgrade</h2>
+    <p class="section-lede">
+      The runtime separates code from state. The <code class="inline">$DATA_DIR</code>
+      tree (default <code class="inline">~/.local/share/elastos</code>) holds everything
+      the user owns; replacing the <code class="inline">elastos</code> binary leaves
+      it untouched. Capsule bundles refresh, identity and history do not.
+    </p>
+
+    <table class="spec">
+      <thead>
+        <tr><th>State</th><th style="width:18%">Survives?</th><th>Why</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>Encryption key</strong> <code class="inline">.localhost-key</code></td>
+          <td><span class="pill" style="background:rgba(110,231,162,0.14); color:var(--emerald); border-color:rgba(110,231,162,0.4)">yes</span></td>
+          <td>Generated once at install · install/upgrade scripts only create when missing, never overwrite</td>
+        </tr>
+        <tr>
+          <td><strong>Identity</strong> profile.json, passkey creds</td>
+          <td><span class="pill" style="background:rgba(110,231,162,0.14); color:var(--emerald); border-color:rgba(110,231,162,0.4)">yes</span></td>
+          <td>Lives in $DATA_DIR under encrypted envelope · same key decrypts after upgrade</td>
+        </tr>
+        <tr>
+          <td><strong>Hey posts, DMs, files</strong></td>
+          <td><span class="pill" style="background:rgba(110,231,162,0.14); color:var(--emerald); border-color:rgba(110,231,162,0.4)">yes</span></td>
+          <td>Per-capsule namespace under $DATA_DIR · capsule binaries refresh, user data does not</td>
+        </tr>
+        <tr>
+          <td><strong>iroh node id</strong></td>
+          <td><span class="pill" style="background:rgba(110,231,162,0.14); color:var(--emerald); border-color:rgba(110,231,162,0.4)">yes</span></td>
+          <td>Persisted in $DATA_DIR · DHT entries stay valid across restarts</td>
+        </tr>
+        <tr>
+          <td><strong>Capsule bundles</strong></td>
+          <td><span class="pill" style="background:rgba(212,184,75,0.18); color:var(--accent); border-color:rgba(212,184,75,0.4)">refreshed</span></td>
+          <td>Capsule bundles ship inside the binary release · each upgrade re-stages them into <code class="inline">$DATA_DIR/capsules/</code></td>
+        </tr>
+        <tr>
+          <td><strong>Sessions, capability tokens</strong></td>
+          <td><span class="pill" style="background:rgba(216,176,189,0.14); color:var(--rose); border-color:rgba(216,176,189,0.4)">no</span></td>
+          <td>In-memory only · browser re-handshakes automatically via cookie → bearer endpoint</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ============================================================
+     SLIDE 10 — ROADMAP
+============================================================ -->
+<section id="future" class="slide reveal">
+  <div class="container">
+    <h2 class="section-title"><span class="num">10</span>What's next</h2>
+    <p class="section-lede">
+      Shipped today is the foundation. Some natural extensions are
+      either in flight or waiting to be wired into the workspace.
+    </p>
+
+    <div class="grid">
+      <div class="glass">
+        <p><span class="pill neutral">in flight</span></p>
+        <h3 style="margin:14px 0 8px;">docs-provider</h3>
+        <p style="color:var(--soft); font-size:13px;">CRDT-backed workspace state for Hey Chat workspaces · exists in <code class="inline">hey-messenger-capsule/providers/</code> · needs Cargo workspace + install-script wiring.</p>
+      </div>
+      <div class="glass">
+        <p><span class="pill neutral">in flight</span></p>
+        <h3 style="margin:14px 0 8px;">webrtc-signal-provider</h3>
+        <p style="color:var(--soft); font-size:13px;">Voice / video calls over Carrier-mediated WebRTC signalling · same status as docs-provider.</p>
+      </div>
+      <div class="glass">
+        <p><span class="pill">on the roadmap</span></p>
+        <h3 style="margin:14px 0 8px;">ML-DSA-65 signatures</h3>
+        <p style="color:var(--soft); font-size:13px;">Layer Dilithium-3 alongside Ed25519 for full post-quantum identity, not just encryption.</p>
+      </div>
+      <div class="glass">
+        <p><span class="pill">on the roadmap</span></p>
+        <h3 style="margin:14px 0 8px;">Always-on blob relays</h3>
+        <p style="color:var(--soft); font-size:13px;">Optional pinning relays so iroh-blobs attachments survive the sender going offline · matters for group chats with offline members.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <span class="mark">Hey · Elastos</span>
+  <p>Capsules signed · capabilities explicit · execution local · identity sovereign.</p>
+  <p style="margin-top:24px; opacity:0.6;">Architecture brief · 2026-05-27 · <code class="inline">3db9856 + 6126e2a</code></p>
+</footer>
+
+<script>
+  // Reveal-on-scroll
+  const io = new IntersectionObserver((entries) => {
+    entries.forEach(e => {
+      if (e.isIntersecting) {
+        e.target.classList.add("visible");
+      }
+    });
+  }, { threshold: 0.15 });
+  document.querySelectorAll(".reveal").forEach(el => io.observe(el));
+</script>
+
+</body>
+</html>
