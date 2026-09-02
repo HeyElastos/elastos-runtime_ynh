@@ -122,8 +122,9 @@ jobs:
           for c in did-provider webspace-provider ipfs-provider; do
             cargo build --release --manifest-path "capsules/$c/Cargo.toml"
           done
-          # Hey iroh providers (release, 1.91 via per-crate rust-toolchain.toml -> cd in)
-          for c in blobs-provider identity-projection-provider peer-provider; do
+          # Hey OS-extension providers (release, 1.91 via per-crate rust-toolchain.toml).
+          # Gossip is ElastOS Carrier — do not build peer-provider.
+          for c in blobs-provider identity-projection-provider; do
             ( cd "capsules/$c" && cargo build --release )
           done
           # home-cli is still a wasm crate. home / home-gui / system / chat-room
@@ -150,7 +151,6 @@ jobs:
             target/release/ipfs-provider \
             target/release/blobs-provider \
             target/release/identity-projection-provider \
-            target/release/peer-provider \
             target/wasm32-wasip1/release/home-cli.wasm
           sha256sum "$OUT" | awk '{print $1}' > "$OUT.sha256"
           ls -lh "$OUT" "$OUT.sha256"

@@ -72,7 +72,7 @@ ensure_localhost_encryption_key
 # Re-run the same explicit component list the install used; idempotent
 # on already-installed pieces. Keep this synced with scripts/install's
 # ELASTOS_COMPONENTS list.
-UPGRADE_COMPONENTS="shell,localhost-provider,did-provider,webspace-provider,ipfs-provider,blobs-provider,identity-projection-provider,peer-provider,kubo,home,home-gui,system,chat-room,inbox,library,documents,hey-social,hey-chat"
+UPGRADE_COMPONENTS="shell,localhost-provider,did-provider,webspace-provider,ipfs-provider,blobs-provider,identity-projection-provider,kubo,home,home-gui,system,chat-room,inbox,library,documents,hey-social,hey-chat"
 # ELASTOS_COMPONENTS_MANIFEST pins which components.json `elastos setup` reads;
 # see the long note in scripts/install. Short version: we run
 # $install_dir/elastos/target/debug/elastos, which 0.6's load_manifest() treats
@@ -91,26 +91,20 @@ sudo -u "$app" \
 
 # Install native provider binaries DIRECTLY into the client bin/.
 # `setup --with` fetches NEW components over Carrier from the install's temp
-# publisher — which is torn down after install, so a brand-new provider (e.g.
-# peer-provider) times out on upgrade ("Trusted source Carrier fetch failed").
-# The binaries are right here in the build/prebuilt target tree, and they're
-# already registered in the client components.json, so copy them straight in —
-# the runtime spawns providers from bin/ on demand. This makes adding a new
-# provider work on upgrade without a live publisher.
+# publisher — which is torn down after install, so a brand-new provider times
+# out on upgrade ("Trusted source Carrier fetch failed"). Copy the built
+# binaries straight into bin/. Gossip is ElastOS Carrier, not peer-provider.
 ynh_script_progression --message="Installing native provider binaries into client bin/..." --weight=2
 CLIENT_BIN="$(elastos_home)/xdg-data/elastos/bin"
 mkdir -p "$CLIENT_BIN"
 for b in shell localhost-provider did-provider webspace-provider ipfs-provider \
-         blobs-provider identity-projection-provider peer-provider; do
+         blobs-provider identity-projection-provider; do
     src="$install_dir/elastos/target/release/$b"
     if [ -x "$src" ]; then
         install -m 0755 -o "$app" -g "$app" "$src" "$CLIENT_BIN/$b"
         echo "  installed bin/$b"
     fi
 done
-# (No components.json overwrite: peer-provider is already registered in the
-# client manifest with an empty checksum — verification is skipped for empty
-# checksums, exactly like blobs-provider, so the copied binary spawns on demand.)
 
 # Refresh every static-asset capsule's data_dir copy from the freshly
 # unpacked install_dir/capsules/ tree. The runtime serves capsules

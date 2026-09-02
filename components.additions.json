@@ -50,26 +50,6 @@
         }
       }
     },
-    "peer-provider": {
-      "install_path": "bin/peer-provider",
-      "description": "Same-runtime gossip broker backing elastos://peer/* \u2014 DM invites, follow requests, message delivery between Hey capsules on this runtime (cross-runtime is a future Boson/iroh swap behind the same op contract)",
-      "platforms": {
-        "linux-amd64": {
-          "cid": "",
-          "checksum": "",
-          "size": 0,
-          "release_path": "peer-provider-linux-amd64",
-          "install_path": "bin/peer-provider"
-        },
-        "linux-arm64": {
-          "cid": "",
-          "checksum": "",
-          "size": 0,
-          "release_path": "peer-provider-linux-arm64",
-          "install_path": "bin/peer-provider"
-        }
-      }
-    },
     "identity-projection-provider": {
       "install_path": "bin/identity-projection-provider",
       "description": "Identity projection provider — runtime-held did:key signing (whoami/sign/verify) so capsules sign via the runtime instead of a localStorage keystore",

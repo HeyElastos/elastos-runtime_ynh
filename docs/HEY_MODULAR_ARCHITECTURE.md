@@ -4,6 +4,16 @@ This document is the load-bearing constraint on every change. The goal:
 **upstream releases v0.4.0, v0.5.0, vN should be a one-line bump for us**,
 not a rewrite of Hey.
 
+**ElastOS is the OS. Hyper is a capsule on it.** The Hyper desktop WASM
+capsule (and hey-social / hey-chat) ride ElastOS providers over
+`/api/provider/<scheme>/<op>`. They do not open sockets, do not run a
+second iroh node, and do not ship a parallel OS. Gossip is the runtime's
+built-in Carrier (`elastos://peer/*`). Storage, DID, content, wallet, and
+IPFS are the runtime's providers. Hyper-owned binaries exist only as
+*scheme extensions registered into that OS* (today: `elastos://identity/*`
+for custodial PQ keys, `elastos://blobs/*` for iroh-blobs tickets) until
+upstream grows an equivalent surface.
+
 The rule has two halves:
 
 1. **We never edit upstream-owned files.**
@@ -28,13 +38,14 @@ elastos-runtime_ynh/
 │   │   library/, documents/,
 │   │   browser/, wallet/, …
 │   │
-│   ├── blobs-provider/              ← HEY CAPSULE PACK. Native provider.
-│   │                                   Talks to capsules via /api/provider/
-│   │                                   blobs/* HTTP contract. Portable to
-│   │                                   any upstream Elastos Runtime.
+│   ├── blobs-provider/              ← OS EXTENSION. Registers
+│   │                                   elastos://blobs/* on ElastOS.
+│   ├── identity-projection-provider/← OS EXTENSION. Registers
+│   │                                   elastos://identity/* (PQ keys).
+│   │                                   Not a second identity plane.
 │   │
-│   ├── hey-social/                  ← HEY CAPSULE PACK. App capsule.
-│   └── hey-chat/               ← HEY CAPSULE PACK. App capsule.
+│   ├── hey-social/, hey-chat/,      ← APP CAPSULES on ElastOS.
+│   └── hyper-desktop/                 WASM; no sockets. Call OS providers.
 │
 ├── conf/                             ← YUNOHOST PACKAGE. nginx + systemd
 │   │                                   + branding (this YunoHost install
@@ -60,10 +71,13 @@ Hey Social, Hey Messenger, and any future Hey capsule may ONLY call:
 
 | Path | Contract owner |
 |---|---|
-| `POST /api/provider/peer/*` (gossip_send/recv/join/leave, list_peers, get_ticket) | upstream — Carrier transport |
-| `POST /api/provider/blobs/*` (add_bytes, fetch, share, drop, list) | us — `capsules/blobs-provider` |
-| `POST /api/provider/ipfs/*` (add_bytes, get_bytes, pin, ls, …) | upstream — `capsules/ipfs-provider` |
-| `POST /api/provider/did/*` (resolve, sign, verify) | upstream — `capsules/did-provider` |
+| `POST /api/provider/peer/*` (gossip_send/recv/join/leave, list_peers, get_ticket) | **ElastOS Carrier** — not Hyper's peer-provider |
+| `POST /api/provider/did/*` (resolve, sign, verify) | **ElastOS** `did-provider` |
+| `POST /api/provider/content/*` (publish, fetch, unpublish) | **ElastOS** content |
+| `POST /api/provider/wallet/*` | **ElastOS** wallet |
+| `POST /api/provider/ipfs/*` (add_bytes, get_bytes, pin, ls, …) | **ElastOS** `ipfs-provider` |
+| `POST /api/provider/identity/*` (whoami, sign, PQ ECDH/KEM) | Hyper scheme **on** ElastOS until upstream holds PQ keys |
+| `POST /api/provider/blobs/*` (add_bytes, fetch, share, drop, list) | Hyper scheme **on** ElastOS until upstream has iroh-blobs tickets |
 | `GET/PUT/DELETE /api/localhost/*path` | upstream — sandboxed storage |
 | `POST /api/capability/request` | upstream — capability auto-grant |
 | `POST /api/auth/passkey/register/begin` + `/complete` | upstream — v0.3.0+ passkey signup |

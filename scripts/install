@@ -151,7 +151,7 @@ def stamp(info, data: bytes) -> None:
     info["size"] = len(data)
 
 # ── 1) NATIVE BINARIES ──
-for name in ("shell", "localhost-provider", "did-provider", "webspace-provider", "ipfs-provider", "blobs-provider", "identity-projection-provider", "peer-provider"):
+for name in ("shell", "localhost-provider", "did-provider", "webspace-provider", "ipfs-provider", "blobs-provider", "identity-projection-provider"):
     src = native_bin / name
     if not src.is_file():
         raise SystemExit(f"missing built artifact for {name}: {src}")
@@ -341,7 +341,7 @@ cp "$SOURCE_RUNTIME_DATA_DIR/components.json" "$CLIENT_HOME/xdg-data/elastos/com
 # List exactly what build_runtime_and_capsules produced + the upstream
 # capsules + Hey additives. To add wallet/browser support later, build
 # the new providers in _common.sh and add them to this list.
-ELASTOS_COMPONENTS="shell,localhost-provider,did-provider,webspace-provider,ipfs-provider,blobs-provider,identity-projection-provider,peer-provider,kubo,home,home-gui,system,chat-room,inbox,library,documents,hey-social,hey-chat"
+ELASTOS_COMPONENTS="shell,localhost-provider,did-provider,webspace-provider,ipfs-provider,blobs-provider,identity-projection-provider,kubo,home,home-gui,system,chat-room,inbox,library,documents,hey-social,hey-chat"
 # ELASTOS_COMPONENTS_MANIFEST pins which components.json `elastos setup` reads.
 # Without it 0.6 picks the WRONG one and the install dies with
 # "component 'shell' release artifact is missing checksum".
@@ -430,18 +430,15 @@ ynh_exec_as "$app" \
 #=================================================
 # Belt-and-suspenders, identical to scripts/upgrade. `setup --with` above
 # fetches providers over Carrier from the temp publisher, but that path is
-# timing-fragile and a brand-new provider (e.g. peer-provider) can miss the
-# fetch window — leaving an old/absent binary in bin/. The freshly-built
-# binaries are right here in the target tree and are registered with empty
-# checksums in the client components.json (verification is skipped for empty
-# checksums, like blobs-provider), so copy them straight into bin/. The
-# runtime spawns providers from bin/ on demand — this guarantees the exact
-# built binary is what runs, on install and upgrade alike.
+# timing-fragile and a brand-new provider can miss the fetch window —
+# leaving an old/absent binary in bin/. The freshly-built binaries are
+# right here in the target tree. Gossip is ElastOS Carrier
+# (`elastos://peer/*`), not a second peer-provider process.
 ynh_script_progression --message="Installing native provider binaries into client bin/..." --weight=2
 CLIENT_BIN="$CLIENT_HOME/xdg-data/elastos/bin"
 mkdir -p "$CLIENT_BIN"
 for b in shell localhost-provider did-provider webspace-provider ipfs-provider \
-         blobs-provider identity-projection-provider peer-provider; do
+         blobs-provider identity-projection-provider; do
     src="$install_dir/elastos/target/release/$b"
     if [ -x "$src" ]; then
         install -m 0755 -o "$app" -g "$app" "$src" "$CLIENT_BIN/$b"

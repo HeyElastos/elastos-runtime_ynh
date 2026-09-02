@@ -8,7 +8,10 @@ set -euo pipefail
 
 YNH_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 WORKDIR="${WORKDIR:-/var/home/linux/.cache/elastos-ynh-prebuilt}"
-export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$WORKDIR/target}"
+# Ignore the agent/sandbox CARGO_TARGET_DIR; this build must land on $WORKDIR
+# (the Cursor shell injects a tmp cache that can be wiped). Override with
+# ELASTOS_CARGO_TARGET_DIR if you really want a custom path.
+export CARGO_TARGET_DIR="${ELASTOS_CARGO_TARGET_DIR:-$WORKDIR/target}"
 export CARGO_INCREMENTAL="${CARGO_INCREMENTAL:-0}"
 export RUSTUP_TOOLCHAIN="${RUSTUP_TOOLCHAIN:-1.91}"
 
@@ -86,7 +89,7 @@ done
 for c in did-provider webspace-provider ipfs-provider; do
   cargo build --release --manifest-path "capsules/$c/Cargo.toml"
 done
-for c in blobs-provider identity-projection-provider peer-provider; do
+for c in blobs-provider identity-projection-provider; do
   ( cd "capsules/$c" && cargo build --release )
 done
 cargo build --release --target wasm32-wasip1 --manifest-path capsules/home-cli/Cargo.toml
@@ -104,7 +107,7 @@ rm -rf "$STAGE"
 mkdir -p "$STAGE/target/debug" "$STAGE/target/release" "$STAGE/target/wasm32-wasip1/release"
 cp -a "$ELASTOS_BIN/debug/elastos" "$STAGE/target/debug/elastos"
 for b in shell localhost-provider did-provider webspace-provider ipfs-provider \
-         blobs-provider identity-projection-provider peer-provider; do
+         blobs-provider identity-projection-provider; do
   src="$ELASTOS_BIN/release/$b"
   [ -x "$src" ] || die "missing $src"
   cp -a "$src" "$STAGE/target/release/$b"
@@ -123,7 +126,6 @@ tar -C "$STAGE" -czf "$OUT" \
   target/release/ipfs-provider \
   target/release/blobs-provider \
   target/release/identity-projection-provider \
-  target/release/peer-provider \
   target/wasm32-wasip1/release/home-cli.wasm
 sha256sum "$OUT" | awk '{print $1}' > "$OUT.sha256"
 ls -lh "$OUT" "$OUT.sha256"

@@ -139,8 +139,8 @@ PY
 # fetches + verifies sha256 from there.
 #
 # Layout in the tarball:
-#   capsules/{hey-social,hey-chat,blobs-provider,docs-provider,
-#             webrtc-signal-provider}/
+#   capsules/{hey-social,hey-chat,hyper-desktop,blobs-provider,
+#             identity-projection-provider, …}/
 #   Cargo.toml (workspace, dev convenience only — not needed at runtime)
 #   README.md  (pack docs)
 #
@@ -819,7 +819,6 @@ target/release/webspace-provider
 target/release/ipfs-provider
 target/release/blobs-provider
 target/release/identity-projection-provider
-target/release/peer-provider
 target/wasm32-wasip1/release/home-cli.wasm
 EOF
 }
@@ -1024,18 +1023,11 @@ build_runtime_and_capsules() {
             CARGO_TARGET_DIR="$install_dir/elastos/target" \
         sh -c "cd '$install_dir/capsules/identity-projection-provider' && cargo build --release"
 
-    # peer-provider: decentralized iroh-gossip node backing elastos://peer/* (DM
-    # invites, follow requests, cross-runtime message delivery). Uses iroh-gossip
-    # 0.100 / iroh 1.0.0-rc.1, so it needs rustc 1.91 like blobs-provider — `cd`
-    # into the crate dir for its rust-toolchain.toml pin. CARGO_TARGET_DIR lands
-    # the binary in the shared target/release tree. No new runtime patch — patch
-    # 0003 already authorizes the peer scheme; zero operator config (auto P2P).
-    ynh_exec_as "$app" \
-        env RUSTUP_HOME="$(rustup_root)/rustup" \
-            CARGO_HOME="$(rustup_root)/cargo" \
-            PATH="$(rustup_root)/cargo/bin:/usr/local/bin:/usr/bin:/bin" \
-            CARGO_TARGET_DIR="$install_dir/elastos/target" \
-        sh -c "cd '$install_dir/capsules/peer-provider' && cargo build --release"
+    # hyper-desktop / hey-social / hey-chat WASM talk to ElastOS Carrier
+    # (`elastos://peer/*`) over /api/provider/peer/*. Do NOT build the Hey
+    # pack's peer-provider: upstream absorbed that scheme into the in-process
+    # Carrier, which already register_sub_provider("peer"). A second iroh node
+    # would never be reached.
 
     # ── WASM capsules ──
     # home-cli: copy WASM next to capsule.json so home_cli_dir can tar both.
