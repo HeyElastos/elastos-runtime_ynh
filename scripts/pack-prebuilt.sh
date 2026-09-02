@@ -32,8 +32,6 @@ MEMBERS=(
     target/release/did-provider
     target/release/webspace-provider
     target/release/ipfs-provider
-    target/release/blobs-provider
-    target/release/identity-projection-provider
     target/wasm32-wasip1/release/home-cli.wasm
 )
 

@@ -122,11 +122,8 @@ jobs:
           for c in did-provider webspace-provider ipfs-provider; do
             cargo build --release --manifest-path "capsules/$c/Cargo.toml"
           done
-          # Hey OS-extension providers (release, 1.91 via per-crate rust-toolchain.toml).
+          # PQ identity and attachments live in the WASM capsule.
           # Gossip is ElastOS Carrier — do not build peer-provider.
-          for c in blobs-provider identity-projection-provider; do
-            ( cd "capsules/$c" && cargo build --release )
-          done
           # home-cli is still a wasm crate. home / home-gui / system / chat-room
           # are web-projection capsules in 0.6 (no Cargo.toml).
           cargo build --release --target wasm32-wasip1 \
@@ -149,8 +146,6 @@ jobs:
             target/release/did-provider \
             target/release/webspace-provider \
             target/release/ipfs-provider \
-            target/release/blobs-provider \
-            target/release/identity-projection-provider \
             target/wasm32-wasip1/release/home-cli.wasm
           sha256sum "$OUT" | awk '{print $1}' > "$OUT.sha256"
           ls -lh "$OUT" "$OUT.sha256"

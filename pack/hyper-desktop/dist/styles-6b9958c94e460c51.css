@@ -1,0 +1,922 @@
+/* Hyper — the design language, transcribed from the desktop app's ui/theme.rs.
+ *
+ * Every number here has a counterpart in that file. It is a transcription, not
+ * an interpretation: when the desktop moves a token, this moves with it, and a
+ * value that drifts is a bug in one of the two.
+ *
+ * The three rules the system rests on, unchanged from the desktop:
+ *   1. The backdrop is alive, but quiet — tone for the blur to carry, never a
+ *      colour that competes with content.
+ *   2. Depth is material, never outline. There is no border token and no
+ *      divider token, deliberately.
+ *   3. One accent per surface. If two things carry it, one of them is wrong.
+ */
+
+:root {
+  /* space — sp:: */
+  --sp-xs: 4px;
+  --sp-s: 8px;
+  --sp-m: 12px;
+  --sp-l: 16px;
+  --sp-xl: 24px;
+  --sp-xxl: 32px;
+  --sp-h1: 48px;
+  --sp-h2: 64px;
+
+  /* radius — rad::  concentric: child <= parent, always */
+  --rad-chip: 10px;
+  --rad-ctrl: 14px;
+  --rad-card: 20px;
+  --rad-plane: 28px;
+  --rad-pill: 999px;
+
+  /* type — ty::  real steps, so rank is visible instantly */
+  --ty-micro: 11px;
+  --ty-meta: 12px;
+  --ty-small: 13px;
+  --ty-body: 15px;
+  --ty-lead: 17px;
+  --ty-title: 22px;
+  --ty-display: 30px;
+  --ty-hero: 44px;
+
+  /* control ladder — ctl::  fixed heights only; a bespoke height is a bug */
+  --ctl-s: 30px;
+  --ctl-m: 38px;
+  --ctl-l: 46px;
+  --ctl-field: 46px;
+  --ctl-tap: 38px;
+
+  /* layout — lay:: */
+  --spine: 76px;
+  --list: 312px;
+  --rail: 300px;
+  --lane: 720px;
+  --card-max: 560px;
+  --gutter: 16px;
+
+  /* The bar every pane wears. BAR_H in ui/mod.rs. */
+  --bar-h: 64px;
+  /* What content under a bar needs at the top: the bar, PLUS a gap. UNDER_BAR. */
+  --under-bar: calc(var(--bar-h) + var(--sp-m));
+
+  /* accent — Gold, #E7B85A, straight from Hyper Android */
+  --accent: #e7b85a;
+  --on-accent: #1a1406;
+}
+
+/* ── dark ─────────────────────────────────────────────────────────────────
+ *
+ * Light and dark are two different products, not one with inverted values —
+ * which is why these are two blocks and not a filter.
+ */
+:root,
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  /* Near-black with a cool cast. Not #000: pure black kills the shadow
+   * language and makes every plane look like a cut-out. */
+  --base: #080a10;
+  --plane: rgba(255, 255, 255, 0.047);
+  /* Dark and mostly opaque: it must stay dark over ANY backdrop, because the
+   * ink on it is near-white. The blur still reads — colour and movement come
+   * through — but contrast no longer depends on what is underneath. */
+  --bar: rgba(13, 17, 26, 0.769);
+  --sheet: rgba(13, 17, 26, 0.957);
+  --raised: rgba(255, 255, 255, 0.071);
+  --sheen: rgba(255, 255, 255, 0.055);
+  --ink: #f3f6fb;
+  --muted: #9fb2d0;
+  --faint: #626e86;
+  --good: #78e68c;
+  --danger: #e5484d;
+  --shadow: rgba(0, 0, 0, 0.58);
+  /* Bronze · slate · deep indigo. Warm, but muted well below the gold. */
+  --aurora-a: #8a6e3c;
+  --aurora-b: #465a78;
+  --aurora-c: #3e3a6a;
+  --aurora-alpha: 0.455;
+  --blur: 34px;
+  --bar-blur: 8px;
+}
+
+/* ── light ──────────────────────────────────────────────────────────────── */
+:root[data-theme='light'] {
+  color-scheme: light;
+  /* Cool paper. Not white: white behind glass reads as paper, because there is
+   * no tone to blur. */
+  --base: #dee2ea;
+  --plane: rgba(252, 253, 255, 0.541);
+  --bar: rgba(246, 248, 252, 0.808);
+  --sheet: rgba(248, 250, 254, 0.969);
+  --raised: rgba(252, 253, 255, 0.706);
+  --sheen: rgba(255, 255, 255, 0.549);
+  --ink: #1a1f2a;
+  --muted: #566074;
+  --faint: #8b95a8;
+  --good: #1e8e5a;
+  --danger: #e5484d;
+  --shadow: rgba(0, 0, 0, 0.2);
+  --aurora-alpha: 0.227;
+  --accent: #dfac40;
+  --on-accent: #241a04;
+  --blur: 30px;
+  --bar-blur: 8px;
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme='dark']) {
+    color-scheme: light;
+    --base: #dee2ea;
+    --plane: rgba(252, 253, 255, 0.541);
+    --bar: rgba(246, 248, 252, 0.808);
+    --sheet: rgba(248, 250, 254, 0.969);
+    --raised: rgba(252, 253, 255, 0.706);
+    --sheen: rgba(255, 255, 255, 0.549);
+    --ink: #1a1f2a;
+    --muted: #566074;
+    --faint: #8b95a8;
+    --good: #1e8e5a;
+    --shadow: rgba(0, 0, 0, 0.2);
+    --aurora-alpha: 0.227;
+    --accent: #dfac40;
+    --on-accent: #241a04;
+  }
+}
+
+/* Accents: slugs match desktop ui.json / Accent::key. Gold is the default
+ * already on :root, so it has no extra block. */
+:root[data-accent='champagne'] {
+  --accent: #e8a8a0;
+  --on-accent: #1a1406;
+  --aurora-a: #966260;
+  --aurora-b: #8a745e;
+  --aurora-c: #5e4e74;
+}
+:root[data-accent='sky'] {
+  --accent: #7cb8e8;
+  --on-accent: #1a1406;
+  --aurora-a: #36628a;
+  --aurora-b: #467c88;
+  --aurora-c: #445286;
+}
+:root[data-accent='mono'] {
+  --accent: #c6cedc;
+  --on-accent: #141820;
+  --aurora-a: #3c4454;
+  --aurora-b: #4a5262;
+  --aurora-c: #323846;
+}
+:root[data-accent='violet'] {
+  --accent: #a89cee;
+  --on-accent: #1a1406;
+  --aurora-a: #5a4c8e;
+  --aurora-b: #465286;
+  --aurora-c: #745084;
+}
+:root[data-theme='light'][data-accent='champagne'] {
+  --accent: #e69e96;
+  --on-accent: #241a04;
+}
+:root[data-theme='light'][data-accent='sky'] {
+  --accent: #2c6ca8;
+  --on-accent: #fffcf4;
+}
+:root[data-theme='light'][data-accent='mono'] {
+  --accent: #2c3342;
+  --on-accent: #fffcf4;
+}
+:root[data-theme='light'][data-accent='violet'] {
+  --accent: #5a4cb0;
+  --on-accent: #fffcf4;
+}
+
+.swatches {
+  display: flex;
+  gap: var(--sp-s);
+  flex-wrap: wrap;
+  margin-top: var(--sp-s);
+}
+.swatch {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--rad-pill);
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  box-shadow: 0 0 0 2px transparent;
+}
+.swatch[aria-current='true'] {
+  box-shadow: 0 0 0 2px var(--ink);
+}
+
+.new-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-s);
+  margin: var(--sp-m) 0;
+  color: var(--accent);
+  font-size: var(--ty-micro);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.new-bar::before,
+.new-bar::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--base);
+  color: var(--ink);
+  font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font-size: var(--ty-body);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── the aurora ───────────────────────────────────────────────────────────
+ *
+ * Three soft circles at FRACTIONS of the viewport, reproducing ui/mod.rs's
+ * composition exactly: size 0.694/0.597/0.625 of the width, at (-0.153w,
+ * -0.356h), (0.625w, 0.333h) and (0.125w, 0.689h).
+ *
+ * Circles and not a broad gradient wash, for the reason the desktop learned the
+ * hard way: a radial gradient stretched to fill a cell stops being three
+ * distinct lights and becomes one flat diagonal band.
+ */
+.aurora {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  background: var(--base);
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.aurora i {
+  position: absolute;
+  display: block;
+  border-radius: 50%;
+  opacity: var(--aurora-alpha);
+}
+
+.aurora i:nth-child(1) {
+  width: 69.4vw;
+  height: 69.4vw;
+  left: -15.3vw;
+  top: -35.6vh;
+  background: radial-gradient(circle, var(--aurora-a) 0%, transparent 100%);
+}
+
+.aurora i:nth-child(2) {
+  width: 59.7vw;
+  height: 59.7vw;
+  left: 62.5vw;
+  top: 33.3vh;
+  background: radial-gradient(circle, var(--aurora-b) 0%, transparent 100%);
+}
+
+.aurora i:nth-child(3) {
+  width: 62.5vw;
+  height: 62.5vw;
+  left: 12.5vw;
+  top: 68.9vh;
+  background: radial-gradient(circle, var(--aurora-c) 0%, transparent 100%);
+}
+
+/* ── the frame ────────────────────────────────────────────────────────────
+ *
+ * Separate floating planes over the aurora, with real gaps between them. That
+ * is the structural idea of the whole shell: the gap IS the separation, which
+ * is why there is no divider token anywhere in this file.
+ */
+.frame {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  gap: var(--gutter);
+  padding: var(--gutter);
+  height: 100vh;
+}
+
+/* ── a plane ──────────────────────────────────────────────────────────────
+ *
+ * Glass: a translucent fill over a real backdrop blur, with a rim light along
+ * the top edge. The rim light is what actually sells it — without it a plane
+ * reads as a flat translucent box rather than something with an edge.
+ *
+ * `backdrop-filter` here is a genuine backdrop blur, which the Freya build
+ * cannot do: there, `.blur()` smears the element's OWN fill and blurs nothing
+ * behind it. This is the one place the capsule is straightforwardly better than
+ * the app it is copying.
+ */
+.plane {
+  position: relative;
+  border-radius: var(--rad-plane);
+  background: var(--plane);
+  backdrop-filter: blur(var(--blur));
+  -webkit-backdrop-filter: blur(var(--blur));
+  box-shadow: 0 18px 48px -6px var(--shadow);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+/* The rim light. A gradient that starts and ends transparent, so it is simply
+ * not there where the corner curves away — a flat 1px line across the full
+ * width sticks out past the radius at both ends and reads as a rule drawn on
+ * top, not as light catching an edge. */
+.plane::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  z-index: 3;
+  pointer-events: none;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--sheen) 18%,
+    var(--sheen) 82%,
+    transparent 100%
+  );
+}
+
+/* ── the spine ────────────────────────────────────────────────────────────
+ * 76pt of icons. A labelled sidebar spends 230pt of every window on six words
+ * the user learns in a day.
+ */
+.spine {
+  width: var(--spine);
+  flex: 0 0 var(--spine);
+  align-items: center;
+  padding: var(--sp-l) 0;
+  gap: var(--sp-s);
+}
+
+.spine .mark {
+  font-size: var(--ty-title);
+  line-height: 1;
+  margin-bottom: var(--sp-l);
+}
+
+.spine button {
+  width: 44px;
+  height: 44px;
+  border: 0;
+  border-radius: var(--rad-ctrl);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.spine button:hover {
+  background: var(--raised);
+  color: var(--ink);
+}
+
+.spine button[aria-current='page'] {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  color: var(--accent);
+}
+
+/* ── a pane's top bar ─────────────────────────────────────────────────────
+ *
+ * ABSOLUTE, not sticky, and the distinction is the whole point.
+ *
+ * `position: sticky` on a flex sibling that sits ABOVE the scroller does not
+ * put anything underneath it — the bar occupies its own 64px of the column and
+ * the body starts below it, so content stops at a line exactly as it did before
+ * the desktop's overlay work. It looked right in a screenshot at rest and was
+ * wrong the moment anything scrolled, which is the same illusion the desktop
+ * chased for three rounds.
+ *
+ * Taken out of the flow instead, with the body carrying --under-bar of top
+ * padding so nothing starts life hidden. z-index is the direct equivalent of
+ * the desktop's Layer::Relative(BAR_LIFT); without it the bar paints beneath
+ * the scrolling content and reads as transparent.
+ */
+.bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 2;
+  height: var(--bar-h);
+  display: flex;
+  align-items: center;
+  gap: var(--sp-s);
+  padding: 0 var(--sp-l) 0 var(--sp-xl);
+  background: var(--bar);
+  backdrop-filter: blur(var(--bar-blur));
+  -webkit-backdrop-filter: blur(var(--bar-blur));
+  border-radius: var(--rad-plane) var(--rad-plane) 0 0;
+}
+
+.bar h1 {
+  margin: 0;
+  font-size: var(--ty-title);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.bar .spring {
+  flex: 1;
+}
+
+.icon-btn {
+  width: var(--ctl-tap);
+  height: var(--ctl-tap);
+  border: 0;
+  border-radius: var(--rad-pill);
+  background: var(--raised);
+  color: var(--muted);
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  transition: color 120ms ease;
+}
+
+.icon-btn:hover {
+  color: var(--ink);
+}
+
+/* ── pane body ─────────────────────────────────────────────────────────── */
+.body {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  /* Clears the absolute bar. ONE constant, used here and nowhere else — the
+   * desktop's version of this had the bar height written in two files and they
+   * disagreed, which put the stories row on top of the first post. */
+  padding: var(--under-bar) var(--sp-xl) var(--sp-xl);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-l);
+}
+
+.body > * {
+  width: 100%;
+  max-width: var(--card-max);
+}
+
+/* ── a card ───────────────────────────────────────────────────────────────
+ * A raised surface INSIDE a plane. No blur: nesting backdrop layers is
+ * expensive and double-frosting looks muddy. Separation by tone alone.
+ */
+.card {
+  background: var(--raised);
+  border-radius: var(--rad-card);
+  padding: var(--sp-l);
+}
+
+.card h2 {
+  margin: 0 0 var(--sp-xs);
+  font-size: var(--ty-lead);
+  font-weight: 600;
+}
+
+.card p {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--ty-small);
+  line-height: 1.5;
+}
+
+/* ── the rail ─────────────────────────────────────────────────────────── */
+.rail {
+  width: var(--rail);
+  flex: 0 0 var(--rail);
+}
+
+.rail .body {
+  align-items: stretch;
+}
+
+.rail h3 {
+  margin: 0;
+  font-size: var(--ty-meta);
+  font-weight: 600;
+  color: var(--faint);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-m);
+  font-size: var(--ty-small);
+}
+
+.row span:last-child {
+  color: var(--muted);
+}
+
+/* Below the width where a rail still leaves a readable lane, it goes. The
+ * desktop collapses it at 1180 for the same reason and at the same number. */
+@media (max-width: 1180px) {
+  .rail {
+    display: none;
+  }
+}
+
+@media (max-width: 820px) {
+  .spine {
+    display: none;
+  }
+}
+
+/* ── the conversation list ────────────────────────────────────────────────
+ * A fixed-width pane beside the thread, matching the desktop's lay::LIST.
+ */
+.list-pane {
+  width: var(--list);
+  flex: 0 0 var(--list);
+}
+
+.list {
+  align-items: stretch;
+  padding: var(--under-bar) var(--sp-s) var(--sp-l);
+  gap: var(--sp-xs);
+}
+
+.list > * {
+  max-width: none;
+}
+
+.row-btn {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-m);
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  padding: var(--sp-s) var(--sp-m);
+  border-radius: var(--rad-card);
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+
+.row-btn:hover {
+  background: var(--raised);
+}
+
+/* The open conversation. Accent at low alpha rather than a filled bar: the
+ * accent marks exactly one thing per surface, and here that thing is which
+ * conversation you are in. */
+.row-btn.active {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+.avatar {
+  width: 40px;
+  height: 40px;
+  flex: 0 0 40px;
+  border-radius: var(--rad-pill);
+  background: var(--raised);
+  color: var(--muted);
+  display: grid;
+  place-items: center;
+  font-weight: 600;
+  font-size: var(--ty-small);
+}
+
+.who {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.who b {
+  font-size: var(--ty-small);
+  font-weight: 600;
+}
+
+.who i {
+  font-style: normal;
+  font-size: var(--ty-meta);
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.badge {
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: var(--rad-pill);
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: var(--ty-micro);
+  font-weight: 700;
+  display: grid;
+  place-items: center;
+}
+
+/* ── the thread ──────────────────────────────────────────────────────────
+ * Bottom-anchored: a conversation is read from its newest end, so a short
+ * thread rests on the composer instead of floating at the top of the pane.
+ */
+.thread {
+  align-items: stretch;
+  justify-content: flex-end;
+  gap: var(--sp-s);
+}
+
+.thread > * {
+  max-width: none;
+}
+
+.bubble {
+  max-width: min(72%, var(--lane));
+  align-self: flex-start;
+  background: var(--raised);
+  border-radius: var(--rad-card);
+  padding: var(--sp-s) var(--sp-m);
+  font-size: var(--ty-body);
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.bubble.mine {
+  align-self: flex-end;
+  background: color-mix(in srgb, var(--accent) 20%, var(--raised));
+}
+
+.composer {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-s);
+  padding: var(--sp-m) var(--sp-l) var(--sp-l);
+}
+
+.composer input {
+  flex: 1;
+  height: var(--ctl-field);
+  border: 0;
+  border-radius: var(--rad-pill);
+  padding: 0 var(--sp-l);
+  background: var(--raised);
+  color: var(--ink);
+  font-size: var(--ty-body);
+  font-family: inherit;
+}
+
+.composer input::placeholder {
+  color: var(--faint);
+}
+
+.composer input:focus {
+  outline: 2px solid color-mix(in srgb, var(--accent) 60%, transparent);
+  outline-offset: 0;
+}
+
+.send {
+  width: var(--ctl-l);
+  height: var(--ctl-l);
+  flex: 0 0 var(--ctl-l);
+  border: 0;
+  border-radius: var(--rad-pill);
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: var(--ty-lead);
+  cursor: pointer;
+}
+
+.chip {
+  font-size: var(--ty-micro);
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: var(--rad-pill);
+  background: var(--raised);
+  color: var(--muted);
+}
+
+.chip.good {
+  color: var(--good);
+}
+
+.empty {
+  color: var(--faint);
+  font-size: var(--ty-small);
+  text-align: center;
+  margin: var(--sp-xxl) 0;
+}
+
+/* ── a post ──────────────────────────────────────────────────────────── */
+.post {
+  background: var(--raised);
+  border-radius: var(--rad-card);
+  padding: var(--sp-l);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-m);
+}
+
+.post-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-m);
+}
+
+/* Photo first, text under it — the desktop moved to this order because a
+ * caption above the picture makes the picture the afterthought. */
+.post-media {
+  aspect-ratio: 4 / 3;
+  border-radius: var(--rad-ctrl);
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+}
+
+.post-text {
+  margin: 0;
+  font-size: var(--ty-body);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.post-foot {
+  display: flex;
+  gap: var(--sp-xl);
+  color: var(--muted);
+  font-size: var(--ty-small);
+}
+
+/* ── the identity card ────────────────────────────────────────────────────
+ * One card for the person. The desktop presented this as three settings rows
+ * once; that is how you present a preference, not how you present someone.
+ */
+.me {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-m);
+  text-align: center;
+  padding: var(--sp-xl);
+}
+
+.avatar.big {
+  width: 96px;
+  height: 96px;
+  flex: 0 0 96px;
+  font-size: var(--ty-display);
+}
+
+.me .display {
+  font-size: var(--ty-title);
+  font-weight: 700;
+}
+
+.me .key {
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  font-size: var(--ty-small);
+  color: var(--muted);
+}
+
+.me .bio {
+  font-size: var(--ty-body);
+  color: var(--ink);
+}
+
+.me .note {
+  margin: 0;
+  font-size: var(--ty-meta);
+  color: var(--faint);
+  max-width: 42ch;
+}
+
+.field {
+  width: 100%;
+  height: var(--ctl-field);
+  border: 0;
+  border-radius: var(--rad-ctrl);
+  padding: 0 var(--sp-l);
+  background: var(--raised);
+  color: var(--ink);
+  font-size: var(--ty-body);
+  font-family: inherit;
+}
+
+.field::placeholder {
+  color: var(--faint);
+}
+
+.btn {
+  height: var(--ctl-m);
+  padding: 0 var(--sp-xl);
+  border: 0;
+  border-radius: var(--rad-pill);
+  background: var(--raised);
+  color: var(--ink);
+  font-size: var(--ty-small);
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.btn.primary {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.btn.ghost {
+  background: transparent;
+  color: var(--muted);
+}
+
+.btn-row {
+  display: flex;
+  gap: var(--sp-m);
+  justify-content: center;
+}
+
+.sub {
+  font-style: normal;
+  font-size: var(--ty-meta);
+  color: var(--muted);
+}
+
+.count {
+  min-width: 28px;
+  height: 24px;
+  padding: 0 var(--sp-s);
+  border-radius: var(--rad-pill);
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  color: var(--accent);
+  font-size: var(--ty-small);
+  font-weight: 700;
+  display: grid;
+  place-items: center;
+}
+
+.count.good {
+  background: color-mix(in srgb, var(--good) 20%, transparent);
+  color: var(--good);
+}
+
+/* ── an activity row ─────────────────────────────────────────────────────
+ * Unread carries the accent on its left edge and nothing else. The accent
+ * marks exactly one thing per surface, and here that thing is "new".
+ */
+.note-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-m);
+  padding: var(--sp-m) var(--sp-l);
+}
+
+.note-row.unread {
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+
+/* Calls / workspace / wallet — Skia grammar in CSS */
+.call-stage { display:flex; flex-direction:column; gap:var(--sp-m); min-height:0; }
+.stage { display:flex; flex-direction:column; gap:12px; height:100%; }
+.tiles { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:12px; flex:1; }
+.tile { position:relative; background:var(--tint, rgba(255,255,255,.06)); border-radius:18px; overflow:hidden; min-height:180px; display:flex; align-items:center; justify-content:center; }
+.tile video, .tile img { width:100%; height:100%; object-fit:cover; }
+.tile-label { position:absolute; left:10px; bottom:10px; font-size:var(--ty-small); background:rgba(0,0,0,.45); padding:4px 8px; border-radius:8px; }
+.tile-label.warn { color:#ffb4b4; }
+.call-bar { display:flex; gap:8px; flex-wrap:wrap; }
+.sheet-wrap { position:fixed; inset:0; background:rgba(0,0,0,.45); display:flex; align-items:flex-end; justify-content:center; z-index:20; }
+.sheet { width:min(520px,100%); max-height:80vh; background:var(--glass); backdrop-filter:blur(20px); border-radius:20px 20px 0 0; display:flex; flex-direction:column; }
+.sheet-scroll { overflow:auto; padding:16px; max-height:70vh; }
+.ws-cols { display:flex; flex:1; min-height:0; }
+.ws-files { border-right:1px solid rgba(255,255,255,.08); overflow:auto; min-width:160px; max-width:360px; }
+.ws-doc { flex:1; display:flex; flex-direction:column; min-width:0; }
+textarea.doc { flex:1; resize:none; background:transparent; color:inherit; border:0; padding:16px; font:inherit; line-height:1.5; min-height:220px; }
+.huddle-banner { padding:8px 16px; background:rgba(80,160,120,.2); font-size:var(--ty-small); }
+.run { display:flex; gap:10px; align-items:flex-start; margin:8px 0; }
+.run.mine { flex-direction:row-reverse; }
+.run-name { display:block; font-size:var(--ty-small); opacity:.7; }
+.composer textarea { flex:1; min-height:44px; resize:vertical; background:transparent; color:inherit; border:0; font:inherit; }
+.avatar { background:var(--tint, rgba(255,255,255,.12)); }
+
+.wallet-embed { flex:1; display:flex; flex-direction:column; min-width:0; min-height:0; padding:0; overflow:hidden; }
+.wallet-frame { flex:1; width:100%; height:100%; border:0; background:transparent; }

@@ -67,7 +67,7 @@ export ELASTOS_AUTH_GATE=1
 # immediately (`starting → exiting` in ipfs-provider.log). The runtime
 # already knows about $XDG_DATA_HOME/elastos/bin/ipfs-provider via
 # components.json / the install pipeline; spawning is its job. Same
-# pattern as did-provider, webspace-provider, blobs-provider — none of
+# pattern as did-provider, webspace-provider — none of
 # which we explicitly start here either.
 KUBO_PID=""
 

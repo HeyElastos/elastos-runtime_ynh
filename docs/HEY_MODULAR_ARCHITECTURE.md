@@ -9,10 +9,9 @@ capsule (and hey-social / hey-chat) ride ElastOS providers over
 `/api/provider/<scheme>/<op>`. They do not open sockets, do not run a
 second iroh node, and do not ship a parallel OS. Gossip is the runtime's
 built-in Carrier (`elastos://peer/*`). Storage, DID, content, wallet, and
-IPFS are the runtime's providers. Hyper-owned binaries exist only as
-*scheme extensions registered into that OS* (today: `elastos://identity/*`
-for custodial PQ keys, `elastos://blobs/*` for iroh-blobs tickets) until
-upstream grows an equivalent surface.
+IPFS are the runtime's providers. PQ keys (Ed25519, X25519, ML-KEM) live
+in the WASM capsule. Auth is ElastOS Home (`?home_token=`). The pack does
+not ship identity-projection or blobs-provider.
 
 The rule has two halves:
 
@@ -38,14 +37,9 @@ elastos-runtime_ynh/
 │   │   library/, documents/,
 │   │   browser/, wallet/, …
 │   │
-│   ├── blobs-provider/              ← OS EXTENSION. Registers
-│   │                                   elastos://blobs/* on ElastOS.
-│   ├── identity-projection-provider/← OS EXTENSION. Registers
-│   │                                   elastos://identity/* (PQ keys).
-│   │                                   Not a second identity plane.
-│   │
 │   ├── hey-social/, hey-chat/,      ← APP CAPSULES on ElastOS.
 │   └── hyper-desktop/                 WASM; no sockets. Call OS providers.
+│                                       PQ keys and capsule store live here.
 │
 ├── conf/                             ← YUNOHOST PACKAGE. nginx + systemd
 │   │                                   + branding (this YunoHost install
@@ -76,14 +70,14 @@ Hey Social, Hey Messenger, and any future Hey capsule may ONLY call:
 | `POST /api/provider/content/*` (publish, fetch, unpublish) | **ElastOS** content |
 | `POST /api/provider/wallet/*` | **ElastOS** wallet |
 | `POST /api/provider/ipfs/*` (add_bytes, get_bytes, pin, ls, …) | **ElastOS** `ipfs-provider` |
-| `POST /api/provider/identity/*` (whoami, sign, PQ ECDH/KEM) | Hyper scheme **on** ElastOS until upstream holds PQ keys |
-| `POST /api/provider/blobs/*` (add_bytes, fetch, share, drop, list) | Hyper scheme **on** ElastOS until upstream has iroh-blobs tickets |
+| Capsule-local Ed25519 / X25519 / ML-KEM | **WASM hey-core** after Home launch |
+| Attachments | **ElastOS** `content` / `ipfs` |
+| Home launch `?home_token=` + `x-elastos-home-token` | **ElastOS Home** — the capsule session |
 | `GET/PUT/DELETE /api/localhost/*path` | upstream — sandboxed storage |
 | `POST /api/capability/request` | upstream — capability auto-grant |
 | `POST /api/auth/passkey/register/begin` + `/complete` | upstream — v0.3.0+ passkey signup |
 | `POST /api/auth/passkey/authenticate/begin` + `/complete` | upstream — v0.3.0+ passkey signin |
 | `GET /api/auth/passkey/status` | upstream — has-anyone-signed-up |
-| Bearer handshake at `POST /api/apps/<capsule>/runtime-token` | upstream — cookie→bearer |
 
 ### Forbidden — these are runtime-internal and may change between versions
 
@@ -157,7 +151,7 @@ When upstream releases vN.M.0:
 #   - elastos/
 #   - All upstream-owned capsules under capsules/
 # Preserves:
-#   - capsules/{blobs-provider, hey-social, hey-chat, hey-theme}
+#   - capsules/{hey-social, hey-chat, hyper-desktop}
 #   - components.json's Hey-additive entries (re-merged)
 #   - conf/, scripts/, manifest.toml
 

@@ -131,16 +131,15 @@ PY
 # Hey capsule pack fetch
 # ────────────────────────────────────────────────────────────────────
 #
-# Pull the Hey-specific capsules (hey-social, hey-chat, and the
-# blobs/docs/webrtc-signal Rust providers) from HeyElastos/Hey-capsule.
+# Pull the Hey-specific capsules (hey-social, hey-chat, hyper-desktop)
+# from HeyElastos/Hey-capsule.
 # That repo is the canonical home for the pack; it stays YunoHost-
 # agnostic and works against any Elastos Runtime. Pin is in
 # manifest.toml's [resources.sources.hey_capsules]; ynh_setup_source
 # fetches + verifies sha256 from there.
 #
 # Layout in the tarball:
-#   capsules/{hey-social,hey-chat,hyper-desktop,blobs-provider,
-#             identity-projection-provider, …}/
+#   capsules/{hey-social,hey-chat,hyper-desktop, …}/
 #   Cargo.toml (workspace, dev convenience only — not needed at runtime)
 #   README.md  (pack docs)
 #
@@ -176,6 +175,25 @@ fetch_hey_capsules() {
 
     rm -rf "$stage_dir"
     chown -R "$app:$app" "$target_dir/capsules"
+
+    # Capsules shipped in this YunoHost package win over the GitHub pin.
+    # hyper-desktop is in the local Hey-capsules tree but not yet on the
+    # Hey-capsule GitHub pin this pack currently fetches. Overlay so a
+    # YunoHost install still gets Hyper on the dock.
+    local pkg_root overlay extra name
+    pkg_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+    overlay="$pkg_root/pack"
+    if [ -d "$overlay" ]; then
+        for extra in "$overlay"/*/; do
+            [ -d "$extra" ] || continue
+            name="$(basename "$extra")"
+            [ -f "$extra/capsule.json" ] || continue
+            ynh_script_progression --message="Overlaying $name from this package..." --weight=1
+            rm -rf "$target_dir/capsules/$name"
+            cp -r "$extra" "$target_dir/capsules/$name"
+        done
+        chown -R "$app:$app" "$target_dir/capsules"
+    fi
 }
 
 # ────────────────────────────────────────────────────────────────────
@@ -817,8 +835,6 @@ target/release/localhost-provider
 target/release/did-provider
 target/release/webspace-provider
 target/release/ipfs-provider
-target/release/blobs-provider
-target/release/identity-projection-provider
 target/wasm32-wasip1/release/home-cli.wasm
 EOF
 }
@@ -996,32 +1012,8 @@ build_runtime_and_capsules() {
         cargo_as_app build --release --manifest-path "$install_dir/capsules/$crate/Cargo.toml"
     done
 
-    # blobs-provider: iroh-blobs direct P2P file transfer for hey-chat.
-    # Pinned to its own [workspace] + rust-toolchain.toml (rustc 1.91) because
-    # iroh 1.0.0-rc.1 / iroh-blobs 0.102 need a newer toolchain than the rest
-    # of the runtime. rustup discovers rust-toolchain.toml by walking up from
-    # cargo's CWD, NOT from --manifest-path — so we must `cd` into the crate
-    # dir for the toolchain pin to take effect. CARGO_TARGET_DIR is exported
-    # by cargo_as_app, so the output still lands in the shared target/release
-    # tree alongside the other capsule binaries.
-    ynh_exec_as "$app" \
-        env RUSTUP_HOME="$(rustup_root)/rustup" \
-            CARGO_HOME="$(rustup_root)/cargo" \
-            PATH="$(rustup_root)/cargo/bin:/usr/local/bin:/usr/bin:/bin" \
-            CARGO_TARGET_DIR="$install_dir/elastos/target" \
-        sh -c "cd '$install_dir/capsules/blobs-provider' && cargo build --release"
-
-    # identity-projection-provider: runtime-held did:key signing (whoami/sign/
-    # verify) so capsules don't keep Ed25519 seeds in localStorage. Its
-    # rust-toolchain.toml pins rustc 1.91, discovered by walking up from cargo's
-    # CWD — so `cd` into the crate dir (same reason as blobs-provider above).
-    # CARGO_TARGET_DIR lands the binary in the shared target/release tree.
-    ynh_exec_as "$app" \
-        env RUSTUP_HOME="$(rustup_root)/rustup" \
-            CARGO_HOME="$(rustup_root)/cargo" \
-            PATH="$(rustup_root)/cargo/bin:/usr/local/bin:/usr/bin:/bin" \
-            CARGO_TARGET_DIR="$install_dir/elastos/target" \
-        sh -c "cd '$install_dir/capsules/identity-projection-provider' && cargo build --release"
+    # PQ identity and attachments live in the WASM capsule. Do not build
+    # identity-projection-provider or blobs-provider.
 
     # hyper-desktop / hey-social / hey-chat WASM talk to ElastOS Carrier
     # (`elastos://peer/*`) over /api/provider/peer/*. Do NOT build the Hey

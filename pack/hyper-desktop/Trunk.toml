@@ -1,0 +1,12 @@
+[build]
+target = "index.html"
+dist = "dist"
+release = false
+# The capsule is served from its own mount path (/apps/hyper-desktop/), so every
+# asset URL has to be relative or the runtime serves 404s for the wasm.
+public_url = "./"
+
+[serve]
+addresses = ["127.0.0.1"]
+port = 8081
+open = false

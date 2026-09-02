@@ -27,8 +27,15 @@ elastos/storage/
 !capsules/gba-emulator/mgba.js
 !capsules/gba-emulator/mgba.wasm
 
-# Allow tracked ROM templates (uCity Advance is open-source)
-!capsules/gba-ucity/ucity.gba
+# Hyper Desktop overlay (pack/hyper-desktop). GitHub Hey-capsule does not
+# ship this capsule yet; the YunoHost install copies it from here. dist/
+# and *.wasm are ignored globally above, so re-include this tree.
+!pack/
+!pack/hyper-desktop/
+!pack/hyper-desktop/Trunk.toml
+!pack/hyper-desktop/capsule.json
+!pack/hyper-desktop/dist/
+!pack/hyper-desktop/dist/**
 
 # Logs
 *.log

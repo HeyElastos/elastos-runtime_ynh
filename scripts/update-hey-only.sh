@@ -55,7 +55,7 @@ echo "=== Fetching $REPO @ $COMMIT ==="
 curl -fsSL "https://github.com/$REPO/archive/$COMMIT.tar.gz" -o "$TMP/pack.tar.gz"
 tar -xzf "$TMP/pack.tar.gz" -C "$TMP" --strip-components 1
 
-for app in hey-social hey-chat; do
+for app in hey-social hey-chat hyper-desktop; do
     SRC="$TMP/capsules/$app"
     if [ ! -d "$SRC" ]; then
         echo "=== Skipping $app (not in pack) ==="
@@ -114,6 +114,29 @@ for app in hey-social hey-chat; do
     cp -r "$SRC" "$DATA_DIR/$app"
     chown -R "$APP_USER:$APP_USER" "$DATA_DIR/$app"
 done
+
+# Capsules shipped next to this script (pack/) win over the GitHub tarball.
+# Used for hyper-desktop until the Hey-capsule pin includes it.
+PACK_OVERLAY="$(cd "$(dirname "$0")/.." && pwd)/pack"
+if [ -d "$PACK_OVERLAY" ]; then
+    for extra in "$PACK_OVERLAY"/*/; do
+        [ -d "$extra" ] || continue
+        app="$(basename "$extra")"
+        [ -f "$extra/capsule.json" ] || continue
+        echo "=== Overlaying $app from pack/ ==="
+        DEST="$TMP/overlay-$app"
+        rm -rf "$DEST"
+        cp -r "$extra" "$DEST"
+        if [ -f "$DEST/Trunk.toml" ] && [ -d "$DEST/dist" ]; then
+            rm -f "$DEST/index.html"
+            cp -af "$DEST/dist/." "$DEST/"
+            rm -rf "$DEST/dist"
+        fi
+        rm -rf "$DATA_DIR/$app"
+        cp -r "$DEST" "$DATA_DIR/$app"
+        chown -R "$APP_USER:$APP_USER" "$DATA_DIR/$app"
+    done
+fi
 
 echo "=== Restarting elastos_runtime ==="
 systemctl restart elastos_runtime

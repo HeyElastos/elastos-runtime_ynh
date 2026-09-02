@@ -72,7 +72,7 @@ ensure_localhost_encryption_key
 # Re-run the same explicit component list the install used; idempotent
 # on already-installed pieces. Keep this synced with scripts/install's
 # ELASTOS_COMPONENTS list.
-UPGRADE_COMPONENTS="shell,localhost-provider,did-provider,webspace-provider,ipfs-provider,blobs-provider,identity-projection-provider,kubo,home,home-gui,system,chat-room,inbox,library,documents,hey-social,hey-chat"
+UPGRADE_COMPONENTS="shell,localhost-provider,did-provider,webspace-provider,ipfs-provider,kubo,home,home-gui,system,chat-room,inbox,library,documents,hey-social,hey-chat,hyper-desktop"
 # ELASTOS_COMPONENTS_MANIFEST pins which components.json `elastos setup` reads;
 # see the long note in scripts/install. Short version: we run
 # $install_dir/elastos/target/debug/elastos, which 0.6's load_manifest() treats
@@ -97,8 +97,7 @@ sudo -u "$app" \
 ynh_script_progression --message="Installing native provider binaries into client bin/..." --weight=2
 CLIENT_BIN="$(elastos_home)/xdg-data/elastos/bin"
 mkdir -p "$CLIENT_BIN"
-for b in shell localhost-provider did-provider webspace-provider ipfs-provider \
-         blobs-provider identity-projection-provider; do
+for b in shell localhost-provider did-provider webspace-provider ipfs-provider; do
     src="$install_dir/elastos/target/release/$b"
     if [ -x "$src" ]; then
         install -m 0755 -o "$app" -g "$app" "$src" "$CLIENT_BIN/$b"
@@ -126,7 +125,7 @@ CAPSULES_DATA_DIR="$(elastos_home)/xdg-data/elastos/capsules"
 # Capsules that are pure static assets — the ones the install stages and the
 # runtime serves straight from $data_dir. Kept in sync with the capsule members
 # of ELASTOS_COMPONENTS in scripts/install.
-STATIC_CAPSULES="home home-gui system chat-room inbox library documents hey-social hey-chat"
+STATIC_CAPSULES="home home-gui system chat-room inbox library documents hey-social hey-chat hyper-desktop"
 if [ -d "$install_dir/capsules" ] && [ -d "$CAPSULES_DATA_DIR" ]; then
     for capsule_src in "$install_dir/capsules"/*/; do
         [ -d "$capsule_src" ] || continue
