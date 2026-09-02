@@ -39,7 +39,7 @@
 # stands on its own.
 --- a/elastos/crates/elastos-server/src/carrier.rs
 +++ b/elastos/crates/elastos-server/src/carrier.rs
-@@ -225,6 +225,12 @@ pub struct GossipState {
+@@ -374,6 +374,12 @@ pub struct GossipState {
      signing_key: Option<ed25519_dalek::SigningKey>,
      joined_topics: std::collections::HashSet<String>,
      bootstrap_peers: Vec<iroh::EndpointId>,
@@ -49,18 +49,18 @@
 +    // the seeded bootstrap_peers instead of the DHT branch that cannot bootstrap
 +    // once the relay is disabled.
 +    relay_independent: bool,
+     #[cfg(test)]
+     last_direct_join_peers: Option<Vec<iroh::EndpointId>>,
      senders: HashMap<String, distributed_topic_tracker::GossipSender>,
-     receiver_tasks: HashMap<String, tokio::task::JoinHandle<()>>,
-     buffers: Arc<Mutex<HashMap<String, TopicBuffer>>>,
-@@ -251,6 +257,7 @@ impl GossipState {
+@@ -402,6 +408,7 @@ impl GossipState {
              signing_key,
              joined_topics: std::collections::HashSet::new(),
              bootstrap_peers: Vec::new(),
 +            relay_independent: false,
+             #[cfg(test)]
+             last_direct_join_peers: None,
              senders: HashMap::new(),
-             receiver_tasks: HashMap::new(),
-             buffers: Arc::new(Mutex::new(HashMap::new())),
-@@ -495,9 +502,14 @@ async fn join_gossip_topic(
+@@ -777,9 +784,14 @@ async fn join_gossip_topic(
      topic_name: &str,
      force_direct: bool,
  ) -> Result<()> {
@@ -77,7 +77,7 @@
          || std::env::var("ELASTOS_RELAY_INDEPENDENT").ok().as_deref() == Some("1");
      let bootstrap_peers = state.bootstrap_peers.clone();
      if force_direct {
-@@ -1093,6 +1105,11 @@ pub async fn start_carrier_node_with_registry(
+@@ -1407,6 +1419,11 @@ async fn start_carrier_node_with_network(
          Some(did.to_string()),
          data_dir.clone(),
      )));
@@ -89,7 +89,7 @@
  
      let file_handler = FileHandler {
          data_dir: data_dir.clone(),
-@@ -5933,11 +5950,20 @@ async fn handle_gossip_event(
+@@ -6720,11 +6737,20 @@ async fn handle_gossip_event(
                  .insert(peer_str);
          }
          iroh_gossip::api::Event::NeighborDown(peer) => {

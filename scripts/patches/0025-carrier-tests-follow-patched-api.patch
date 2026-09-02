@@ -22,25 +22,16 @@
 # when upstream updates these call sites itself.
 --- a/elastos/crates/elastos-server/src/carrier.rs
 +++ b/elastos/crates/elastos-server/src/carrier.rs
-@@ -9077,13 +9077,15 @@ mod tests {
-             1_700_000_000,
-         );
-         let (local_sk, local_did) = elastos_identity::derive_did(&[21u8; 32]);
--        let endpoint = Endpoint::builder()
-+        let endpoint = Endpoint::builder(iroh::endpoint::presets::N0)
-             .secret_key(iroh::SecretKey::from_bytes(&local_sk.to_bytes()))
-             .bind()
-             .await
-             .unwrap();
-         let memory_lookup = MemoryLookup::new();
--        endpoint.address_lookup().add(memory_lookup.clone());
-+        if let Ok(al) = endpoint.address_lookup() {
-+            al.add(memory_lookup.clone());
-+        }
+@@ -7739,7 +7739,7 @@ mod tests {
          let gossip = Gossip::builder().spawn(endpoint.clone());
-         let state = Arc::new(Mutex::new(GossipState::new(
-             endpoint.clone(),
-@@ -9091,6 +9093,7 @@ mod tests {
+         let memory_lookup = MemoryLookup::new();
+         let mut state =
+-            GossipState::new(endpoint.clone(), gossip.clone(), memory_lookup, None, None);
++            GossipState::new(endpoint.clone(), gossip.clone(), memory_lookup, None, None, std::path::PathBuf::from("."));
+         let (dropped_tx, dropped_rx) = tokio::sync::oneshot::channel();
+         let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+         let task = tokio::spawn(async move {
+@@ -11121,6 +11121,7 @@ mod tests {
              memory_lookup,
              Some(local_sk),
              Some(local_did),
@@ -48,25 +39,7 @@
          )));
          {
              let mut guard = state.lock().await;
-@@ -9285,13 +9288,15 @@ mod tests {
-             1_700_000_000,
-         );
-         let (local_sk, local_did) = elastos_identity::derive_did(&[24u8; 32]);
--        let endpoint = Endpoint::builder()
-+        let endpoint = Endpoint::builder(iroh::endpoint::presets::N0)
-             .secret_key(iroh::SecretKey::from_bytes(&local_sk.to_bytes()))
-             .bind()
-             .await
-             .unwrap();
-         let memory_lookup = MemoryLookup::new();
--        endpoint.address_lookup().add(memory_lookup.clone());
-+        if let Ok(al) = endpoint.address_lookup() {
-+            al.add(memory_lookup.clone());
-+        }
-         let gossip = Gossip::builder().spawn(endpoint.clone());
-         let state = Arc::new(Mutex::new(GossipState::new(
-             endpoint.clone(),
-@@ -9299,6 +9304,7 @@ mod tests {
+@@ -11330,6 +11331,7 @@ mod tests {
              memory_lookup,
              Some(local_sk),
              Some(local_did),

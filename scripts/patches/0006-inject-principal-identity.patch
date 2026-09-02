@@ -1,9 +1,9 @@
 --- a/elastos/crates/elastos-server/src/api/gateway_provider_proxy.rs
 +++ b/elastos/crates/elastos-server/src/api/gateway_provider_proxy.rs
-@@ -1472,7 +1472,24 @@ pub(super) async fn gateway_provider_proxy(
-             .into_response();
+@@ -1725,7 +1725,24 @@ pub(super) async fn gateway_provider_proxy(
+     } else {
+         request["op"] = serde_json::Value::String(op.clone());
      }
-     request["op"] = serde_json::Value::String(op.clone());
 -    if scheme == "documents" || scheme == "object" || scheme == "net" {
 +    // ── HEY-CAPSULE-PACK PATCH 0006 (REMOVABLE) ──────────────────────────
 +    // Inject the authenticated runtime principal into elastos://identity/*
@@ -25,4 +25,4 @@
 +    if scheme == "documents" || scheme == "object" || scheme == "net" || scheme == "identity" {
          request["principal_id"] = serde_json::Value::String(principal_id.clone());
      }
-     if scheme == "object" && op == "shared_access" {
+     if is_protected_viewer_op {

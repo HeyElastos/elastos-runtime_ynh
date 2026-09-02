@@ -1,6 +1,6 @@
 --- a/elastos/crates/elastos-server/src/carrier.rs
 +++ b/elastos/crates/elastos-server/src/carrier.rs
-@@ -226,6 +226,7 @@ pub struct GossipState {
+@@ -377,6 +377,7 @@ pub struct GossipState {
      peers: Arc<Mutex<Vec<String>>>,
      topic_peers: Arc<Mutex<HashMap<String, HashSet<String>>>>,
      did: Option<String>,
@@ -8,7 +8,7 @@
  }
  
  impl GossipState {
-@@ -235,6 +236,7 @@ impl GossipState {
+@@ -386,6 +387,7 @@ impl GossipState {
          memory_lookup: MemoryLookup,
          signing_key: Option<ed25519_dalek::SigningKey>,
          did: Option<String>,
@@ -16,7 +16,7 @@
      ) -> Self {
          Self {
              endpoint,
-@@ -250,6 +252,7 @@ impl GossipState {
+@@ -403,6 +405,7 @@ impl GossipState {
              peers: Arc::new(Mutex::new(Vec::new())),
              topic_peers: Arc::new(Mutex::new(HashMap::new())),
              did,
@@ -24,7 +24,7 @@
          }
      }
  }
-@@ -441,6 +444,29 @@ fn is_trusted_source_runtime(data_dir: &std::path::Path) -> bool {
+@@ -666,6 +669,29 @@ fn is_trusted_source_runtime(data_dir: &std::path::Path) -> bool {
          || publisher_artifacts_path(data_dir).exists()
  }
  
@@ -51,18 +51,18 @@
 +}
 +// ── END HEY PATCH 0015 ───────────────────────────────────────────────────────
 +
- fn register_topic_state(
+ async fn register_topic_state(
      state: &mut GossipState,
      topic_name: &str,
-@@ -455,6 +481,7 @@ fn register_topic_state(
-     {
+@@ -681,6 +707,7 @@ async fn register_topic_state(
          existing.abort();
+         let _ = existing.await;
      }
 +    persist_joined_topics(&state.data_dir, &state.joined_topics);
  }
  
- async fn join_gossip_topic(
-@@ -710,6 +737,7 @@ pub async fn start_carrier_node_with_registry(
+ async fn join_gossip_topic_direct(
+@@ -1020,6 +1047,7 @@ async fn start_carrier_node_with_network(
          memory_lookup.clone(),
          Some(signing_key.clone()),
          Some(did.to_string()),
@@ -70,7 +70,7 @@
      )));
  
      let file_handler = FileHandler {
-@@ -779,6 +807,26 @@ pub async fn start_carrier_node_with_registry(
+@@ -1096,6 +1124,26 @@ async fn start_carrier_node_with_network(
          }
      }
  

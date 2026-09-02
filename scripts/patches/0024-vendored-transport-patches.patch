@@ -29,7 +29,7 @@
 # iroh-gossip / noq-udp / netdev and the pack stops vendoring them.
 --- a/elastos/Cargo.toml
 +++ b/elastos/Cargo.toml
-@@ -35,3 +35,35 @@ opt-level = 1                 # Optimize deps (compiled once, run many times)
+@@ -41,3 +41,35 @@ opt-level = 1                 # Optimize deps (compiled once, run many times)
  [profile.test]
  opt-level = 0
  debug = "line-tables-only"
@@ -67,10 +67,10 @@
 +noq-udp = { path = "../capsules/vendor/noq-udp" }
 --- a/elastos/crates/elastos-server/Cargo.toml
 +++ b/elastos/crates/elastos-server/Cargo.toml
-@@ -111,6 +111,14 @@ libc = "0.2"
- # resolve at all.
- iroh = { version = "=1.0.2", features = ["unstable-net-report"] }
- iroh-gossip = "0.101"
+@@ -109,6 +109,14 @@ libc = "0.2"
+ # These versions form one coordinated generation and must move together.
+ iroh = "=1.0.2"
+ iroh-gossip = "=0.101.0"
 +# RESOLVER PIN, not a code dependency (patch 0024). The vendored iroh calls
 +# noq_udp::hyper_rearm_dead_families, which exists ONLY in the vendored noq-udp
 +# 1.0.1 — the two are a matched pair. Nothing else expresses that, and a
@@ -79,6 +79,6 @@
 +# the missing function. This forces the resolver back onto the 1.0.x line —
 +# the exact graph Hyper-Desktop locks. Drop with patch 0024.
 +noq-udp = "=1.0.1"
- distributed-topic-tracker = "0.3.5"
+ iroh-mdns-address-lookup = "=0.4.0"
+ distributed-topic-tracker = "=0.3.5"
  futures-lite = "2.6"
- getrandom = "0.2"

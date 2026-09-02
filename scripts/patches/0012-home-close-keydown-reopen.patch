@@ -7,17 +7,17 @@
 # Kill condition: drop if upstream Home clears desktop selection on launch itself.
 --- a/capsules/home-gui/browser/shell-windows.js
 +++ b/capsules/home-gui/browser/shell-windows.js
-@@ -30,6 +30,9 @@ import {
+@@ -31,6 +31,9 @@ import {
    attachWindowDrag,
    attachWindowResize,
- } from "./shell-window-geometry.js?v=home-20260725a";
+ } from "./shell-window-geometry.js?v=home-20260813a";
 +import {
 +  clearDesktopSelection,
-+} from "./shell-surface.js?v=home-20260725a";
- 
- let windowHooks = null;
- const REQUIRED_WINDOW_HOOKS = [
-@@ -909,6 +912,15 @@ function createWindow({
++} from "./shell-surface.js?v=home-20260813a";
+ import {
+   applyFullscreenStageFromPlacement,
+   bindStageWindowHooks,
+@@ -1211,6 +1214,15 @@ function createWindow({
      if (shouldIgnoreWindowControl(node, "close", event)) {
        return;
      }
@@ -33,10 +33,10 @@
      clearWindowCloseGuard(node);
      closeWindow(id);
    });
-@@ -966,6 +978,12 @@ function launchActionKey(targetId, query) {
- }
- 
- export function openTarget(targetId, options = {}) {
+@@ -1271,6 +1283,12 @@ export function openTarget(targetId, options = {}) {
+   if (windowHooks?.holdHomeSetupAct?.(targetId) === true) {
+     return;
+   }
 +  // Primary guard against the close→reopen loop: launching a target consumes any
 +  // desktop icon selection, so a later stray Enter/Space on the desktop surface
 +  // cannot relaunch a window the user has since closed (the desktop keydown

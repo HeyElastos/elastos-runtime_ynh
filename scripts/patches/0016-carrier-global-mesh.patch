@@ -1,19 +1,19 @@
 --- a/elastos/crates/elastos-server/src/carrier.rs
 +++ b/elastos/crates/elastos-server/src/carrier.rs
-@@ -97,6 +97,12 @@ const GOSSIP_SEND_TIMEOUT: Duration = Duration::from_millis(1_500);
+@@ -102,6 +102,12 @@ const GOSSIP_SEND_TIMEOUT: Duration = Duration::from_millis(1_500);
  const GOSSIP_JOIN_PEERS_TIMEOUT: Duration = Duration::from_millis(1_500);
+ const GOSSIP_JOIN_EXACT_MAX_PEERS: usize = 16;
  const GOSSIP_CARRIER_PUSH_MAX_TOPIC_LEN: usize = 256;
- const GOSSIP_CARRIER_PUSH_MAX_MESSAGE_BYTES: usize = 12 * 1024 * 1024;
 +// ── HEY PATCH 0016 (REMOVABLE): a fixed global mesh topic EVERY runtime joins at
 +// boot via DHT auto-discovery, so all Hey runtimes are ALWAYS meshed — no
 +// dependence on a shared user topic ("it should always just work"). Keeps presence
 +// live + makes per-pair topic bootstrap instant (endpoints already connected).
 +// KILL CONDITION: drop when upstream ships a presence/overlay mesh layer.
 +const HEY_GLOBAL_MESH_TOPIC: &str = "hey/v0/mesh/global/1";
- 
- /// Well-known secret for topic discovery. Any Carrier node with this secret
- /// can discover peers on the same topic via DHT.
-@@ -827,6 +833,19 @@ pub async fn start_carrier_node_with_registry(
+ // Maximum complete JSON GossipMessage admitted to the iroh-gossip wire.
+ const GOSSIP_WIRE_MESSAGE_MAX_BYTES: usize = 192 * 1024;
+ const GOSSIP_TOPIC_BUFFER_MAX_BYTES: usize = 12 * 1024 * 1024;
+@@ -1144,6 +1150,19 @@ async fn start_carrier_node_with_network(
          }
      }
  

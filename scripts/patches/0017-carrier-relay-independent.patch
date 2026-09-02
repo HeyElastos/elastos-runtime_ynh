@@ -1,6 +1,6 @@
 --- a/elastos/crates/elastos-server/src/carrier.rs
 +++ b/elastos/crates/elastos-server/src/carrier.rs
-@@ -495,6 +495,10 @@ async fn join_gossip_topic(
+@@ -777,6 +777,10 @@ async fn join_gossip_topic(
      topic_name: &str,
      force_direct: bool,
  ) -> Result<()> {
@@ -10,11 +10,12 @@
 +        || std::env::var("ELASTOS_RELAY_INDEPENDENT").ok().as_deref() == Some("1");
      let bootstrap_peers = state.bootstrap_peers.clone();
      if force_direct {
-         let topic = topic_hash(topic_name);
-@@ -599,6 +603,265 @@ async fn join_gossip_topic(
+         return join_gossip_topic_direct(state, topic_name, bootstrap_peers).await;
+@@ -829,6 +833,266 @@ async fn join_gossip_topic(
      Ok(())
  }
  
++
 +/// HEY PATCH 0017 (REMOVABLE): direct-address self-announce so peer DATA flows
 +/// direct P2P and the relay is used ONLY to connect/discover (never to carry data).
 +///
@@ -134,7 +135,7 @@
 +        dtt_sk,
 +        None,
 +        TOPIC_DISCOVERY_SECRET.to_vec(),
-+        distributed_topic_tracker::Config::default(),
++        TopicTrackerConfig::default(),
 +    );
 +    let topic = match gossip
 +        .subscribe_and_join_with_auto_discovery_no_wait(record_publisher)
@@ -277,38 +278,46 @@
  pub fn source_carrier_addrs(source: &TrustedSource) -> Vec<String> {
      let mut addrs = Vec::new();
  
-@@ -653,7 +916,29 @@ pub async fn start_carrier_node_with_registry(
-     // Build endpoint. Uses iroh default relays unless ELASTOS_RELAY_URL is set.
-     // Don't override address_lookup — the default includes pkarr for DHT discovery.
-     let mut builder = Endpoint::builder(iroh::endpoint::presets::N0).secret_key(secret_key.clone());
--    if let Ok(relay_env) = std::env::var("ELASTOS_RELAY_URL") {
-+    // HEY PATCH 0017: relay-independent mode — disable the relay ENTIRELY so all
-+    // data is direct P2P. Peers are reached purely by their direct addresses
-+    // (seeded from ELASTOS_MESH_SEED / the persisted peer cache, learned during an
-+    // earlier relay-assisted discovery phase). "Use the relay to find each other
-+    // once, then cut the cord." iroh's flaky relay->direct multipath upgrade is
-+    // never exercised because there is no relay path to begin with.
-+    // Graduate to relay-independent automatically — but ONLY on a publicly-reachable
-+    // host (a server with a public IP) that has already cached peer addresses from an
-+    // earlier relay-assisted discovery run. A NAT'd device (phone/laptop) is detected
-+    // here and KEEPS the relay: it still needs it to be found, to coordinate hole-
-+    // punching, and as a fallback when a direct path is impossible. ELASTOS_RELAY_INDEPENDENT=1
-+    // forces it regardless (e.g. a port-forwarded home server the probe can't classify).
-+    let publicly_reachable = host_is_publicly_reachable();
-+    let relay_independent = std::env::var("ELASTOS_RELAY_INDEPENDENT").ok().as_deref()
-+        == Some("1")
-+        || (publicly_reachable && !load_cached_peers(&data_dir).is_empty());
-+    if relay_independent {
-+        builder = builder.relay_mode(iroh::RelayMode::Disabled);
-+        info!("carrier: relay-independent mode (publicly reachable) — relay DISABLED, all data direct P2P");
-+    } else if let Ok(relay_env) = std::env::var("ELASTOS_RELAY_URL") {
-+        if !publicly_reachable {
-+            info!("carrier: behind NAT — relay KEPT for discovery + hole-punch + fallback");
-+        }
-         // HEY-CAPSULE-PACK PATCH 0009 (REMOVABLE): accept a COMMA/whitespace-
-         // separated LIST of relay URLs and build a MULTI-entry RelayMap (upstream
-         // reads exactly one). This lets the YNH installer bake in every known
-@@ -795,6 +1080,44 @@ pub async fn start_carrier_node_with_registry(
+@@ -946,6 +1210,7 @@ async fn start_carrier_node_with_network(
+     }
+     let secret_key = SecretKey::from_bytes(&signing_key.to_bytes());
+ 
++    let mut relay_independent = false;
+     let endpoint = match network {
+         CarrierNodeNetwork::Public => {
+             // Build an endpoint with Iroh's N0 DNS and relay services unless a
+@@ -953,7 +1218,29 @@ async fn start_carrier_node_with_network(
+             // tracker's DHT layer.
+             let mut builder =
+                 Endpoint::builder(iroh::endpoint::presets::N0).secret_key(secret_key.clone());
+-            if let Ok(relay_env) = std::env::var("ELASTOS_RELAY_URL") {
++            // HEY PATCH 0017: relay-independent mode — disable the relay ENTIRELY so all
++            // data is direct P2P. Peers are reached purely by their direct addresses
++            // (seeded from ELASTOS_MESH_SEED / the persisted peer cache, learned during an
++            // earlier relay-assisted discovery phase). "Use the relay to find each other
++            // once, then cut the cord." iroh's flaky relay->direct multipath upgrade is
++            // never exercised because there is no relay path to begin with.
++            // Graduate to relay-independent automatically — but ONLY on a publicly-reachable
++            // host (a server with a public IP) that has already cached peer addresses from an
++            // earlier relay-assisted discovery run. A NAT'd device (phone/laptop) is detected
++            // here and KEEPS the relay: it still needs it to be found, to coordinate hole-
++            // punching, and as a fallback when a direct path is impossible. ELASTOS_RELAY_INDEPENDENT=1
++            // forces it regardless (e.g. a port-forwarded home server the probe can't classify).
++            let publicly_reachable = host_is_publicly_reachable();
++            relay_independent = std::env::var("ELASTOS_RELAY_INDEPENDENT").ok().as_deref()
++                == Some("1")
++                || (publicly_reachable && !load_cached_peers(&data_dir).is_empty());
++            if relay_independent {
++                builder = builder.relay_mode(iroh::RelayMode::Disabled);
++                info!("carrier: relay-independent mode (publicly reachable) — relay DISABLED, all data direct P2P");
++            } else if let Ok(relay_env) = std::env::var("ELASTOS_RELAY_URL") {
++                if !publicly_reachable {
++                    info!("carrier: behind NAT — relay KEPT for discovery + hole-punch + fallback");
++                }
+                 // HEY-CAPSULE-PACK PATCH 0009 (REMOVABLE): accept a COMMA/whitespace-
+                 // separated LIST of relay URLs and build a MULTI-entry RelayMap (upstream
+                 // reads exactly one). This lets the YNH installer bake in every known
+@@ -1111,6 +1398,44 @@ async fn start_carrier_node_with_network(
          }
      }
  
@@ -352,8 +361,8 @@
 +
      if is_trusted_source_runtime(&data_dir) {
          let mut state = gossip_state.lock().await;
-         for topic in [CHAT_DISCOVERY_TOPIC_GENERAL, CHAT_ROOM_SYNC_TOPIC] {
-@@ -846,6 +1169,23 @@ pub async fn start_carrier_node_with_registry(
+         match join_gossip_topic(&mut state, CHAT_DISCOVERY_TOPIC_GENERAL, true).await {
+@@ -1163,6 +1488,23 @@ async fn start_carrier_node_with_network(
          }
      }
  

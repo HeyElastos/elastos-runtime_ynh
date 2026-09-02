@@ -770,7 +770,7 @@ cargo_as_app() {
 # with the same fingerprint skips cargo. `ynh remove` does not delete that
 # cache. Override with $ELASTOS_PREBUILT_URL (http(s), file://, or a local
 # path). Force a source build with ELASTOS_FORCE_BUILD=1.
-PREBUILT_TAG="${ELASTOS_PREBUILT_TAG:-prebuilt-0.6.0-ynh4}"
+PREBUILT_TAG="${ELASTOS_PREBUILT_TAG:-}"
 
 prebuilt_arch() {
     case "$(uname -m)" in

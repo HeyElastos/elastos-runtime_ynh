@@ -1,9 +1,11 @@
+diff --git a/elastos/crates/elastos-runtime/src/provider/registry.rs b/elastos/crates/elastos-runtime/src/provider/registry.rs
+index ba85fa1..c83c637 100755
 --- a/elastos/crates/elastos-runtime/src/provider/registry.rs
 +++ b/elastos/crates/elastos-runtime/src/provider/registry.rs
-@@ -478,6 +478,22 @@ const RESERVED_SUB_NAMES: &[&str] = &[
-     "availability",
-     "block-graph",
+@@ -503,6 +503,22 @@ const RESERVED_SUB_NAMES: &[&str] = &[
      "object",
+     "collaboration-direct",
+     "collaboration-profile",
 +    // ── HEY-CAPSULE-PACK PATCH 0004 (REMOVABLE) ──────────────────────────
 +    // Reserve the `identity` scheme so the identity-projection-provider can
 +    // register elastos://identity/* (whoami/sign/verify). This lets app
@@ -22,4 +24,4 @@
 +    // ── END HEY-CAPSULE-PACK PATCH 0004 ──────────────────────────────────
  ];
  
- /// Registry of providers
+ /// Reserved names for provider targets that only Runtime invocation can reach.

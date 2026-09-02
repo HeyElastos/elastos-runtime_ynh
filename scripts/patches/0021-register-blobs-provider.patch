@@ -1,6 +1,6 @@
 --- a/elastos/crates/elastos-runtime/src/provider/registry.rs
 +++ b/elastos/crates/elastos-runtime/src/provider/registry.rs
-@@ -494,6 +494,22 @@ const RESERVED_SUB_NAMES: &[&str] = &[
+@@ -519,6 +519,22 @@ const RESERVED_SUB_NAMES: &[&str] = &[
      // `identity` scheme.
      "identity",
      // ── END HEY-CAPSULE-PACK PATCH 0004 ──────────────────────────────────
@@ -22,10 +22,10 @@
 +    // ── END HEY-CAPSULE-PACK PATCH 0021 ──────────────────────────────────
  ];
  
- /// Registry of providers
+ /// Reserved names for provider targets that only Runtime invocation can reach.
 --- a/elastos/crates/elastos-server/src/server_infra.rs
 +++ b/elastos/crates/elastos-server/src/server_infra.rs
-@@ -418,6 +418,64 @@ async fn setup_server_infrastructure_impl(
+@@ -746,6 +746,64 @@ async fn setup_server_infrastructure_impl(
          }
          // ── END HEY-CAPSULE-PACK PATCH 0005 ──────────────────────────────
  
@@ -87,6 +87,6 @@
 +        }
 +        // ── END HEY-CAPSULE-PACK PATCH 0021 ──────────────────────────────
 +
-         let mut llama_endpoint: Option<String> = None;
-         if let Some(path) = crate::find_installed_provider_binary("llama-provider") {
-             let mut llama_extra = serde_json::Map::new();
+     if spawn_host_providers {
+         let binary_path = binaries::resolve_verified_native_provider_binary("localhost-provider")?
+             .ok_or_else(|| {
