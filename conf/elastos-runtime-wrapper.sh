@@ -36,10 +36,9 @@ if [ -s "$LOCALHOST_KEY_FILE" ]; then
     export ELASTOS_LOCALHOST_ENCRYPTION_KEY="$(cat "$LOCALHOST_KEY_FILE")"
 fi
 
-# Peer federation (elastos://peer/*) rides carrier-gossip (iroh). Cross-runtime
-# delivery needs a relay for NAT traversal; rather than depend on n0's public
-# relays we home on our OWN (ELASTOS_RELAY_URL, set below from .relay-url). See
-# the relay-URL block before `serve` and conf/iroh-relay.{toml,service}.
+# Peer federation (elastos://peer/*) rides carrier-gossip (iroh). NAT
+# traversal is ElastOS Carrier's job (stock RelayMode / default relay map).
+# Do not point serve at a Hey-owned iroh-relay sidecar.
 
 # Approach A step 5d: server-enforced lock screen. With this on,
 # browser sessions start in PreAuth (no capability tokens) and must
@@ -90,21 +89,10 @@ if [ -x "$KUBO_BIN" ]; then
     done
 fi
 
-# ── Peer relay URL (n0-independent gossip federation) ───────────────
-# carrier-gossip forms a topic neighbor over a RELAY when no direct UDP path
-# exists (NAT / a provider that filters :4433). To avoid depending on n0's
-# (flaky, third-party) relays, public installs run their OWN iroh-relay as a
-# SEPARATE service (${app}-relay; see conf/iroh-relay.service) and home on it;
-# the node ticket then advertises that relay so peers — incl. NAT'd laptops —
-# reach them with zero n0 dependency. Payloads are E2E-encrypted, so the relay
-# only forwards ciphertext.
-#
-# Here we just tell `serve` which relay to home on, read from .relay-url (the
-# install/upgrade scripts write it; an admin can overwrite it to point all
-# installs at one shared relay, then restart). `serve` reads its env from THIS
-# wrapper, not systemd Environment= (it's double-forked). Empty/missing file =>
-# ELASTOS_RELAY_URL unset => carrier RelayMode::Default (n0) — vanilla fallback,
-# north-star removable.
+# ── Peer relay URL ──────────────────────────────────────────────────
+# Optional admin override. Missing/empty .relay-url leaves ELASTOS_RELAY_URL
+# unset, so Carrier uses stock RelayMode::Default. Install/upgrade now clear
+# this file so leftover Hey mesh lists do not override ElastOS.
 RELAY_URL_FILE="$XDG_DATA_HOME/elastos/.relay-url"
 if [ -s "$RELAY_URL_FILE" ]; then
     export ELASTOS_RELAY_URL="$(tr -d '[:space:]' < "$RELAY_URL_FILE")"

@@ -4,12 +4,16 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Hyper</title>
-    <link rel="stylesheet" href="./styles-6b9958c94e460c51.css" integrity="sha384-FCnfIFQ5rSaT256whrOjsSqwxMEGUhxuyhsMIBqGmXmtmoet8WVFHJF0aG5K2h31"/>
-  <link rel="modulepreload" href="./hyper-desktop-bb7bf0c7313a0dc.js" crossorigin="anonymous" integrity="sha384-AN0/z8O0NPPaRSDU1RWmHl0cuC1HqGV9guJ44dz3iuvdq/IN5yskzjT4WtmnAvpx"><link rel="preload" href="./hyper-desktop-bb7bf0c7313a0dc_bg.wasm" crossorigin="anonymous" integrity="sha384-uCjj2jcxG5BauChGUQBA8b83AsO9YEROh9biicintCGV1OsLBsEP/Ljf/ojWoh4L" as="fetch" type="application/wasm"></head>
+    <!-- Home launches this capsule in an opaque-sandboxed iframe (no
+         allow-same-origin). Trunk's hashed <link rel="stylesheet" integrity>
+         is dropped by that origin. Copy the sheet unhashed, same as hey-social. -->
+    
+    <link rel="stylesheet" href="styles.css" />
+  <link rel="modulepreload" href="./hyper-desktop-4c7c2bc4cd4d9bf0.js" crossorigin="anonymous" integrity="sha384-QEFEXIrBbHdBpVmfXOi1JRfZGARJZ/wOlwk4gubvm7HtdXwU4FA9rvpnEY7QRwY4"><link rel="preload" href="./hyper-desktop-4c7c2bc4cd4d9bf0_bg.wasm" crossorigin="anonymous" integrity="sha384-6Brc9gVQoEhWf1ZtxVh3vg69XK5N/Pv1fFarOhtKUcQQdS4/PN/YMAk0D0pWIuN8" as="fetch" type="application/wasm"></head>
   <body>
 <script type="module">
-import init, * as bindings from './hyper-desktop-bb7bf0c7313a0dc.js';
-const wasm = await init({ module_or_path: './hyper-desktop-bb7bf0c7313a0dc_bg.wasm' });
+import init, * as bindings from './hyper-desktop-4c7c2bc4cd4d9bf0.js';
+const wasm = await init({ module_or_path: './hyper-desktop-4c7c2bc4cd4d9bf0_bg.wasm' });
 
 
 window.wasmBindings = bindings;

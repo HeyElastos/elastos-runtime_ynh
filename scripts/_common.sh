@@ -34,6 +34,61 @@ elastos_home() {
 }
 
 # ────────────────────────────────────────────────────────────────────
+# What `elastos setup --with` installs. Install and upgrade MUST share this.
+# ────────────────────────────────────────────────────────────────────
+#
+# Native providers we cargo-build, plus every web-projection capsule in the
+# upstream 0.7 `home` profile, plus chat-room (demo) and the Hey apps.
+#
+# Not in this list: chain-provider, net-provider, exit-provider, the browser
+# engine stack, wallet-provider, object-provider, media-provider, and the
+# protected-content pair. Those are native crates this pack does not build.
+# `setup --profile home` would Carrier-fetch them and die. Stage the *apps*
+# so the dock matches stock Home; the heavy native backends stay off until
+# we cargo-build them.
+#
+# documents / library / inbox are web-projection (`browser/index.html`), not
+# a root index.html. Staging must tar capsule.json + browser/, same as home.
+
+ELASTOS_NATIVE_COMPONENTS="shell,localhost-provider,did-provider,webspace-provider,ipfs-provider,kubo,home-cli"
+
+# Comma-separated. Order is dock-irrelevant; keep it aligned with components.json's home profile.
+ELASTOS_WEB_CAPSULES="home,home-gui,system,services,people,wallet,wallet-metamask,wallet-unisat,wallet-walletconnect,browser,documents,library,elacity-player,marketplace,archive-manager,inbox,assistant,chat-room"
+
+ELASTOS_HEY_CAPSULES="hey-social,hey-chat,hyper-desktop"
+
+ELASTOS_SETUP_COMPONENTS="${ELASTOS_NATIVE_COMPONENTS},${ELASTOS_WEB_CAPSULES},${ELASTOS_HEY_CAPSULES}"
+
+# Space-separated whitelist for the upgrade copy into data_dir. Never copy
+# provider source trees or capsules/vendor/.
+ELASTOS_STATIC_CAPSULES="${ELASTOS_WEB_CAPSULES//,/ } home-cli ${ELASTOS_HEY_CAPSULES//,/ }"
+
+# Copy every static capsule from install_dir into the live data_dir tree.
+# `elastos setup --with` on upgrade cannot fetch new tars: the install-time
+# publisher is gone. File copy is the upgrade path that actually lands apps.
+refresh_data_dir_capsules() {
+    local capsules_src="$install_dir/capsules"
+    local capsules_dst
+    capsules_dst="$(elastos_home)/xdg-data/elastos/capsules"
+    [ -d "$capsules_src" ] || return 0
+    mkdir -p "$capsules_dst"
+    local capsule_src capsule_name capsule_dst
+    for capsule_src in "$capsules_src"/*/; do
+        [ -d "$capsule_src" ] || continue
+        capsule_name="$(basename "$capsule_src")"
+        case " $ELASTOS_STATIC_CAPSULES " in
+            *" $capsule_name "*) ;;
+            *) continue ;;
+        esac
+        capsule_dst="$capsules_dst/$capsule_name"
+        rm -rf "$capsule_dst"
+        cp -a "$capsule_src" "$capsule_dst"
+        echo "  refreshed capsule: $capsule_name"
+    done
+    chown -R "$app:$app" "$capsules_dst"
+}
+
+# ────────────────────────────────────────────────────────────────────
 # Upstream Elastos Runtime fetch
 # ────────────────────────────────────────────────────────────────────
 #
@@ -421,8 +476,12 @@ open_peer_firewall_port() {
 }
 
 # ────────────────────────────────────────────────────────────────────
-# Self-hosted iroh-relay — n0-independent gossip federation
+# Leftover Hey iroh-relay sidecar (do not install)
 # ────────────────────────────────────────────────────────────────────
+#
+# ElastOS Carrier owns relays. install/upgrade call retire_hey_relay_sidecar
+# (stop leftover ${app}-relay, clear .relay-url). Functions below stay so
+# that teardown still works on boxes that ran an older package.
 #
 # carrier-gossip forms a topic NeighborUp over a RELAY when a direct UDP path
 # isn't available (NAT, or a provider that filters 4433). Out of the box iroh
@@ -643,6 +702,14 @@ remove_relay_sidecar() {
     yunohost service remove "${app}-relay" >/dev/null 2>&1 || true
     ynh_remove_systemd_config --service="${app}-relay" >/dev/null 2>&1 || true
     close_relay_firewall_ports
+}
+
+# Stop leftover Hey iroh-relay and clear .relay-url so ElastOS Carrier uses
+# its own RelayMode (default n0 map). Call on every install and upgrade.
+retire_hey_relay_sidecar() {
+    ynh_script_progression --message="Using ElastOS Carrier relays (removing leftover Hey iroh-relay)..." --weight=1
+    remove_relay_sidecar || true
+    write_relay_env ""
 }
 
 # Configure kubo Peering.Peers from $HEY_IPFS_FEDERATION_PEERS so file
@@ -1013,7 +1080,8 @@ build_runtime_and_capsules() {
     done
 
     # PQ identity and attachments live in the WASM capsule. Do not build
-    # identity-projection-provider or blobs-provider.
+    # identity-projection-provider or blobs-provider. Relays are ElastOS
+    # Carrier's; do not cargo-install iroh-relay.
 
     # hyper-desktop / hey-social / hey-chat WASM talk to ElastOS Carrier
     # (`elastos://peer/*`) over /api/provider/peer/*. Do NOT build the Hey

@@ -125,6 +125,8 @@ PUBLISHER_ROOT="$SOURCE_RUNTIME_DATA_DIR/ElastOS/SystemServices/Publisher" \
 SETUP_PLATFORM="linux-amd64" \
 NATIVE_BIN_DIR="$install_dir/elastos/target/release" \
 CAPSULES_SRC="$install_dir/capsules" \
+BROWSER_PROJECTION_CAPSULES="$ELASTOS_WEB_CAPSULES" \
+HEY_APP_CAPSULES="$ELASTOS_HEY_CAPSULES" \
 python3 - <<'PY'
 import hashlib, json, os, pathlib, shutil, tarfile
 
@@ -181,16 +183,19 @@ with tarfile.open(archive, "w:gz") as tar:
     tar.add(home_cli_dir / "home-cli.wasm", arcname="home-cli/home-cli.wasm")
 stamp(info, archive.read_bytes())
 
-# ── 3) BROWSER PROJECTION CAPSULES: home + home-gui + system + chat-room ──
+# ── 3) BROWSER PROJECTION CAPSULES ──
 # Upstream 0.6 turned these from Rust/wasm crates into pure web-projection
 # capsules: no Cargo.toml, no <name>.wasm, and capsule.json's entrypoint is
 # now "browser/index.html". So the tar is exactly capsule.json + browser/.
 #
-# home-gui is new in 0.6: the single 0.3 "home" capsule was split into `home`
-# (sign in + pick a Home view) and `home-gui` (the actual desktop — launcher,
-# taskbar, windows). Staging `home` alone gives a chooser with nothing to
-# choose, so home-gui is not optional.
-for name in ("home", "home-gui", "system", "chat-room"):
+# This is the full 0.7 home-profile web set plus chat-room, not the short
+# {home, home-gui, system, chat-room} subset. documents / library / inbox
+# are the same shape (entrypoint browser/index.html). A root-index tar of
+# those three shipped an empty capsule.
+for name in os.environ["BROWSER_PROJECTION_CAPSULES"].split(","):
+    name = name.strip()
+    if not name:
+        continue
     info = platform_info(name)
     capsule_dir = capsules / name
     browser = capsule_dir / "browser"
@@ -202,21 +207,16 @@ for name in ("home", "home-gui", "system", "chat-room"):
         tar.add(browser, arcname=f"{name}/browser")
     stamp(info, archive.read_bytes())
 
-# ── 4) DATA CAPSULES ──
-# Two shapes covered:
-#   - documents / library / inbox: minimal — capsule.json + index.html
-#   - hey-chat: Vite React build — capsule.json + index.html +
-#     assets/ + *.svg at root
-#   - hey-social: Trunk Rust+WASM build — capsule.json + a dist/ subdir
-#     containing the entrypoint index.html + the WASM/JS bundle. Source
-#     files (src/, Cargo.toml, Trunk.toml) are NOT included in the served
-#     tar — the runtime only needs what it serves, not what it can rebuild.
-#     (The Rust/WASM port replaced the old React hey-social and took its
-#     name, so there is no longer a separate "hey-social-rust" entry.)
-# The tar block below is shape-agnostic: it includes index.html+assets/
-# when present (React) and dist/ when present (Trunk), so one loop covers
-# both.
-for name in ("documents", "library", "inbox", "hey-social", "hey-chat", "hyper-desktop"):
+# ── 4) HEY APP CAPSULES (flattened Trunk/WASM at the capsule root) ──
+# hey-social / hey-chat / hyper-desktop: build_hey_app_capsules flattens
+# dist/* up to the capsule root (the runtime serves from the root, not
+# dist/) and removes dist/. Source files are not required at runtime.
+# The tar is shape-agnostic: index.html + assets/ + dist/ + hashed
+# js/wasm/css/svg at the root.
+for name in os.environ["HEY_APP_CAPSULES"].split(","):
+    name = name.strip()
+    if not name:
+        continue
     info = platform_info(name)
     capsule_dir = capsules / name
     archive = artifacts_dir / info["release_path"]
@@ -334,14 +334,11 @@ cp "$SOURCE_RUNTIME_DATA_DIR/components.json" "$CLIENT_HOME/xdg-data/elastos/com
 # SETUP --profile home (fetches via local-Carrier loop)
 #=================================================
 
-# Explicit component list. v0.3 expanded `--profile home` to include
-# browser + wallet + their new providers (net-provider, exit-provider,
-# chain-provider, etc.) that we don't build — so using --profile home
-# fails with "Trusted source Carrier fetch failed for net-provider".
-# List exactly what build_runtime_and_capsules produced + the upstream
-# capsules + Hey additives. To add wallet/browser support later, build
-# the new providers in _common.sh and add them to this list.
-ELASTOS_COMPONENTS="shell,localhost-provider,did-provider,webspace-provider,ipfs-provider,kubo,home,home-gui,system,chat-room,inbox,library,documents,hey-social,hey-chat,hyper-desktop"
+# Explicit component list. `--profile home` also wants native providers
+# we do not cargo-build (net-provider, chain-provider, browser-engine, ...)
+# and dies with "Trusted source Carrier fetch failed". ELASTOS_SETUP_COMPONENTS
+# in _common.sh is the home *apps* plus the natives we actually ship.
+ELASTOS_COMPONENTS="$ELASTOS_SETUP_COMPONENTS"
 # ELASTOS_COMPONENTS_MANIFEST pins which components.json `elastos setup` reads.
 # Without it 0.6 picks the WRONG one and the install dies with
 # "component 'shell' release artifact is missing checksum".
@@ -513,26 +510,12 @@ yunohost service add "$app" \
 open_peer_firewall_port
 
 #=================================================
-# SELF-HOSTED PEER RELAY (n0-independent gossip federation)
+# ELASTOS CARRIER RELAYS (no Hey iroh-relay sidecar)
 #=================================================
-# Every node writes the FULL federation relay list (carrier patch 0009 parses it
-# into a multi-entry RelayMap) for ZERO-CONFIG + home-relay REDUNDANCY — no
-# manual .relay-url editing, and a node survives its own relay going down by
-# homing on another. (Reaching a peer doesn't need the peer's relay in the list;
-# iroh dials any advertised relay. So this is resilience + convenience.)
-# PUBLIC install: build + run our own iroh-relay (separate ${app}-relay service)
-# and PREPEND it to the list — its node ticket advertises it and it homes there
-# by latency, while still knowing every federation relay. We prepend the self
-# URL ONLY if the sidecar actually came up, so a node never homes on a relay
-# that isn't running. NAT'd install: just the federation list (can't host one).
-# (HEY_RELAY_FEDERATION=0 makes is_public_host false → no self relay; the list
-#  still applies. compose_relay_list falls back to the single default if empty.)
-own_relay=""
-if is_public_host; then
-    open_relay_firewall_ports
-    install_relay_sidecar && own_relay="https://$domain:$RELAY_HTTPS_PORT"
-fi
-write_relay_env "$(compose_relay_list "$own_relay")"
+# Gossip NAT traversal is ElastOS Carrier's job. Older packages installed a
+# Hey iroh-relay sidecar and wrote .relay-url. Tear that down so serve uses
+# stock RelayMode.
+retire_hey_relay_sidecar
 
 #=================================================
 # START THE REAL SERVICE

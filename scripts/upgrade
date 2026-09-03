@@ -7,7 +7,11 @@ ynh_script_progression --message="Stopping Elastos Runtime..." --weight=2
 ynh_systemd_action --service_name="$app" --action="stop"
 
 ynh_script_progression --message="Updating source..." --weight=3
-ynh_setup_source --dest_dir="$install_dir"
+# Wipe install_dir before extract. Without --full_replace an upgrade mixes
+# leftover files from the previous package (old patches, old pack overlay)
+# into the new tree and ynh_setup_source can refuse to overwrite. Rust lives
+# in /opt/$app/rust and runtime state lives in $data_dir, neither is here.
+ynh_setup_source --dest_dir="$install_dir" --full_replace=1
 mkdir -p "$install_dir/bin"
 chown -R "$app:$app" "$install_dir"
 
@@ -61,33 +65,10 @@ ynh_add_nginx_config
 ynh_script_progression --message="Ensuring localhost-provider encryption key is present..." --weight=1
 ensure_localhost_encryption_key
 
-# Make sure capsules added to the install flow since the previous
-# upgrade get pulled in for existing installs too. `setup --with`
-# is idempotent — already-installed components are a no-op.
-#
-# inbox / library / documents are the GUI-launchable data capsules
-# that should appear in the dock's launcher. Notepad is intentionally
-# absent: its capsule.json declares microvm + rootfs.ext4, which the
-# install pipeline doesn't build yet.
-# Re-run the same explicit component list the install used; idempotent
-# on already-installed pieces. Keep this synced with scripts/install's
-# ELASTOS_COMPONENTS list.
-UPGRADE_COMPONENTS="shell,localhost-provider,did-provider,webspace-provider,ipfs-provider,kubo,home,home-gui,system,chat-room,inbox,library,documents,hey-social,hey-chat,hyper-desktop"
-# ELASTOS_COMPONENTS_MANIFEST pins which components.json `elastos setup` reads;
-# see the long note in scripts/install. Short version: we run
-# $install_dir/elastos/target/debug/elastos, which 0.6's load_manifest() treats
-# as a source checkout and resolves to $install_dir/components.json — the raw
-# upstream+additions merge, whose every "checksum" is "". 0.6 made that fatal
-# ("component 'shell' release artifact is missing checksum"). The stamped
-# manifest is the one in the client's XDG dir, written at install time.
-ynh_script_progression --message="Ensuring components ($UPGRADE_COMPONENTS) are installed..." --weight=2
-sudo -u "$app" \
-    HOME="$(elastos_home)" \
-    XDG_DATA_HOME="$(elastos_home)/xdg-data" \
-    XDG_CONFIG_HOME="$(elastos_home)/.config" \
-    ELASTOS_COMPONENTS_MANIFEST="$(elastos_home)/xdg-data/elastos/components.json" \
-    "$install_dir/elastos/target/debug/elastos" setup --with "$UPGRADE_COMPONENTS" \
-    || ynh_print_warn --message="elastos setup --with $UPGRADE_COMPONENTS failed (continuing — installed directly below)."
+# Do not run `elastos setup --with` here. The install-time publisher is
+# gone, so any component the previous install did not already have hangs
+# on "Trusted source Carrier fetch failed". Native bins are copied below;
+# every Home web capsule is copied by refresh_data_dir_capsules.
 
 # Install native provider binaries DIRECTLY into the client bin/.
 # `setup --with` fetches NEW components over Carrier from the install's temp
@@ -107,52 +88,12 @@ done
 
 # Refresh every static-asset capsule's data_dir copy from the freshly
 # unpacked install_dir/capsules/ tree. The runtime serves capsules
-# from $data_dir (xdg-data/elastos/capsules/...), so a `yunohost app
-# upgrade` that updates install_dir/ alone has no effect on what users
-# actually see — every release would need a manual `cp -rf ... + chown
-# + systemctl restart` dance to land bundle changes. This loop kills
-# that dance.
-#
-# Why we touch every capsule, not just hey-social: each capsule's
-# capsule.json + JS/CSS/HTML may have evolved since the last install.
-# Refreshing static files is always safe; user-generated state under
-# `xdg-data/elastos/capsules/<name>/state/` (or wherever a capsule
-# writes runtime data) lives in the user namespace via the
-# localhost-provider's per-user directory tree, not inside the
-# capsule's own directory.
+# from $data_dir, so a `yunohost app upgrade` that only updates
+# install_dir has no effect on what users see. This is also how new
+# Home apps (wallet, browser, people, ...) appear on an existing box:
+# setup --with cannot fetch them without the install publisher.
 ynh_script_progression --message="Refreshing data_dir capsule files from install_dir..." --weight=2
-CAPSULES_DATA_DIR="$(elastos_home)/xdg-data/elastos/capsules"
-# Capsules that are pure static assets — the ones the install stages and the
-# runtime serves straight from $data_dir. Kept in sync with the capsule members
-# of ELASTOS_COMPONENTS in scripts/install.
-STATIC_CAPSULES="home home-gui system chat-room inbox library documents hey-social hey-chat hyper-desktop"
-if [ -d "$install_dir/capsules" ] && [ -d "$CAPSULES_DATA_DIR" ]; then
-    for capsule_src in "$install_dir/capsules"/*/; do
-        [ -d "$capsule_src" ] || continue
-        capsule_name="$(basename "$capsule_src")"
-        capsule_dst="$CAPSULES_DATA_DIR/$capsule_name"
-        if [ -d "$capsule_dst" ]; then
-            cp -rf "$capsule_src". "$capsule_dst/"
-            continue
-        fi
-        # NEW capsule this box has never had. The old code only refreshed dirs
-        # that already existed, so a capsule introduced by an upstream bump was
-        # silently skipped on every upgrade and only ever appeared on a fresh
-        # install. That bites hard on 0.6: it split `home` into `home` (sign in
-        # and pick a view) and `home-gui` (the actual desktop), so an upgraded
-        # box would refresh `home` into the chooser and never receive the
-        # desktop it points at. Only whitelisted static-asset capsules are
-        # created — provider source dirs and capsules/vendor/ must NOT be
-        # copied into the runtime's capsule tree.
-        case " $STATIC_CAPSULES " in
-            *" $capsule_name "*)
-                cp -rf "$capsule_src" "$capsule_dst"
-                echo "  added new capsule: $capsule_name"
-                ;;
-        esac
-    done
-    chown -R "$app:$app" "$CAPSULES_DATA_DIR"
-fi
+refresh_data_dir_capsules
 
 # Reapply the Hey theme overlay after the capsule refresh — the
 # previous overlay markers in style.css get stripped + re-appended,
@@ -163,18 +104,9 @@ apply_hey_theme_overlay "$(elastos_home)/xdg-data/elastos"
 # Existing installs predating the P2P port fix get it opened here too.
 open_peer_firewall_port
 
-# Self-hosted peer relay + FEDERATION (see install). Idempotent — re-templates +
-# restarts so an iroh-relay version bump propagates; re-asserts the relay list
-# each upgrade. Every node writes the FULL federation list (carrier patch 0009
-# parses it into a multi-relay RelayMap) for zero-config + home-relay redundancy,
-# so there's NO manual .relay-url editing. A public host that successfully runs
-# its own relay prepends it (homes there by latency); others use the list as-is.
-own_relay=""
-if is_public_host; then
-    open_relay_firewall_ports
-    install_relay_sidecar && own_relay="https://$domain:$RELAY_HTTPS_PORT"
-fi
-write_relay_env "$(compose_relay_list "$own_relay")"
+# ElastOS Carrier owns relays. Tear down leftover Hey iroh-relay sidecar
+# from older packages and clear .relay-url.
+retire_hey_relay_sidecar
 
 ynh_script_progression --message="Starting Elastos Runtime..." --weight=3
 ynh_systemd_action --service_name="$app" --action="start" \
