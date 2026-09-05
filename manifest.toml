@@ -7,7 +7,7 @@ name = "Elastos Runtime"
 description.en = "Signed capsules, explicit capabilities, and sovereign local execution"
 description.fr = "Capsules signées, capacités explicites, exécution locale souveraine"
 
-version = "0.7.0~ynh6"
+version = "0.7.0~ynh7"
 
 maintainers = ["HeyElastos"]
 
