@@ -365,6 +365,8 @@ body {
   align-items: center;
   padding: var(--sp-l) 0;
   gap: var(--sp-s);
+  position: relative;
+  z-index: 40;
 }
 
 .spine .mark {
@@ -922,15 +924,21 @@ textarea.doc { flex:1; resize:none; background:transparent; color:inherit; borde
 .wallet-frame { flex:1; width:100%; height:100%; border:0; background:transparent; }
 .wallet-note { margin:0 var(--sp-l) var(--sp-s); }
 
+/* Leave the spine clickable. inset-left clears --spine + gutter so tab buttons
+ * are never under this layer (a full-bleed overlay made Profile a no-op). */
 .home-gate {
   position: fixed;
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: calc(var(--spine) + var(--gutter) + var(--gutter));
   z-index: 30;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: var(--sp-xl);
   background: rgba(6, 8, 12, 0.72);
+  pointer-events: auto;
 }
 .home-gate .card { max-width: 420px; }
 

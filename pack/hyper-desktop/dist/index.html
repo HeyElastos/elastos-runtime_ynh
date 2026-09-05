@@ -6,14 +6,64 @@
     <title>Hyper</title>
     <!-- Home launches this capsule in an opaque-sandboxed iframe (no
          allow-same-origin). Trunk's hashed <link rel="stylesheet" integrity>
-         is dropped by that origin. Copy the sheet unhashed, same as hey-social. -->
+         is dropped by that origin. Copy the sheet unhashed, same as hey-social.
+         After trunk build, scripts/strip-sri.sh removes integrity= from the
+         JS/WASM tags for the same reason. -->
     
     <link rel="stylesheet" href="styles.css" />
-  <link rel="modulepreload" href="./hyper-desktop-5ca88a15764a4d80.js" crossorigin="anonymous" integrity="sha384-TK/WR3trYZNrV9xESwTMOkIXMhthdHWPPY1Qb0ktSb/Q5depU67L1y7o3njBS6ie"><link rel="preload" href="./hyper-desktop-5ca88a15764a4d80_bg.wasm" crossorigin="anonymous" integrity="sha384-PCYVhOIgFCOhcbNEB7FyA5RF7jF1q4NIT5A3KX5cPBM7D4EWASIdJD3SCOoOi0dN" as="fetch" type="application/wasm"></head>
+    <style>
+      #hyper-boot {
+        position: fixed; inset: 0; z-index: 9999;
+        display: flex; align-items: center; justify-content: center;
+        flex-direction: column; gap: 12px;
+        background: #0a0c10; color: #c6cedc;
+        font: 15px system-ui, sans-serif;
+        transition: opacity 280ms ease;
+      }
+      #hyper-boot.hide { opacity: 0; pointer-events: none; }
+      #hyper-boot .mark { font-size: 42px; line-height: 1; }
+      #hyper-boot .msg { opacity: 0.7; font-size: 13px; }
+      #hyper-boot .err { color: #ffb4b4; max-width: 28rem; text-align: center; padding: 0 16px; }
+    </style>
+  <link rel="modulepreload" href="./hyper-desktop-f04d2e3f5e38645.js" crossorigin="anonymous"><link rel="preload" href="./hyper-desktop-f04d2e3f5e38645_bg.wasm" crossorigin="anonymous" as="fetch" type="application/wasm"></head>
   <body>
+    <div id="hyper-boot" aria-live="polite">
+      <div class="mark">&#x26A1;</div>
+      <div>Hyper</div>
+      <div class="msg" id="hyper-boot-msg">Loading capsule…</div>
+    </div>
+    <script>
+      // Surface a dead load instead of a blank Home window.
+      window.addEventListener("error", function (e) {
+        var el = document.getElementById("hyper-boot-msg");
+        if (el) {
+          el.className = "err";
+          el.textContent = "Hyper failed to start: " + (e.message || "unknown error");
+        }
+      });
+      window.addEventListener("unhandledrejection", function (e) {
+        var el = document.getElementById("hyper-boot-msg");
+        if (el) {
+          el.className = "err";
+          var r = e.reason;
+          el.textContent = "Hyper failed to start: " + (r && r.message ? r.message : String(r || "promise rejected"));
+        }
+      });
+      setTimeout(function () {
+        var boot = document.getElementById("hyper-boot");
+        if (boot && !boot.classList.contains("hide")) {
+          var el = document.getElementById("hyper-boot-msg");
+          if (el && el.className !== "err") {
+            el.className = "err";
+            el.textContent = "Still loading after 20s. Hard-refresh, or reopen Hyper from the Home dock.";
+          }
+        }
+      }, 20000);
+    </script>
+  
 <script type="module">
-import init, * as bindings from './hyper-desktop-5ca88a15764a4d80.js';
-const wasm = await init({ module_or_path: './hyper-desktop-5ca88a15764a4d80_bg.wasm' });
+import init, * as bindings from './hyper-desktop-f04d2e3f5e38645.js';
+const wasm = await init({ module_or_path: './hyper-desktop-f04d2e3f5e38645_bg.wasm' });
 
 
 window.wasmBindings = bindings;
