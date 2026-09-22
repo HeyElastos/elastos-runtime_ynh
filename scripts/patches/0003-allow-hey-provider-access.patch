@@ -1,3 +1,11 @@
+# Target: elastos/crates/elastos-server/src/api/gateway_provider_proxy.rs
+# Generated against: Elacity/elastos-runtime @ 6c61c990b9a1d0f2c1b00ee6f5f091d3354cafac (upstream/0.7.1-dev)
+# Kill condition: DELETE when upstream authorizes provider proxy from
+# capsule permissions.messaging (capability/manifest-based allowlist) instead
+# of hardcoded app names.
+# Why: hey-social / hey-chat / hyper-desktop declare peer/content/did in
+# messaging but stock gateway still 403s. This reads the manifest grant so a
+# Home-launched capsule can call those providers.
 --- a/elastos/crates/elastos-server/src/api/gateway_provider_proxy.rs
 +++ b/elastos/crates/elastos-server/src/api/gateway_provider_proxy.rs
 @@ -1277,12 +1277,60 @@ pub(super) async fn gateway_library_events_stream(

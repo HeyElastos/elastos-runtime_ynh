@@ -2,6 +2,9 @@
 # request timeout, matching the timeout the typed request()/request_raw() path
 # already has.
 #
+# Target: elastos/crates/elastos-runtime/src/provider/bridge.rs
+# Generated against: Elacity/elastos-runtime @ 6c61c990b9a1d0f2c1b00ee6f5f091d3354cafac (upstream/0.7.1-dev)
+#
 # send_raw is the generic provider-proxy path (content/* etc. forward custom ops
 # through it). Unlike request() — which wraps its inner send_json_line await in
 # tokio::time::timeout(REQUEST_TIMEOUT, ...) and maps elapsed to
