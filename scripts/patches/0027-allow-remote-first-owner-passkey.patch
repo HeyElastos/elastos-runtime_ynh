@@ -1,0 +1,44 @@
+# Target: elastos/crates/elastos-server/src/api/auth_gateway.rs
+# Generated against: Elacity/elastos-runtime @ 6c61c990b9a1d0f2c1b00ee6f5f091d3354cafac (upstream/0.7.1-dev)
+# Kill condition: DELETE when upstream allows first-owner passkey enrollment on a
+# configured public RP / reverse-proxied install (not only bare localhost).
+# Why: YunoHost serves Home on the public domain through nginx. Upstream only
+# allows the empty-install first owner from true local Runtime access (loopback
+# peer, no X-Forwarded-For, RP id localhost). Domain registration therefore
+# always 500s with "first owner passkey registration requires local Runtime
+# access". This gate opens that one empty-install path when
+# ELASTOS_ALLOW_REMOTE_FIRST_OWNER=1 (set by the YunoHost systemd unit). After
+# the first passkey exists the branch is unreachable again.
+--- a/elastos/crates/elastos-server/src/api/auth_gateway.rs
++++ b/elastos/crates/elastos-server/src/api/auth_gateway.rs
+@@ -2991,7 +2991,11 @@
+     let registered = manager.status().registered;
+     drop(manager);
+     if !registered && crate::auth::active_passkey_principal_count(&state.data_dir)? == 0 {
+-        if local_first_owner {
++        // HEY PATCH 0027: YunoHost installs are reached via the public domain
++        // (nginx -> loopback), so stock "local Runtime access" never succeeds.
++        // ELASTOS_ALLOW_REMOTE_FIRST_OWNER=1 lets the empty-install first owner
++        // enroll from that domain. Once any passkey exists, this branch is dead.
++        if local_first_owner || remote_first_owner_allowed() {
+             return Ok(());
+         }
+         anyhow::bail!("first owner passkey registration requires local Runtime access");
+@@ -3014,6 +3018,17 @@
+         .unwrap_or(false)
+ }
+ 
++
++fn remote_first_owner_allowed() -> bool {
++    matches!(
++        std::env::var("ELASTOS_ALLOW_REMOTE_FIRST_OWNER")
++            .unwrap_or_default()
++            .to_ascii_lowercase()
++            .as_str(),
++        "1" | "true" | "yes" | "on"
++    )
++}
++
+ fn forwarded_client_is_remote(headers: &HeaderMap) -> bool {
+     if let Some(value) = headers.get("x-forwarded-for") {
+         let Ok(value) = value.to_str() else {

@@ -22,6 +22,9 @@ ProtectSystem=full
 # being executable (systemd exit 126, "Access denied"). Leave it off.
 PrivateTmp=true
 ReadWritePaths=__DATA_DIR__ /var/log/__APP__
+# Also exported from elastos-runtime-wrapper.sh. Listed here so a direct
+# `elastos serve` debug path inherits the same first-owner domain gate.
+Environment=ELASTOS_ALLOW_REMOTE_FIRST_OWNER=1
 
 [Install]
 WantedBy=multi-user.target

@@ -53,6 +53,14 @@ fi
 #   sudo systemctl restart elastos_runtime
 export ELASTOS_AUTH_GATE=1
 
+# First-owner passkey on the public domain (YunoHost). Upstream only allows
+# empty-install enrollment from bare localhost. Nginx always looks remote, so
+# Home on https://<domain>/ would 500 without this. Safe after the first
+# passkey exists: the gate only applies when zero passkeys are registered.
+# Unset and restart once you have enrolled if you want the stock restriction
+# back for a wiped data dir.
+export ELASTOS_ALLOW_REMOTE_FIRST_OWNER=1
+
 # ── Kubo daemon (IPFS) ──────────────────────────────────────────────
 # Kubo is a long-running TCP daemon (RPC API on :5001, gateway on :8080)
 # that ipfs-provider connects to over HTTP. The runtime does NOT spawn
