@@ -1,0 +1,22 @@
+#!/bin/bash
+
+# Move the app between domains/paths. Required so SSOwat's public URI matches
+# the hostname users actually open (e.g. jothgard.se vs heyelastos.com).
+# Without this script, `yunohost app change-url` refuses and nested Home
+# iframes keep hitting SSO on the wrong domain.
+
+source _common.sh
+source /usr/share/yunohost/helpers
+
+ynh_script_progression --message="Stopping $app..." --weight=1
+ynh_systemd_action --service_name="$app" --action="stop"
+
+ynh_script_progression --message="Updating nginx for the new URL..." --weight=2
+ynh_config_change_url_nginx
+
+ynh_script_progression --message="Starting $app..." --weight=2
+ynh_systemd_action --service_name="$app" --action="start" \
+    --log_path="/var/log/$app/$app.log" \
+    --line_match="room gateway listening"
+
+ynh_script_progression --message="URL change completed for $app." --last
