@@ -441,6 +441,10 @@ ensure_localhost_encryption_key() {
 ensure_visitors_permission() {
     ynh_script_progression --message="Ensuring visitors can reach ElastOS (opaque app iframes need no YunoHost SSO)..." --weight=1
     ynh_permission_update --permission="main" --add="visitors" || true
+    # Permission "add" alone is not enough: nginx keeps the old SSOwat map until
+    # conf.json is rewritten. Without this, anonymous /apps/* still 302 to SSO
+    # and opaque docked iframes show "rejected connection".
+    yunohost app ssowatconf || true
 }
 
 # Open the UDP port carrier-gossip's iroh endpoint binds — it hardcodes
