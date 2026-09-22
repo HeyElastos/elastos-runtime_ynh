@@ -104,6 +104,11 @@ apply_hey_theme_overlay "$(elastos_home)/xdg-data/elastos"
 # Existing installs predating the P2P port fix get it opened here too.
 open_peer_firewall_port
 
+# Nested opaque app iframes cannot carry the YunoHost SSO cookie. If
+# main is admins/all_users only, every docked app shows "rejected
+# connection". Passkeys lock the Runtime; visitors unlock the front door.
+ensure_visitors_permission
+
 # ElastOS Carrier owns relays. Tear down leftover Hey iroh-relay sidecar
 # from older packages and clear .relay-url.
 retire_hey_relay_sidecar

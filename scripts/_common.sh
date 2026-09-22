@@ -429,6 +429,20 @@ ensure_localhost_encryption_key() {
     fi
 }
 
+# Home docks every app in an opaque sandboxed iframe (no allow-same-origin).
+# Nested frames are cross-site to the YunoHost SSO cookie, so SSOwat 302s
+# them to /yunohost/sso. That page sends X-Frame-Options: SAMEORIGIN; the
+# opaque ancestor fails the check and the browser shows "refused to
+# connect" / "rejected connection" in every app window. Home itself still
+# works because its first iframe is opened by the first-party top page.
+#
+# This package declares sso=false: Runtime passkeys are the lock. The
+# nginx front door must stay on visitors. Idempotent; safe if already set.
+ensure_visitors_permission() {
+    ynh_script_progression --message="Ensuring visitors can reach ElastOS (opaque app iframes need no YunoHost SSO)..." --weight=1
+    ynh_permission_update --permission="main" --add="visitors" || true
+}
+
 # Open the UDP port carrier-gossip's iroh endpoint binds — it hardcodes
 # `bind_addr 0.0.0.0:4433` (upstream elastos-server/src/carrier.rs). YunoHost's
 # firewall blocks everything not explicitly allowed, so without this two

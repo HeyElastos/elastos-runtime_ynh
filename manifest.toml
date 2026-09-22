@@ -7,7 +7,7 @@ name = "Elastos Runtime"
 description.en = "Signed capsules, explicit capabilities, and sovereign local execution"
 description.fr = "Capsules signées, capacités explicites, exécution locale souveraine"
 
-version = "0.7.1~ynh2"
+version = "0.7.1~ynh3"
 
 maintainers = ["HeyElastos"]
 
@@ -42,7 +42,7 @@ ram.runtime = "512M"
     default = "/"
 
     [install.init_main_permission]
-    help.en = "Who can reach the runtime through the browser. 'visitors' = anyone on your LAN, no login."
+    help.en = "Who can reach the runtime through nginx. Must stay 'visitors': Home docks apps in opaque iframes that cannot send the YunoHost SSO cookie, so a private permission makes every app show 'rejected connection'. Runtime passkeys are the real lock (package sso=false)."
     type = "group"
     default = "visitors"
 

@@ -43,7 +43,14 @@ After install, from any device on your LAN:
 https://<your-yunohost-domain>/apps/home/
 ```
 
-That hits the room gateway through nginx — no SSH, no SSO if you picked `visitors` permission.
+That hits the room gateway through nginx — no SSH, no YunoHost SSO if `visitors` is allowed on `elastos_runtime.main` (the install default).
+
+Keep `visitors`. Home docks apps in opaque sandboxed iframes; those frames cannot send the YunoHost SSO cookie. A private permission 302s every app iframe to `/yunohost/sso`, which then fails `X-Frame-Options: SAMEORIGIN` and the browser shows "rejected connection" / "refused to connect". Runtime passkeys are the lock (`sso = false` in the package). Fix a locked install with:
+
+```bash
+sudo yunohost user permission add elastos_runtime.main visitors
+sudo yunohost app ssowatconf
+```
 
 Reference deployment: <https://elastos.elacitylabs.com/apps/home/>
 
